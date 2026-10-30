@@ -66,3 +66,5 @@
 [data-theme=dark] .invoice-sheet th,[data-theme=dark] .invoice-sheet td,[data-theme=dark] .invoice-sheet .bill-total span{color:#444}
 [data-theme=dark] .invoice-sheet .button.secondary{background:#f7f4ee;color:#252c32;border-color:#d9d3c7}
 @media(max-width:700px){[data-theme=dark] .sidebar{background:#191817}}
+
+.phase-row>div{min-width:0}.phase-row p{font-size:12px;line-height:1.55}.phase-row p+p{margin-top:7px}.phase-row p strong{color:var(--text)}.phase-pill{font-size:9px;letter-spacing:.8px}.phase-pill.local{background:#e1bd6c;color:#2c210e}.phase-pill.partial{background:#66532d;color:#fff1cd}.phase-pill.early{background:#434039;color:#f7f4ee}.phase-pill.rollout{background:#4c3029;color:#ffd7c1}.phase-progress>span.local{background:#b88a2e}.phase-progress>span.partial{background:#81683b}.phase-progress>span.early{background:#615a4c}.phase-progress>span.rollout{background:#784536}[data-theme=light] .phase-pill.partial{background:#f2e6cb;color:#634714}[data-theme=light] .phase-pill.early{background:#e9e7e2;color:#48443b}[data-theme=light] .phase-pill.rollout{background:#f6dfd6;color:#793d2b}
