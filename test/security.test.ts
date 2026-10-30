@@ -36,7 +36,7 @@ test('unauthenticated pages redirect and APIs return JSON 401', async () => {
     const res = await fetch(origin + page, { redirect: 'manual' });
     assert.equal(res.status, 303); assert.equal(res.headers.get('location'), '/login');
   }
-  for (const endpoint of ['/api/auth/me', '/api/overview', '/api/foundation', '/api/anything']) {
+  for (const endpoint of ['/api/auth/me', '/api/overview', '/api/dashboard', '/api/foundation', '/api/anything']) {
     const res = await fetch(origin + endpoint); assert.equal(res.status, 401); assert.match(res.headers.get('content-type') || '', /json/);
   }
   assert.equal((await fetch(origin + '/login')).status, 200);

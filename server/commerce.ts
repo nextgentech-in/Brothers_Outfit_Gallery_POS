@@ -1,5 +1,6 @@
-import { createHash } from 'node:crypto';
-import { Router } from 'express';
+import { createHash, randomBytes } from 'node:crypto';
+import express, { Router } from 'express';
+import { rateLimit } from 'express-rate-limit';
 import { FieldValue, type DocumentData, type DocumentReference, type Firestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { toSVG } from '@bwip-js/node';
@@ -7,6 +8,7 @@ import { firebase } from './firebase.js';
 import { invoicePdf } from './invoicePdf.js';
 import { deliverInvoice } from './whatsapp.js';
 import { customerKey } from './customerIdentity.js';
+import { config } from './config.js';
 
 const id = z.string().trim().min(1).max(128).regex(/^[\w.:-]+$/);
 const key = z.string().trim().min(12).max(128).regex(/^[\w.:-]+$/);
@@ -30,12 +32,23 @@ const productPatchSchema = z.object({ requestId: key, productId: id, patch: z.ob
   images: z.array(z.object({ url: z.url().max(2048), isPrimary: z.boolean().optional(), color: z.string().max(80).optional() })).max(20).optional()
 }).strict().refine(x => Object.keys(x).length > 0) }).strict();
 const productCreateSchema = z.object({ requestId: key,
-  name: z.string().trim().min(2).max(200), sku: id, barcode: z.string().trim().max(128).optional(),
-  category: z.string().trim().min(2).max(100), size: z.string().trim().min(1).max(50),
-  color: z.string().trim().min(1).max(80), salePrice: money, mrp: money,
-  openingStock: z.number().int().min(0).max(100_000), imageUrl: z.url().max(2048).optional(),
-  publish: z.boolean().default(false)
-}).strict();
+  name: z.string().trim().min(2).max(200), sku: id, barcode: id.optional(),
+  category: z.string().trim().min(2).max(100), subCategory: z.string().trim().max(100).optional(),
+  shortDescription: z.string().trim().max(500).optional(), description: z.string().trim().max(5000).optional(),
+  gsl: z.string().trim().max(120).optional(), salePrice: money, mrp: money, costPrice: money.default(0),
+  variants: z.array(z.object({ size: z.string().trim().min(1).max(50), color: z.string().trim().min(1).max(80),
+    colorHex: z.string().regex(/^#[a-fA-F0-9]{6}$/).optional(), stock: z.number().int().min(0).max(100_000),
+    price: money, costPrice: money, barcode: id.optional() }).strict()).min(1).max(100),
+  imageUrls: z.array(z.url().startsWith('https://').max(2048)).max(20).optional(),
+  publish: z.boolean().default(false), isTrending: z.boolean().default(false),
+  offerEnabled: z.boolean().default(false), offerDiscountPercentage: z.number().min(0).max(100).default(0),
+  offerTitle: z.string().trim().max(200).optional(), offerItems: z.array(z.string().trim().min(1).max(250)).max(20).optional(),
+  sizeGuide: z.object({ enabled: z.boolean(), unit: z.enum(['in', 'cm']),
+    columns: z.array(z.string().trim().min(1).max(100)).max(12),
+    rows: z.array(z.record(z.string().regex(/^c\d+$/), z.string().trim().max(100))).max(100) }).optional()
+}).strict().refine(input => input.mrp > 0 && input.salePrice > 0 && input.salePrice <= input.mrp &&
+  input.variants.every(variant => variant.price > 0 && variant.price <= input.mrp) &&
+  (!input.publish || Boolean(input.imageUrls?.length)), { message: 'Product pricing or images are incomplete.' });
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 const rupees = (value: unknown) => Math.round(Number(value || 0) * 100);
@@ -127,6 +140,31 @@ commerceRouter.get('/products/:productId/label', async (req, res) => {
       'Cache-Control': 'private, no-store' }).send(svg);
   } catch (error) { fail(res, error); }
 });
+commerceRouter.post('/products/images/upload', rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false }),
+  express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '3mb' }), async (req, res) => {
+  const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  const mime = req.get('content-type')?.split(';')[0]?.trim() || '';
+  const valid = (mime === 'image/jpeg' && bytes.length > 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) ||
+    (mime === 'image/png' && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) ||
+    (mime === 'image/webp' && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP');
+  if (!valid || bytes.length > 3_000_000) { res.status(422).json({ error: 'Choose a JPEG, PNG or WebP image under 3 MB.' }); return; }
+  if (!config.imagekitPrivateKey) { res.status(503).json({ error: 'Image uploads are not configured on this server.' }); return; }
+  try {
+    const form = new FormData();
+    const fileName = `product-${randomBytes(8).toString('hex')}.${mime.split('/')[1]}`;
+    form.append('file', new Blob([new Uint8Array(bytes)], { type: mime }), fileName);
+    form.append('fileName', fileName);
+    form.append('folder', '/products');
+    const upstream = await fetch('https://upload.imagekit.io/api/v1/files/upload', {
+      method: 'POST', headers: { Authorization: `Basic ${Buffer.from(`${config.imagekitPrivateKey}:`).toString('base64')}` },
+      body: form, signal: AbortSignal.timeout(20_000)
+    });
+    if (!upstream.ok) { res.status(502).json({ error: 'Image service could not upload this file.' }); return; }
+    const payload = await upstream.json() as { url?: string };
+    if (!payload.url?.startsWith('https://')) { res.status(502).json({ error: 'Image service returned no secure URL.' }); return; }
+    res.status(201).json({ url: payload.url });
+  } catch { res.status(502).json({ error: 'Image upload failed. Please retry.' }); }
+});
 commerceRouter.get('/orders', async (_req, res) => {
   try { const docs = await firebase().db.collection('orders').orderBy('createdAt', 'desc').limit(80).get();
     res.json({ items: docs.docs.map(d => ({ id: d.id, ...d.data() })) }); }
@@ -214,16 +252,23 @@ commerceRouter.post('/products/create', async (req, res) => {
     const input = parsed.data, db = firebase().db;
     const result = await idempotent(db, 'product_create', input.requestId, input, async tx => {
       const productId = `BOG-POS-${hash(input.requestId).slice(0, 24)}`;
-      const variantSku = `${input.sku}-V1`;
-      if (variantSku.length > 128) throw Object.assign(new Error('SKU is too long for a variant.'), { status: 422 });
-      const normalizedSkus = [input.sku.toLowerCase(), variantSku.toLowerCase()];
+      const skuPart = (value: string) => value.toUpperCase().normalize('NFKD').replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '') || 'STANDARD';
+      const variants = input.variants.map((variant, index) => ({ ...variant, index,
+        sku: `${input.sku}-${skuPart(variant.color)}-${skuPart(variant.size)}` }));
+      const skus = [input.sku, ...variants.map(variant => variant.sku)];
+      const normalizedSkus = skus.map(sku => sku.toLowerCase());
+      if (skus.some(sku => sku.length > 128) || new Set(normalizedSkus).size !== skus.length)
+        throw Object.assign(new Error('Variant SKUs must be unique and at most 128 characters.'), { status: 422 });
+      const variantCodes = variants.flatMap(variant => [variant.sku, variant.barcode || '']).filter(Boolean).map(code => code.toLowerCase());
+      if (new Set(variantCodes).size !== variantCodes.length)
+        throw Object.assign(new Error('Two variants cannot share a SKU or barcode.'), { status: 422 });
       const slugBase = input.name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 65) || 'product';
       const slug = `${slugBase}-${hash(input.requestId).slice(0, 10)}`;
       const ref = db.collection('products').doc(productId);
       const skuRefs = normalizedSkus.map(sku => db.collection('productSkuMappings').doc(hash(sku)));
       const slugRef = db.collection('productSlugMappings').doc(hash(slug));
       const catalog = await tx.get(db.collection('products'));
-      const candidateCodes = [input.sku, variantSku, input.barcode || ''].filter(Boolean).map(code => code.toLowerCase());
+      const candidateCodes = [input.sku, input.barcode || '', ...variantCodes].filter(Boolean).map(code => code.toLowerCase());
       for (const entry of catalog.docs) {
         const data = entry.data();
         const existing = [data.sku, data.barcode, data.posBarcode,
@@ -232,36 +277,55 @@ commerceRouter.post('/products/create', async (req, res) => {
         if (candidateCodes.some(code => existing.includes(code)))
           throw Object.assign(new Error('SKU or barcode is already in use.'), { status: 409 });
       }
-      const [existingProduct, parentSku, childSku, existingSlug] = await tx.getAll(ref, ...skuRefs, slugRef);
-      if (existingProduct.exists || parentSku.exists || childSku.exists || existingSlug.exists)
+      const [existingProduct, ...existingMappings] = await tx.getAll(ref, ...skuRefs, slugRef);
+      if (existingProduct.exists || existingMappings.some(snapshot => snapshot.exists))
         throw Object.assign(new Error('Product identity is already in use.'), { status: 409 });
       const now = FieldValue.serverTimestamp();
-      const variant = { id: `${productId}-v1`, sku: variantSku, barcode: input.barcode || '', size: input.size,
-        color: input.color, stock: input.openingStock, quantity: input.openingStock, reserved: 0,
-        price: input.salePrice, salePrice: input.salePrice };
+      const variantDocs = variants.map(variant => ({ id: `${productId}-v${variant.index + 1}`, sku: variant.sku,
+        barcode: variant.barcode || '', size: variant.size, color: variant.color,
+        stock: variant.stock, quantity: variant.stock, reserved: 0, price: variant.price, salePrice: variant.price,
+        costPrice: variant.costPrice, cost_price: variant.costPrice, purchasePrice: variant.costPrice,
+        purchase_price: variant.costPrice, isDefaultPrice: variant.index === 0 }));
+      const totalStock = variants.reduce((sum, variant) => sum + variant.stock, 0);
+      const colors = [...new Map(variants.map(variant => [variant.color.toLowerCase(),
+        { name: variant.color, hex: variant.colorHex || '#b88a2e' }])).values()];
+      const images = (input.imageUrls || []).map((url, index) => ({ url, isPrimary: index === 0 }));
+      const primaryImage = input.imageUrls?.[0] || '';
+      const categoryKey = input.category.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      const subCategoryKey = (input.subCategory || '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
       tx.create(ref, { webProductId: productId, integrationOrigin: 'admin-pos', name: input.name,
-        sku: input.sku, barcode: input.barcode || '', slug, category: input.category, primaryColor: input.color,
+        sku: input.sku, barcode: input.barcode || '', slug, category: input.category, categoryId: input.category,
+        categoryKey, subCategory: input.subCategory || '', subCategoryKey, primaryColor: variants[0].color, colors,
+        shortDescription: input.shortDescription || '', description: input.description || '', gsl: input.gsl || '',
         price: input.salePrice, salePrice: input.salePrice, mrp: input.mrp, compareAtPrice: input.mrp,
-        variants: [variant], stock: input.openingStock, quantity: input.openingStock, reserved: 0,
-        inStock: input.openingStock > 0, active: input.publish, isDeleted: false, sizes: [input.size],
-        images: input.imageUrl ? [{ url: input.imageUrl, isPrimary: true }] : [],
-        thumbnailUrl: input.imageUrl || '', image: input.imageUrl || '',
+        costPrice: input.costPrice, cost_price: input.costPrice, purchasePrice: input.costPrice, purchase_price: input.costPrice,
+        discountPercentage: input.mrp > input.salePrice ? Math.round((input.mrp - input.salePrice) / input.mrp * 100) : 0,
+        variants: variantDocs, stock: totalStock, quantity: totalStock, reserved: 0,
+        inStock: totalStock > 0, active: input.publish, isDeleted: false, isTrending: input.isTrending,
+        offerEnabled: input.offerEnabled, offerDiscountPercentage: input.offerDiscountPercentage,
+        offersConfig: { enabled: input.offerEnabled, useCustomOffers: Boolean(input.offerItems?.length),
+          title: input.offerTitle || 'Offers for you', items: input.offerItems || [] },
+        customOffers: input.offerItems || [], offersTitle: input.offerTitle || 'Offers for you',
+        sizeGuide: input.sizeGuide || { enabled: false, unit: 'in', columns: [], rows: [] },
+        sizes: [...new Set(variants.filter(variant => variant.stock > 0).map(variant => variant.size))],
+        allSizes: [...new Set(variants.map(variant => variant.size))], images,
+        thumbnailUrl: primaryImage, image: primaryImage,
         createdAt: now, updatedAt: now });
       skuRefs.forEach((skuRef, index) => tx.create(skuRef, { normalizedSku: normalizedSkus[index],
-        sku: index === 0 ? input.sku : variantSku, productId, webProductId: productId, updatedAt: now }));
+        sku: skus[index], productId, webProductId: productId, updatedAt: now }));
       tx.create(slugRef, { normalizedSlug: slug, slug, productId, webProductId: productId, updatedAt: now });
-      if (input.openingStock > 0) {
-        const movementId = `erp_${hash(`product_create:${input.requestId}`)}`;
+      for (const variant of variants.filter(variant => variant.stock > 0)) {
+        const movementId = `erp_${hash(`product_create:${input.requestId}:${variant.sku}`)}`;
         tx.create(db.collection('stockMovements').doc(movementId), { movementId, productId,
-          webProductId: productId, sku: variantSku, size: input.size, color: input.color,
-          deltaChange: input.openingStock, stockAfter: input.openingStock, source: 'admin',
+          webProductId: productId, sku: variant.sku, size: variant.size, color: variant.color,
+          deltaChange: variant.stock, stockAfter: variant.stock, source: 'admin',
           reason: 'product_created', externalReference: input.requestId, createdAt: now });
       }
       tx.create(db.collection('erp_auditLog').doc(hash(`product_create:${input.requestId}`)), {
         actor: 'pin-owner', target: `products/${productId}`, fields: Object.keys(input),
-        after: { ...input, productId, variantSku, slug }, createdAt: now
+        after: { ...input, productId, variantSkus: variants.map(variant => variant.sku), slug }, createdAt: now
       });
-      return { productId, sku: variantSku, slug, published: input.publish };
+      return { productId, sku: variants[0].sku, slug, published: input.publish };
     });
     res.status(201).json(result);
   } catch (error) { fail(res, error); }

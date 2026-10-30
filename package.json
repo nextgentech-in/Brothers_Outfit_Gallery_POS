@@ -16,6 +16,7 @@
     "migrate": "tsx scripts/migrate.ts",
     "rollback": "tsx scripts/migrate.ts --rollback",
     "commerce:rollout": "tsx scripts/commerce-rollout.ts",
+    "auth:rollback": "tsx scripts/auth-rollback.ts",
     "seed:demo": "tsx scripts/seed-demo.ts"
   },
   "dependencies": {

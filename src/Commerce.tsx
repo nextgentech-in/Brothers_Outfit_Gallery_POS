@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { ArrowRight, Check, FileDown, Package, Plus, Printer, RefreshCw, Search, ShoppingBag, Volume2 } from 'lucide-react';
 import { BarcodeLabel, type LabelProduct } from './BarcodeLabel';
 import { BrandLogo } from './BrandLogo';
+import { ProductFormDialog, type NewProductInput } from './ProductForm';
 import { cacheCatalog, cachedCatalog, queueSale, queuedSales, removeSale, syncQueuedSales, type QueuedSale } from './offlineQueue';
 
 type Product = { id: string; name: string; sku: string; barcode?: string; price: number; mrp: number; category: string; active: boolean; stock: number; image: string;
@@ -16,9 +17,6 @@ type Invoice = { id: string; orderId: string; total: number; lines: { name?: str
   customerName?: string; customerPhone?: string; channel: string; paymentMethod: string; kind?: string };
 type SyncRecord = { id: string; event?: string; status?: string; invoiceId?: string; source?: string; retryCount?: number; error?: string; providerMessageId?: string };
 type Shop = { name: string; phone: string; address: string; email: string; whatsapp: string; logo: string };
-type NewProductInput = { requestId: string; name: string; sku: string; barcode?: string; category: string;
-  size: string; color: string; salePrice: number; mrp: number; openingStock: number; imageUrl?: string; publish: boolean };
-
 const money = (value: number | undefined) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const retailStockValue = (product: Product) => product.variants.length
   ? product.variants.reduce((sum, variant) => sum + variant.stock * variant.price, 0)
@@ -26,34 +24,17 @@ const retailStockValue = (product: Product) => product.variants.length
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`/api/${path}`, { credentials: 'same-origin' });
   if (res.status === 401) { location.assign('/login'); throw new Error('Session expired.'); }
+  if (!(res.headers.get('content-type') || '').includes('application/json')) throw new Error('The admin API is unavailable on this deployment. Check the Vercel function and environment settings.');
   const body = await res.json();
   if (!res.ok) throw new Error(body.error || 'Unable to load data.');
   return body;
 }
 
-function NewPosProductDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (product: NewProductInput) => Promise<void> }) {
-  const stableRequestId = useRef(requestId());
-  const [saving, setSaving] = useState(false);
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const input: NewProductInput = {
-      requestId: stableRequestId.current, name: String(form.get('name') || '').trim(),
-      sku: String(form.get('sku') || '').trim(), barcode: String(form.get('barcode') || '').trim() || undefined,
-      category: String(form.get('category') || '').trim(), size: String(form.get('size') || '').trim(),
-      color: String(form.get('color') || '').trim(), salePrice: Number(form.get('salePrice')),
-      mrp: Number(form.get('mrp')), openingStock: Number(form.get('openingStock')),
-      publish: form.get('publish') === 'on'
-    };
-    setSaving(true);
-    try { await onCreate(input); } finally { setSaving(false); }
-  }
-  return <div className="editor-backdrop" onClick={onClose}><form className="editor glass new-product-editor" role="dialog" aria-modal="true" aria-label="Add product to website catalog" onClick={event => event.stopPropagation()} onSubmit={event => void submit(event)}><button className="editor-close" type="button" onClick={onClose} aria-label="Close">×</button><span className="eyebrow">SHARED WEBSITE CATALOG</span><h2>Add a product</h2><p>The product uses the same website catalog. Opening stock is recorded in the shared ledger.</p><label>Product name<input name="name" required minLength={2} maxLength={200} autoFocus /></label><div className="new-product-grid"><label>Product SKU<input name="sku" required pattern="[A-Za-z0-9_.:-]+" maxLength={120} placeholder="e.g. SHIRT-101" /></label><label>Barcode<input name="barcode" maxLength={128} placeholder="Optional" /></label><label>Category<input name="category" required maxLength={100} placeholder="Shirts" /></label><label>Size<input name="size" required maxLength={50} defaultValue="Standard" /></label><label>Color<input name="color" required maxLength={80} defaultValue="Standard" /></label><label>Opening quantity<input name="openingStock" type="number" min="0" max="100000" step="1" required defaultValue="1" /></label><label>Selling price ₹<input name="salePrice" type="number" min="0" step="0.01" required /></label><label>MRP ₹<input name="mrp" type="number" min="0" step="0.01" required /></label></div><label className="check-row"><input name="publish" type="checkbox" defaultChecked />Publish to website</label><button className="button primary" disabled={saving}>{saving ? 'Adding product…' : 'Add product and sync website'}</button></form></div>;
-}
 async function send<T>(path: string, body: unknown): Promise<T> {
   const csrf = await get<{ token: string }>('auth/csrf');
   const res = await fetch(`/api/${path}`, { method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrf.token }, body: JSON.stringify(body) });
+  if (!(res.headers.get('content-type') || '').includes('application/json')) throw new Error('The admin API is unavailable on this deployment.');
   const result = await res.json();
   if (!res.ok) throw Object.assign(new Error(result.error || 'Operation failed.'), { status: res.status });
   return result;
@@ -307,7 +288,7 @@ export function CommerceView({ tab }: { tab: string }) {
       { label: 'POS sales', value: orders.filter(o => o.createdBy === 'admin-pos' && o.status !== 'Cancelled').reduce((sum, o) => sum + Number(o.totalAmount || 0), 0) },
       { label: 'Invoices', value: invoices.length }, { label: 'Recent orders', value: orders.length }].map((card, index) => <div className="glass stat-card" key={card.label}><span>{card.label}</span><strong>{index < 2 ? money(card.value) : card.value}</strong><small>From recent loaded records only</small></div>)}</div><div className="notice"><FileDown size={17} />This overview is limited to the most recent 80 orders. Accounting exports require a full indexed date-range query.</div></>}
     {tab === 'sync' && <><div className="glass table-panel"><h2>Offline bills on this device · {offlineSales.length}</h2>{offlineSales.map(sale => <div className="source-row" key={sale.requestId}><span className="row-number">{sale.state}</span><div><strong>{sale.requestId}</strong><small>{sale.lines.length} lines · queued {new Date(sale.queuedAt).toLocaleString('en-IN')}</small></div><span>{sale.error || ''}</span></div>)}{!offlineSales.length && <p>No offline bills on this device.</p>}</div><div className="glass table-panel"><h2>Recent sync events</h2><div className="table-wrap"><table><thead><tr><th>Event</th><th>Source</th><th>Invoice</th><th>Status</th><th>Retries</th><th>Action</th></tr></thead><tbody>{sync.map(row => <tr key={row.id}><td>{row.event || '—'}</td><td>{row.source || '—'}</td><td>{row.invoiceId || '—'}</td><td><span className="source-tag">{row.status || '—'}</span><small>{row.error || row.providerMessageId || ''}</small></td><td>{row.retryCount ?? 0}</td><td>{['failed', 'awaiting_provider'].includes(row.status || '') && <button className="text-button" onClick={() => void act('sync/retry', { requestId: requestId(), eventId: row.id }, 'Delivery retry processed.')}>Retry</button>}</td></tr>)}</tbody></table></div>{!sync.length && <p>No server sync events yet.</p>}<p className="microcopy">Pending deliveries need Meta WhatsApp Business API credentials and an approved document-header receipt template. Unknown outcomes require provider review before another send.</p></div></>}
-    {creating && <NewPosProductDialog onClose={() => setCreating(false)} onCreate={createPosProduct} />}
+    {creating && <ProductFormDialog mode={tab === 'pos' ? 'pos' : 'products'} onClose={() => setCreating(false)} onCreate={createPosProduct} />}
     {labelProduct && <BarcodeLabel product={labelProduct} onClose={() => setLabelProduct(null)} />}
     {lastInvoice && <div className="editor-backdrop" onClick={() => setLastInvoice(null)}><div className="invoice-sheet glass" onClick={e => e.stopPropagation()}><div className="invoice-actions"><button className="button secondary" onClick={() => setLastInvoice(null)}>Close</button><a className="button secondary" href={`/api/invoices/${encodeURIComponent(lastInvoice.id)}/pdf`} download>Download PDF</a><button className="button primary" onClick={() => window.print()}><Printer size={16} />Print</button></div><div className="invoice-header"><BrandLogo /><div><h2>{shop?.name || 'Brothers Outfit Gallery'}</h2><p>{shop?.address || 'FF-57, Pratham Square, Himatnagar, Gujarat 383001'}<br />{shop?.phone || '+91 84602 33020'}</p></div></div><h1>Sales receipt</h1><p><strong>{lastInvoice.id}</strong> · {lastInvoice.channel}<br />Customer: {lastInvoice.customerName || 'Walk-in'} {lastInvoice.customerPhone || ''}<br />Order: {lastInvoice.orderId}</p><table><thead><tr><th>Product</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead><tbody>{lastInvoice.lines.map((line, i) => <tr key={i}><td>{line.name || line.sku || 'Item'}</td><td>{line.quantity}</td><td>{money(line.price)}</td><td>{money(Number(line.price || 0) * Number(line.quantity || 0))}</td></tr>)}</tbody></table><div className="bill-total"><span>Total</span><strong>{money(lastInvoice.total)}</strong></div><p className="microcopy">Payment: {lastInvoice.paymentMethod}. Sales receipt; GST is deferred.</p></div></div>}
   </div>;

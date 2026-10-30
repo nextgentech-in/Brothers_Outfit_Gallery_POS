@@ -16,7 +16,8 @@ const useInherited = !production || Boolean(process.env.EXISTING_WEBSITE_ENV || 
 const inherited = useInherited && existsSync(inheritedPath) ? parseEnv(readFileSync(inheritedPath, 'utf8')) : {};
 const env = { ...inherited, ...local, ...process.env };
 const port = z.coerce.number().int().min(1024).max(65535).parse(env.ADMIN_PORT || 4310);
-const origin = z.url().parse(env.ADMIN_ORIGIN || `http://localhost:${port}`);
+const vercelHost = env.VERCEL_ENV === 'production' ? env.VERCEL_PROJECT_PRODUCTION_URL : env.VERCEL_URL;
+const origin = z.url().parse(env.ADMIN_ORIGIN || (vercelHost ? `https://${vercelHost}` : `http://localhost:${port}`));
 if (new URL(origin).origin !== origin) throw new Error('ADMIN_ORIGIN must be an origin without a path or trailing slash.');
 if (production && !origin.startsWith('https://')) throw new Error('Production ADMIN_ORIGIN must use HTTPS.');
 
@@ -27,8 +28,11 @@ export const config = {
   clientEmail: env.FIREBASE_CLIENT_EMAIL,
   privateKey: env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
   adminPin: env.ADMIN_PIN,
+  sessionSecret: env.ADMIN_SESSION_SECRET || '',
+  protectedDeployment: env.ADMIN_PROTECTED_DEPLOYMENT === 'enabled',
   businessWritesEnabled: env.ADMIN_BUSINESS_WRITES === 'enabled',
   erpSyncSecret: env.ERP_SYNC_SECRET || '',
+  imagekitPrivateKey: env.IMAGEKIT_PRIVATE_KEY || '',
   whatsapp: {
     graphVersion: env.WA_GRAPH_VERSION || '', phoneNumberId: env.WA_PHONE_NUMBER_ID || '',
     accessToken: env.WA_ACCESS_TOKEN || '', templateName: env.WA_TEMPLATE_NAME || '',

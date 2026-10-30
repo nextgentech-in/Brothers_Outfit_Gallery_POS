@@ -37,3 +37,11 @@ export type Overview = {
   products: number; orders: number; customers: number; movements: number;
   checkedAt: string; businessWritesEnabled: boolean;
 };
+export type DashboardSummary = {
+  products: number; variants: number; customers: number; orders: number;
+  availableUnits: number; stockRetailValue: number; lowStock: number; outOfStock: number;
+  recentSales: number; websiteSales: number; posSales: number; pendingOrders: number;
+  syncFailures: number; sampledOrders: number; checkedAt: string; businessWritesEnabled: boolean;
+  lowStockItems: { id: string; name: string; sku: string; available: number }[];
+  recentOrders: { id: string; customer: string; status: string; channel: 'POS' | 'Website'; total: number; createdAt: string | null }[];
+};

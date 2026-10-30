@@ -7,7 +7,7 @@ import { authService, type AuthService } from './auth.js';
 import { config } from './config.js';
 import { firebase } from './firebase.js';
 import { cookieValue, csrfGuard, csrfToken, loginLimiter } from './security.js';
-import { mapping, phases, type Overview } from '../shared/contracts.js';
+import { mapping, phases, type Overview, type DashboardSummary } from '../shared/contracts.js';
 import { commerceRouter } from './commerce.js';
 import { deliverInvoice } from './whatsapp.js';
 
@@ -59,14 +59,20 @@ export function createApp(options: AppOptions = {}) {
   });
   const csrf = csrfGuard(config.origin, csrfName);
   app.post('/api/auth/login', loginLimiter(), csrf, async (req, res) => {
+    if (config.production && !config.protectedDeployment) {
+      res.status(503).json({ error: 'Enable deployment protection before using PIN sign-in online.' }); return;
+    }
     const input = z.object({ pin: z.string().regex(/^\d{4}$/) }).strict().safeParse(req.body);
     if (!input.success) { res.status(400).json({ error: 'Enter a 4-digit PIN.' }); return; }
     try {
-      const cookie = await auth.login(input.data.pin);
+      const cookie = await auth.login(input.data.pin, req.ip);
       res.cookie(sessionName, cookie, { ...cookieOptions, maxAge: config.sessionMs }).json({ success: true });
-    } catch {
+    } catch (error) {
       // Do not log the submitted PIN or reveal the configured PIN.
-      res.status(401).json({ error: 'Incorrect PIN.' });
+      const message = (error as Error).message;
+      const rejected = message === 'Invalid PIN' || message === 'Too many sign-in attempts.';
+      res.status(!config.production || rejected ? 401 : 503)
+        .json({ error: !config.production || rejected ? 'Incorrect PIN or sign-in temporarily limited.' : 'Admin sign-in is not configured on this host.' });
     }
   });
   const authenticate: RequestHandler = async (req, res, next) => {
@@ -97,9 +103,13 @@ export function createApp(options: AppOptions = {}) {
       res.json(overview);
     } catch { res.status(503).json({ error: 'Database summary is unavailable. No data was changed.' }); }
   });
+  app.get('/api/dashboard', async (_req, res) => {
+    try { res.json(await readDashboard()); }
+    catch { res.status(503).json({ error: 'Dashboard data is unavailable. Check the server connection to the shared database.' }); }
+  });
   app.use('/api', (req, res, next) => ['GET', 'HEAD', 'OPTIONS'].includes(req.method) ? next() : csrf(req, res, next));
   app.use('/api', async (req, res, next) => {
-    const writes = new Set(['/products/create', '/products/patch', '/inventory/adjust', '/pos/sale', '/orders/status',
+    const writes = new Set(['/products/create', '/products/patch', '/products/images/upload', '/inventory/adjust', '/pos/sale', '/orders/status',
       '/orders/invoice', '/orders/return', '/suppliers/create', '/purchases/receive', '/sync/retry']);
     if (req.method !== 'POST' || !writes.has(req.path)) { next(); return; }
     if (!config.businessWritesEnabled) { res.status(423).json({ error: 'Live business writes are locked pending schema and stock-cutover review.' }); return; }
@@ -126,4 +136,49 @@ async function readOverview(): Promise<Overview> {
   const counts = await Promise.all(['products', 'orders', 'users', 'stockMovements'].map(name => db.collection(name).count().get()));
   return { products: counts[0].data().count, orders: counts[1].data().count, customers: counts[2].data().count,
     movements: counts[3].data().count, checkedAt: new Date().toISOString(), businessWritesEnabled: config.businessWritesEnabled };
+}
+async function readDashboard(): Promise<DashboardSummary> {
+  type OrderData = { id: string; status?: unknown; createdBy?: unknown; totalAmount?: unknown; total?: unknown;
+    customerName?: unknown; shippingAddress?: { fullName?: unknown }; createdAt?: { toDate?: () => Date } };
+  const db = firebase().db;
+  const [productDocs, orderDocs, customers, orderCount, syncDocs] = await Promise.all([
+    db.collection('products').get(), db.collection('orders').orderBy('createdAt', 'desc').limit(200).get(),
+    db.collection('users').count().get(), db.collection('orders').count().get(),
+    db.collection('erp_syncLog').orderBy('createdAt', 'desc').limit(100).get()
+  ]);
+  const products = productDocs.docs.filter(doc => doc.data().isDeleted !== true);
+  const stock = products.map(doc => {
+    const data = doc.data();
+    const variants = Array.isArray(data.variants) ? data.variants : [];
+    const available = variants.length
+      ? variants.reduce((sum, variant) => sum + Math.max(0, Number(variant.stock ?? variant.quantity ?? 0) - Number(variant.reserved ?? 0)), 0)
+      : Math.max(0, Number(data.stock ?? data.quantity ?? 0) - Number(data.reserved ?? 0));
+    const retailValue = variants.length
+      ? variants.reduce((sum, variant) => sum + Math.max(0, Number(variant.stock ?? variant.quantity ?? 0) - Number(variant.reserved ?? 0)) * Number(variant.salePrice ?? variant.price ?? data.salePrice ?? data.price ?? 0), 0)
+      : available * Number(data.salePrice ?? data.price ?? 0);
+    return { id: doc.id, name: String(data.name || 'Unnamed product'), sku: String(data.sku || ''), available, retailValue, variants: variants.length };
+  });
+  const orders = orderDocs.docs.map(doc => ({ id: doc.id, ...doc.data() } as OrderData));
+  const saleOrders = orders.filter(order => !['cancelled', 'returned'].includes(String(order.status || '').toLowerCase()));
+  const amount = (order: OrderData) => Number(order.totalAmount ?? order.total ?? 0);
+  const isPos = (order: OrderData) => order.createdBy === 'admin-pos';
+  return {
+    products: products.length, variants: stock.reduce((sum, product) => sum + (product.variants || 1), 0),
+    customers: customers.data().count, orders: orderCount.data().count,
+    availableUnits: stock.reduce((sum, product) => sum + product.available, 0),
+    stockRetailValue: stock.reduce((sum, product) => sum + product.retailValue, 0),
+    lowStock: stock.filter(product => product.available > 0 && product.available <= 5).length,
+    outOfStock: stock.filter(product => product.available === 0).length,
+    recentSales: saleOrders.reduce((sum, order) => sum + amount(order), 0),
+    websiteSales: saleOrders.filter(order => !isPos(order)).reduce((sum, order) => sum + amount(order), 0),
+    posSales: saleOrders.filter(isPos).reduce((sum, order) => sum + amount(order), 0),
+    pendingOrders: orders.filter(order => ['processing', 'pending', 'confirmed', 'packed'].includes(String(order.status || '').toLowerCase())).length,
+    syncFailures: syncDocs.docs.filter(doc => ['failed', 'awaiting_provider'].includes(String(doc.data().status || ''))).length,
+    sampledOrders: orders.length, checkedAt: new Date().toISOString(), businessWritesEnabled: config.businessWritesEnabled,
+    lowStockItems: stock.filter(product => product.available <= 5).sort((a, b) => a.available - b.available).slice(0, 8)
+      .map(({ id, name, sku, available }) => ({ id, name, sku, available })),
+    recentOrders: orders.slice(0, 6).map(order => ({ id: order.id, customer: String(order.customerName || order.shippingAddress?.fullName || 'Walk-in'),
+      status: String(order.status || 'Processing'), channel: isPos(order) ? 'POS' as const : 'Website' as const, total: amount(order),
+      createdAt: order.createdAt?.toDate?.()?.toISOString?.() || null }))
+  };
 }
