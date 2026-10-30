@@ -110,8 +110,11 @@ export function createApp(options: AppOptions = {}) {
       // Do not log the submitted PIN or reveal the configured PIN.
       const message = (error as Error).message;
       const rejected = message === 'Invalid PIN' || message === 'Too many sign-in attempts.';
+      const setupError = message === 'PIN is not configured.' ? 'The hosted shop PIN is not configured.'
+        : message === 'Session secret is missing.' ? 'The hosted session secret is missing or too short.' : null;
       res.status(!config.production || rejected ? 401 : 503)
-        .json({ error: !config.production || rejected ? 'Incorrect PIN or sign-in temporarily limited.' : 'Admin sign-in is not configured on this host.' });
+        .json({ error: !config.production || rejected ? 'Incorrect PIN or sign-in temporarily limited.'
+          : setupError || 'Admin sign-in is not configured on this host.' });
     }
   });
   const authenticate: RequestHandler = async (req, res, next) => {
