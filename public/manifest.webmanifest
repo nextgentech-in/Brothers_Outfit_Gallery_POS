@@ -1,0 +1,11 @@
+{
+  "name": "Brothers Outfit Gallery Studio",
+  "short_name": "Brothers POS",
+  "description": "Private billing and inventory workspace",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#111111",
+  "theme_color": "#B88A2E",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

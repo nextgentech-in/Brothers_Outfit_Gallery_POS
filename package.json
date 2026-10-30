@@ -1,0 +1,42 @@
+{
+  "name": "brothers-outfit-admin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "tsx watch server/index.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build && tsc -p tsconfig.server.json",
+    "start": "node dist-server/server/index.js --production",
+    "test": "tsx --test test/*.test.ts",
+    "inspect": "tsx scripts/inspect.ts",
+    "migrate": "tsx scripts/migrate.ts",
+    "rollback": "tsx scripts/migrate.ts --rollback",
+    "commerce:rollout": "tsx scripts/commerce-rollout.ts",
+    "seed:demo": "tsx scripts/seed-demo.ts"
+  },
+  "dependencies": {
+    "@bwip-js/node": "^4.11.4",
+    "express": "5.2.1",
+    "express-rate-limit": "8.7.2",
+    "firebase-admin": "14.5.0",
+    "helmet": "8.3.0",
+    "lucide-react": "1.65.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "6.1.0",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vite": "8.3.5"
+  }
+}
