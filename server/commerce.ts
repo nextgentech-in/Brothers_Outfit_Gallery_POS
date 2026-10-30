@@ -42,12 +42,15 @@ const productCreateSchema = z.object({ requestId: key,
   imageUrls: z.array(z.url().startsWith('https://').max(2048)).max(20).optional(),
   publish: z.boolean().default(false), isTrending: z.boolean().default(false),
   offerEnabled: z.boolean().default(false), offerDiscountPercentage: z.number().min(0).max(100).default(0),
+  offerStartAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/).optional(),
+  offerEndAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/).optional(),
   offerTitle: z.string().trim().max(200).optional(), offerItems: z.array(z.string().trim().min(1).max(250)).max(20).optional(),
   sizeGuide: z.object({ enabled: z.boolean(), unit: z.enum(['in', 'cm']),
     columns: z.array(z.string().trim().min(1).max(100)).max(12),
     rows: z.array(z.record(z.string().regex(/^c\d+$/), z.string().trim().max(100))).max(100) }).optional()
 }).strict().refine(input => input.mrp > 0 && input.salePrice > 0 && input.salePrice <= input.mrp &&
   input.variants.every(variant => variant.price > 0 && variant.price <= input.mrp) &&
+  (!input.offerStartAt || !input.offerEndAt || input.offerEndAt > input.offerStartAt) &&
   (!input.publish || Boolean(input.imageUrls?.length)), { message: 'Product pricing or images are incomplete.' });
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
@@ -303,6 +306,7 @@ commerceRouter.post('/products/create', async (req, res) => {
         variants: variantDocs, stock: totalStock, quantity: totalStock, reserved: 0,
         inStock: totalStock > 0, active: input.publish, isDeleted: false, isTrending: input.isTrending,
         offerEnabled: input.offerEnabled, offerDiscountPercentage: input.offerDiscountPercentage,
+        offerStartAt: input.offerStartAt || '', offerEndAt: input.offerEndAt || '',
         offersConfig: { enabled: input.offerEnabled, useCustomOffers: Boolean(input.offerItems?.length),
           title: input.offerTitle || 'Offers for you', items: input.offerItems || [] },
         customOffers: input.offerItems || [], offersTitle: input.offerTitle || 'Offers for you',
