@@ -4,6 +4,7 @@ import { ArrowDownUp, ArrowRight, ArrowUpRight, Check, ChevronRight, CircleDot, 
   ShoppingBag, Sparkles, Sun, Users, Workflow, type LucideIcon } from 'lucide-react';
 import { mapping, phases, type Overview, type Owner } from '../shared/contracts';
 import { CommerceView } from './Commerce';
+import { BrandLogo } from './BrandLogo';
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'same-origin', ...options });
@@ -17,7 +18,7 @@ async function post<T>(url: string, body: unknown): Promise<T> {
   return api<T>(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-csrf-token': token }, body: JSON.stringify(body) });
 }
 function Brand({ compact = false }: { compact?: boolean }) {
-  return <div className="brand"><img className="brand-mark" src="/favicon.svg" alt="Brothers Outfit Gallery logo" /><div><strong>BROTHERS</strong><small>{compact ? 'OUTFIT GALLERY' : 'OUTFIT GALLERY / STUDIO'}</small></div></div>;
+  return <div className="brand"><BrandLogo /><span className="sr-only">{compact ? 'Store' : 'Admin studio'}</span></div>;
 }
 export function App() {
   const [dark, setDark] = useState(() => localStorage.getItem('bo-theme-v2') !== 'light');

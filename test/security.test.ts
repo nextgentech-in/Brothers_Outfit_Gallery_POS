@@ -40,6 +40,9 @@ test('unauthenticated pages redirect and APIs return JSON 401', async () => {
     const res = await fetch(origin + endpoint); assert.equal(res.status, 401); assert.match(res.headers.get('content-type') || '', /json/);
   }
   assert.equal((await fetch(origin + '/login')).status, 200);
+  for (const asset of ['/favicon.svg', '/manifest.webmanifest']) {
+    assert.equal((await fetch(origin + asset)).status, 200);
+  }
 });
 test('CSRF checks reject cross-origin, missing token and mismatched token', async () => {
   const { cookie, token } = await csrf();

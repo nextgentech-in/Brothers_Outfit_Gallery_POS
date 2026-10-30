@@ -115,7 +115,7 @@ export function createApp(options: AppOptions = {}) {
   app.use(errors);
   // Public login and compiled assets contain no business records or credentials.
   app.use((req, res, next) => {
-    const publicPath = req.path === '/login' || req.path.startsWith('/assets/');
+    const publicPath = req.path === '/login' || req.path === '/favicon.svg' || req.path === '/manifest.webmanifest' || req.path.startsWith('/assets/');
     const devAsset = !config.production && /^\/(?:@vite\/|@react-refresh|src\/|shared\/|node_modules\/(?:\.vite\/|vite\/dist\/client\/))/.test(req.path);
     if (publicPath || devAsset) next(); else authenticate(req, res, next);
   });

@@ -24,7 +24,8 @@ const productPatchSchema = z.object({ requestId: key, productId: id, patch: z.ob
   name: z.string().trim().min(1).max(200).optional(), description: z.string().trim().max(5000).optional(),
   salePrice: money.optional(), mrp: money.optional(), active: z.boolean().optional(),
   primaryImageUrl: z.url().max(2048).optional(),
-  variantPatches: z.array(z.object({ sku: id, size: z.string().trim().min(1).max(50),
+  barcode: id.or(z.literal('')).optional(),
+  variantPatches: z.array(z.object({ sku: id, barcode: id.or(z.literal('')).optional(), size: z.string().trim().min(1).max(50),
     color: z.string().trim().min(1).max(80), price: money })).max(100).optional(),
   images: z.array(z.object({ url: z.url().max(2048), isPrimary: z.boolean().optional(), color: z.string().max(80).optional() })).max(20).optional()
 }).strict().refine(x => Object.keys(x).length > 0) }).strict();
@@ -116,8 +117,11 @@ commerceRouter.get('/products/:productId/label', async (req, res) => {
   try {
     const product = await firebase().db.collection('products').doc(productId.data).get();
     if (!product.exists) { res.status(404).json({ error: 'Product not found.' }); return; }
-    stockFor(product.data() as Product, sku.data);
-    const svg = toSVG({ bcid: format.data, text: sku.data, scale: 3, height: 12,
+    const data = product.data() as Product;
+    stockFor(data, sku.data);
+    const variant = data.variants?.find(v => v.sku === sku.data);
+    const labelText = String(variant ? (variant.barcode || sku.data) : (data.barcode || sku.data));
+    const svg = toSVG({ bcid: format.data, text: labelText, scale: 3, height: 12,
       includetext: format.data === 'code128', textxalign: 'center', backgroundcolor: 'FFFFFF' });
     res.set({ 'Content-Type': 'image/svg+xml', 'Content-Disposition': `inline; filename="${sku.data}-${format.data}.svg"`,
       'Cache-Control': 'private, no-store' }).send(svg);
@@ -293,9 +297,33 @@ commerceRouter.post('/products/patch', async (req, res) => {
         after.variants = existing.map(variant => {
           const edit = changes.get(String(variant.sku || ''));
           if (!edit) throw Object.assign(new Error('Variant SKU changed; refresh before editing.'), { status: 409 });
-          return { ...variant, size: edit.size, color: edit.color, price: edit.price, salePrice: edit.price };
+          return { ...variant, barcode: edit.barcode ?? variant.barcode ?? '', size: edit.size, color: edit.color, price: edit.price, salePrice: edit.price };
         });
         after.sizes = [...new Set((after.variants as Variant[]).filter(v => Number(v.stock ?? v.quantity ?? 0) > 0).map(v => v.size).filter(Boolean))];
+      }
+      if (patch.barcode !== undefined || variantPatches?.some(v => v.barcode !== undefined)) {
+        const editedVariants = (after.variants || snapshot.data()?.variants || []) as Variant[];
+        const variantOwners = new Map<string, string>();
+        for (const variant of editedVariants) {
+          for (const code of [variant.sku, variant.barcode].filter(Boolean)) {
+            const normalized = String(code).toLowerCase();
+            const owner = variantOwners.get(normalized);
+            if (owner && owner !== variant.sku) throw Object.assign(new Error('Two variants cannot use the same SKU or barcode.'), { status: 409 });
+            variantOwners.set(normalized, String(variant.sku));
+          }
+        }
+        const ownCodes = new Set([String(snapshot.data()?.sku || ''), String(patch.barcode ?? snapshot.data()?.barcode ?? ''),
+          ...editedVariants.flatMap(v => [String(v.sku || ''), String(v.barcode || '')])]
+          .filter(Boolean).map(code => code.toLowerCase()));
+        const catalog = await tx.get(db.collection('products'));
+        for (const other of catalog.docs) {
+          if (other.id === productId || other.data().isDeleted === true) continue;
+          const data = other.data();
+          const codes = [data.sku, data.barcode, data.posBarcode,
+            ...(Array.isArray(data.variants) ? data.variants.flatMap((v: Variant | null) => [v?.sku, v?.barcode, v?.posBarcode]) : [])];
+          if (codes.some((code: unknown) => typeof code === 'string' && ownCodes.has(code.toLowerCase())))
+            throw Object.assign(new Error('SKU or barcode is already in use.'), { status: 409 });
+        }
       }
       tx.update(ref, after);
       tx.create(db.collection('erp_auditLog').doc(hash(`product_patch:${requestId}`)), {

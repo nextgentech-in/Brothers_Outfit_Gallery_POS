@@ -11,6 +11,8 @@ const app = createApp();
 const server = createServer(app);
 if (config.production) {
   app.use('/assets', express.static(path.join(root, 'dist/assets'), { index: false }));
+  app.get('/favicon.svg', (_req, res) => res.sendFile(path.join(root, 'dist/favicon.svg')));
+  app.get('/manifest.webmanifest', (_req, res) => res.sendFile(path.join(root, 'dist/manifest.webmanifest')));
   app.use((_req, res) => res.sendFile(path.join(root, 'dist/index.html')));
 } else {
   const { createServer: createViteServer } = await import('vite');
