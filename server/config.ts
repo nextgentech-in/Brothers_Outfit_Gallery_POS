@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { parseEnv } from 'node:util';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { hkdfSync } from 'node:crypto';
 import { z } from 'zod';
 
 // Resolve the project root in both source and compiled distributions.
@@ -15,6 +16,17 @@ const inheritedPath = path.resolve(root, process.env.EXISTING_WEBSITE_ENV || loc
 const useInherited = !production || Boolean(process.env.EXISTING_WEBSITE_ENV || local.EXISTING_WEBSITE_ENV);
 const inherited = useInherited && existsSync(inheritedPath) ? parseEnv(readFileSync(inheritedPath, 'utf8')) : {};
 const env = { ...inherited, ...local, ...process.env };
+let serviceKey = env.FIREBASE_PRIVATE_KEY || '';
+if (!serviceKey && env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+  try { const account = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+    serviceKey = String(account.private_key || account.privateKey || ''); }
+  catch { /* The Firebase initializer reports invalid service account JSON. */ }
+}
+// Keep hosted sessions stable across serverless invocations without requiring
+// a second secret when the existing Firebase service key is already present.
+// HKDF gives this use a separate key domain from Firebase signing.
+const sessionSecret = env.ADMIN_SESSION_SECRET || (serviceKey
+  ? Buffer.from(hkdfSync('sha256', serviceKey, 'brothers-outfit-pos-auth-v1', 'session-document-hmac', 32)).toString('hex') : '');
 const port = z.coerce.number().int().min(1024).max(65535).parse(env.ADMIN_PORT || 4310);
 const vercelHost = env.VERCEL_ENV === 'production' ? env.VERCEL_PROJECT_PRODUCTION_URL : env.VERCEL_URL;
 // The production alias is known for this dedicated POS project. Vercel's
@@ -35,7 +47,7 @@ export const config = {
   clientEmail: env.FIREBASE_CLIENT_EMAIL,
   privateKey: env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
   adminPin: env.ADMIN_PIN,
-  sessionSecret: env.ADMIN_SESSION_SECRET || '',
+  sessionSecret,
   deviceAccessEnabled: env.ADMIN_DEVICE_ACCESS !== 'disabled',
   businessWritesEnabled: env.ADMIN_BUSINESS_WRITES === 'enabled',
   erpSyncSecret: env.ERP_SYNC_SECRET || '',

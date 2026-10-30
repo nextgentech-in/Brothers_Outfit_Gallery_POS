@@ -35,10 +35,10 @@ Rollback does not touch website collections, product stock, invoices, orders, cu
 
 ## Production requirements
 
-- The Vercel project must have `ADMIN_PIN`, `ADMIN_SESSION_SECRET`, and the same Firebase server credentials as the website, all stored server-side.
+- The Vercel project must have `ADMIN_PIN` and the same Firebase server credentials as the website, all stored server-side. A dedicated `ADMIN_SESSION_SECRET` is recommended; if absent, HKDF derives a separate stable session key from the Firebase service private key already on the server.
 - Set `ADMIN_DEVICE_ACCESS=disabled` before any emergency rollback; remove it only after the intended trusted-device configuration has been restored.
 - The server permits hosted PIN sign-in only for a valid, non-revoked trusted-device cookie. No manual host-protection flag can bypass this check.
 - `ADMIN_BUSINESS_WRITES` remains disabled until the separate shared-stock/schema cutover is reviewed.
 - A device can be trusted only from a short-lived invitation created from the local shop preview. There is no public self-registration path.
 
-**Status:** approved and implemented in code. No device document has been written from this project yet. Pairing on Vercel still requires the server-only Firebase and session credentials to be configured in that project.
+**Status:** approved and implemented in code. Temporary end-to-end verification devices were paired and revoked; no active test grant remains. The production server has working Firebase credentials, and the session key can be derived from them if a dedicated secret is not configured.
