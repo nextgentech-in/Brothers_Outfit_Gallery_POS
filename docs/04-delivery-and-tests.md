@@ -26,7 +26,7 @@ The owner later requested all seven phases together. This is a local review buil
 - Check desktop/mobile login layout and production page/asset loading.
 - Review website checkout changes separately from the admin repo. The admin source is published to the requested POS repository; website checkout changes remain local and neither app has been deployed to a public host by this work.
 
-Applied migration, deployed HTTPS/proxy behavior, a production-grade PIN control and Firestore Emulator transaction integration tests still require their own verification. Local stock-helper tests cover reserved last-unit protection, and a browser preview exercised barcode scan-to-cart without a business write. The local PIN login is tested directly and with an injected session adapter; it does not exercise Firebase Auth because the admin login uses a PIN-only session. Do not seed production for demonstration.
+Applied business migration and Firestore Emulator transaction integration tests still require their own verification. The deployed HTTPS route, paired-device PIN login, hosted dashboard read and grant revocation were exercised against Vercel with temporary grants that were revoked. Local stock-helper tests cover reserved last-unit protection, and a browser preview exercised barcode scan-to-cart without a business write. The admin login uses a PIN-only server session rather than Firebase Auth. Do not seed production for demonstration.
 
 ## Required Phase 7 end-to-end checklist (staging, not yet run)
 

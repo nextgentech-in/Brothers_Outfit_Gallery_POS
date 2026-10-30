@@ -17,7 +17,7 @@ The admin is a separate project at `D:\Brothers_Outfit_Admin`. The public websit
 
 | Phase | Implemented in local preview | Remaining for full delivery |
 | --- | --- | --- |
-| 1. Foundation | Separate folder, PIN-only login, session/CSRF/rate limit, mapping, guarded migration and rollback. | Public deployment security hardening. |
+| 1. Foundation | Separate folder, PIN-only login on paired devices, session/CSRF/rate limit, mapping, guarded migration and rollback. Real Vercel pairing, sign-in, dashboard access and revocation were verified. | Pair the owner's own devices; keep server credentials and device grants under review. |
 | 2. Inventory | Shared catalog, POS product creation, available stock units and retail value by product/across catalog, variant stock, transactional adjustments, purchase stock movements, Code128/QR label download. | Locations/transfers, stock take, bulk import/export, alerts and full ledger baseline. |
 | 3. POS | Scanner/SKU input and product search, editable bill quantity, darker billing text, per-line totals, transactional sale, shared fiscal-year receipt counter, printable sales receipt, downloadable PDF, whole-order return/credit note with stock restoration. | Line discounts, split payments, hold/resume, exchange and thermal receipt. GST was deferred by the owner. |
 | 4. Relationships | Live website customer list, phone-first/email-fallback key for new orders, new credit/loyalty events, supplier records and one-variant purchase receipts with payable snapshots. | Historical account merge/review, credit collection, loyalty redemption, purchase orders, GRN and payable settlement. |
