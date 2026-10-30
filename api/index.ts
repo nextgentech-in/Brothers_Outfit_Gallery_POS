@@ -20,7 +20,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const known = /^(Production ADMIN_ORIGIN must use HTTPS\.|ADMIN_ORIGIN must be an origin|Invalid url|Session secret is missing\.)/.test(message);
     res.statusCode = 503;
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ error: 'Admin API could not start.', reason: known || (error && typeof error === 'object' && 'code' in error && error.code === 'ERR_REQUIRE_ESM') ? message.slice(0, 350) : 'Module or runtime error',
+    res.end(JSON.stringify({ error: 'Admin API could not start.', reason: known ? message : 'Module or runtime error',
       code: error && typeof error === 'object' && 'code' in error ? String(error.code) : undefined }));
   }
 }
