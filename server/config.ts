@@ -17,7 +17,11 @@ const inherited = useInherited && existsSync(inheritedPath) ? parseEnv(readFileS
 const env = { ...inherited, ...local, ...process.env };
 const port = z.coerce.number().int().min(1024).max(65535).parse(env.ADMIN_PORT || 4310);
 const vercelHost = env.VERCEL_ENV === 'production' ? env.VERCEL_PROJECT_PRODUCTION_URL : env.VERCEL_URL;
-const origin = z.url().parse(env.ADMIN_ORIGIN || (vercelHost ? `https://${vercelHost}` : `http://localhost:${port}`));
+// The production alias is known for this dedicated POS project. Vercel's
+// system URL variables may be disabled, so an unset ADMIN_ORIGIN must not
+// crash even the unauthenticated health endpoint during function startup.
+const defaultOrigin = production ? 'https://brothers-outfit-gallery-pos.vercel.app' : `http://localhost:${port}`;
+const origin = z.url().parse(env.ADMIN_ORIGIN || (vercelHost ? `https://${vercelHost}` : defaultOrigin));
 if (new URL(origin).origin !== origin) throw new Error('ADMIN_ORIGIN must be an origin without a path or trailing slash.');
 if (production && !origin.startsWith('https://')) throw new Error('Production ADMIN_ORIGIN must use HTTPS.');
 
