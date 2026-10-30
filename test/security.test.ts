@@ -11,6 +11,14 @@ const fixturePin = '2468';
 beforeEach(async () => {
   revoked = false;
   const app = createApp({
+    devices: {
+      async createInvite() { return { url: 'https://brothers-outfit-gallery-pos.vercel.app/enroll#token=sample', expiresAt: 1000 }; },
+      async enroll() { throw new Error('Production only'); },
+      async verify() { return null; },
+      async isGrantActive() { return false; },
+      async list() { return []; },
+      async revoke() {}
+    },
     auth: {
       async login(pin) { if (pin !== fixturePin) throw new Error('Secret upstream error'); revoked = false; return 'test-session'; },
       async verify(cookie) { if (cookie !== 'test-session' || revoked) throw new Error('Invalid'); return { uid: 'pin-owner', email: null, role: 'owner' }; },
@@ -78,6 +86,20 @@ test('sessions gate read-only data and logout invalidates the session', async ()
   const logout = await fetch(origin + '/api/auth/logout', { method: 'POST', headers: authenticated, body: '{}' });
   assert.equal(logout.status, 200);
   assert.equal((await fetch(origin + '/api/auth/me', { headers: authenticated })).status, 401);
+});
+test('local owner can create a single-use device invitation only with a session and CSRF token', async () => {
+  const { cookie, token } = await csrf();
+  const headers = { origin: config.origin, cookie, 'x-csrf-token': token, 'Content-Type': 'application/json' };
+  const anonymous = await fetch(origin + '/api/auth/device/invite', { method: 'POST', headers, body: '{}' });
+  assert.equal(anonymous.status, 401);
+  const login = await fetch(origin + '/api/auth/login', { method: 'POST', headers, body: JSON.stringify({ pin: fixturePin }) });
+  const session = login.headers.getSetCookie()[0].split(';')[0];
+  const authenticated = { ...headers, cookie: `${cookie}; ${session}` };
+  const noCsrf = await fetch(origin + '/api/auth/device/invite', { method: 'POST', headers: { ...authenticated, 'x-csrf-token': '' }, body: '{}' });
+  assert.equal(noCsrf.status, 403);
+  const invite = await fetch(origin + '/api/auth/device/invite', { method: 'POST', headers: authenticated, body: '{}' });
+  assert.equal(invite.status, 200);
+  assert.match((await invite.json() as { url: string }).url, /\/enroll#token=/);
 });
 test('business routes require CSRF and stay locked before schema review', async () => {
   const { cookie, token } = await csrf();

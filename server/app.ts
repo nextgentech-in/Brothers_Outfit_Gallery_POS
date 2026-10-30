@@ -10,13 +10,16 @@ import { cookieValue, csrfGuard, csrfToken, loginLimiter } from './security.js';
 import { mapping, phases, type Overview, type DashboardSummary } from '../shared/contracts.js';
 import { commerceRouter } from './commerce.js';
 import { deliverInvoice } from './whatsapp.js';
+import { deviceAccess, type DeviceAccess } from './deviceAccess.js';
 
-export type AppOptions = { auth?: AuthService; overview?: () => Promise<Overview> };
+export type AppOptions = { auth?: AuthService; devices?: DeviceAccess; overview?: () => Promise<Overview> };
 export function createApp(options: AppOptions = {}) {
   const app = express();
   const auth = options.auth || authService;
+  const devices = options.devices || deviceAccess;
   const sessionName = config.production ? '__Host-bo_session' : 'bo_session';
   const csrfName = config.production ? '__Host-bo_csrf' : 'bo_csrf';
+  const deviceName = config.production ? '__Host-bo_device' : 'bo_device';
   const cookieOptions = { httpOnly: true, secure: config.production, sameSite: 'strict' as const, path: '/' };
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxyHops);
@@ -58,14 +61,50 @@ export function createApp(options: AppOptions = {}) {
     res.cookie(csrfName, token, { ...cookieOptions, maxAge: config.sessionMs }).json({ token });
   });
   const csrf = csrfGuard(config.origin, csrfName);
+  app.get('/api/auth/device/status', async (req, res) => {
+    if (!config.production) {
+      res.json({ loginAvailable: true, trusted: true, pairingRequired: false }); return;
+    }
+    if (!config.deviceAccessEnabled) {
+      res.json({ loginAvailable: false, trusted: false, pairingRequired: false, disabled: true }); return;
+    }
+    const token = cookieValue(req, deviceName);
+    if (!token) { res.json({ loginAvailable: false, trusted: false, pairingRequired: true }); return; }
+    try {
+      const trusted = Boolean(await devices.verify(token));
+      res.json({ loginAvailable: trusted, trusted, pairingRequired: !trusted });
+    } catch { res.status(503).json({ error: 'Device verification is temporarily unavailable.' }); }
+  });
+  app.post('/api/auth/device/enroll', rateLimit({ windowMs: 60_000, limit: 10,
+    standardHeaders: 'draft-8', legacyHeaders: false }), csrf, async (req, res) => {
+    if (!config.production) { res.status(403).json({ error: 'Open the invitation on the deployed POS.' }); return; }
+    if (!config.deviceAccessEnabled) { res.status(423).json({ error: 'Hosted device access is disabled.' }); return; }
+    const input = z.object({ token: z.string().regex(/^[a-f0-9]{64}$/), label: z.string().trim().min(1).max(60) }).strict().safeParse(req.body);
+    if (!input.success) { res.status(400).json({ error: 'Invalid device invitation.' }); return; }
+    try {
+      const token = await devices.enroll(input.data.token, input.data.label);
+      res.cookie(deviceName, token, { ...cookieOptions, maxAge: 90 * 86_400_000 }).json({ success: true });
+    } catch (error) {
+      const message = (error as Error).message;
+      res.status(message.includes('expired') || message.includes('used') ? 409 : 503)
+        .json({ error: message.includes('expired') || message.includes('used') ? message : 'Device pairing is unavailable. Check the server connection.' });
+    }
+  });
   app.post('/api/auth/login', loginLimiter(), csrf, async (req, res) => {
-    if (config.production && !config.protectedDeployment) {
-      res.status(503).json({ error: 'Enable deployment protection before using PIN sign-in online.' }); return;
+    if (config.production && !config.deviceAccessEnabled) {
+      res.status(503).json({ error: 'Hosted POS access is temporarily disabled.' }); return;
     }
     const input = z.object({ pin: z.string().regex(/^\d{4}$/) }).strict().safeParse(req.body);
     if (!input.success) { res.status(400).json({ error: 'Enter a 4-digit PIN.' }); return; }
     try {
-      const cookie = await auth.login(input.data.pin, req.ip);
+      let grantId: string | null = null;
+      if (config.production) {
+        const token = cookieValue(req, deviceName);
+        if (!token || !(grantId = await devices.verify(token, true))) {
+          res.status(403).json({ error: 'Trust this device from the local shop preview before signing in.' }); return;
+        }
+      }
+      const cookie = await auth.login(input.data.pin, req.ip, grantId);
       res.cookie(sessionName, cookie, { ...cookieOptions, maxAge: config.sessionMs }).json({ success: true });
     } catch (error) {
       // Do not log the submitted PIN or reveal the configured PIN.
@@ -90,6 +129,21 @@ export function createApp(options: AppOptions = {}) {
     auth.verify(cookie).then(owner => { res.locals.owner = owner; next(); }).catch(() => res.status(401).json({ error: 'Sign in to continue.' }));
   });
   app.get('/api/auth/me', (_req, res) => res.json(res.locals.owner));
+  app.get('/api/auth/device/list', async (_req, res) => {
+    try { res.json({ devices: await devices.list() }); }
+    catch { res.status(503).json({ error: 'Trusted devices are unavailable.' }); }
+  });
+  app.post('/api/auth/device/invite', csrf, async (_req, res) => {
+    if (config.production) { res.status(403).json({ error: 'Create invitations from the local shop preview.' }); return; }
+    try { res.json(await devices.createInvite()); }
+    catch { res.status(503).json({ error: 'Device invitation could not be created.' }); }
+  });
+  app.post('/api/auth/device/revoke', csrf, async (req, res) => {
+    const input = z.object({ id: z.string().regex(/^device_grant_[a-f0-9]{64}$/) }).strict().safeParse(req.body);
+    if (!input.success) { res.status(400).json({ error: 'Select a valid device.' }); return; }
+    try { await devices.revoke(input.data.id); res.json({ success: true }); }
+    catch { res.status(503).json({ error: 'Device could not be revoked.' }); }
+  });
   app.post('/api/auth/logout', csrf, async (req, res) => {
     try {
       await auth.logout(cookieValue(req, sessionName));
@@ -125,7 +179,7 @@ export function createApp(options: AppOptions = {}) {
   app.use(errors);
   // Public login and compiled assets contain no business records or credentials.
   app.use((req, res, next) => {
-    const publicPath = req.path === '/login' || req.path === '/favicon.svg' || req.path === '/manifest.webmanifest' || req.path.startsWith('/assets/');
+    const publicPath = req.path === '/login' || req.path === '/enroll' || req.path === '/favicon.svg' || req.path === '/manifest.webmanifest' || req.path.startsWith('/assets/');
     const devAsset = !config.production && /^\/(?:@vite\/|@react-refresh|src\/|shared\/|node_modules\/(?:\.vite\/|vite\/dist\/client\/))/.test(req.path);
     if (publicPath || devAsset) next(); else authenticate(req, res, next);
   });

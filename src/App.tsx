@@ -29,11 +29,14 @@ export function App() {
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#111111' : '#f4f5f7');
     localStorage.setItem('bo-theme-v2', dark ? 'dark' : 'light');
   }, [dark]);
-  return <><div className="ambient ambient-one" /><div className="ambient ambient-two" />{window.location.pathname === '/login' ? <Login /> : <Workspace dark={dark} toggleTheme={() => setDark(!dark)} />}</>;
+  return <><div className="ambient ambient-one" /><div className="ambient ambient-two" />{window.location.pathname === '/login' ? <Login /> : window.location.pathname === '/enroll' ? <EnrollDevice /> : <Workspace dark={dark} toggleTheme={() => setDark(!dark)} />}</>;
 }
 function Login() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [deviceStatus, setDeviceStatus] = useState<{ loginAvailable: boolean; disabled?: boolean } | null>(null);
+  useEffect(() => { api<{ loginAvailable: boolean; disabled?: boolean }>('/api/auth/device/status')
+    .then(setDeviceStatus).catch(cause => setError((cause as Error).message)); }, []);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError('');
     const form = new FormData(event.currentTarget);
@@ -47,9 +50,28 @@ function Login() {
     </section>
     <section className="login-side"><div className="login-card glass"><span className="pill"><LockKeyhole size={13} /> PRIVATE WORKSPACE</span><h2>Welcome back.</h2><p className="muted">Enter your shop PIN to continue.</p><form onSubmit={submit}>
       <label htmlFor="pin">4-digit PIN</label><input id="pin" name="pin" type="password" inputMode="numeric" pattern="[0-9]{4}" minLength={4} maxLength={4} autoComplete="off" required placeholder="••••" />
-      {error && <p className="error" role="alert">{error}</p>}<button className="button primary login-submit" disabled={busy}>{busy ? 'Signing in…' : 'Open your workspace'}<ArrowRight size={17} /></button>
-    </form><div className="login-note"><ShieldCheck size={19} /><p>Your session is protected and expires automatically. Keep your PIN private.</p></div></div><p className="login-caption">Separate admin preview · Live business writes require reviewed cutover</p></section>
+      {deviceStatus?.disabled && <p className="device-pairing-note" role="status">Hosted POS access is temporarily disabled by the shop owner.</p>}
+      {deviceStatus && !deviceStatus.loginAvailable && !deviceStatus.disabled && <p className="device-pairing-note" role="status">This browser needs a one-time trust link from the local shop preview. Open that link on this device, then return here to enter your PIN.</p>}
+      {new URLSearchParams(window.location.search).has('paired') && <p className="success-banner" role="status">Device trusted. Enter your shop PIN.</p>}
+      {error && <p className="error" role="alert">{error}</p>}<button className="button primary login-submit" disabled={busy || !deviceStatus?.loginAvailable}>{busy ? 'Signing in…' : 'Open your workspace'}<ArrowRight size={17} /></button>
+    </form><div className="login-note"><ShieldCheck size={19} /><p>Your session expires automatically. Use your PIN only on devices you trust.</p></div></div><p className="login-caption">Separate admin preview · Live business writes require reviewed cutover</p></section>
   </main>;
+}
+function EnrollDevice() {
+  const [token] = useState(() => {
+    const value = new URLSearchParams(window.location.hash.slice(1)).get('token') || '';
+    history.replaceState(null, '', '/enroll');
+    return value;
+  });
+  const [label, setLabel] = useState('My device');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(token ? '' : 'This invitation link is missing its one-time token.');
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError('');
+    try { await post('/api/auth/device/enroll', { token, label }); window.location.assign('/login?paired=1'); }
+    catch (cause) { setError((cause as Error).message); setBusy(false); }
+  }
+  return <main className="device-enroll-page"><div className="login-card glass"><Brand /><span className="eyebrow">ONE-TIME SETUP</span><h1>Trust this device</h1><p>Pair this browser with the shop POS. After pairing, daily sign-in uses only your PIN.</p><form onSubmit={event => void submit(event)}><label htmlFor="device-label">Device name</label><input id="device-label" value={label} onChange={event => setLabel(event.target.value)} maxLength={60} minLength={1} required placeholder="Shop laptop or my phone" />{error && <p className="error" role="alert">{error}</p>}<button className="button primary login-submit" disabled={busy || !token}>{busy ? 'Pairing…' : 'Trust this device'}<ArrowRight size={17} /></button></form><p className="muted">This invitation works once and expires after 10 minutes.</p></div></main>;
 }
 const primaryTabs: { id: string; label: string; icon: LucideIcon }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard }, { id: 'products', label: 'Products', icon: Package },
@@ -58,11 +80,10 @@ const primaryTabs: { id: string; label: string; icon: LucideIcon }[] = [
 ];
 const moreTabs: { id: string; label: string; icon: LucideIcon }[] = [
   { id: 'suppliers', label: 'Suppliers', icon: ShoppingBag }, { id: 'reports', label: 'Reports', icon: LayoutDashboard },
-  { id: 'sync', label: 'Sync health', icon: RefreshCw }
+  { id: 'sync', label: 'Sync health', icon: RefreshCw }, { id: 'security', label: 'Trusted devices', icon: ShieldCheck }
 ];
 const tabs = [...primaryTabs, ...moreTabs,
-  { id: 'mapping', label: 'Data mapping', icon: Layers3 }, { id: 'delivery', label: 'Delivery plan', icon: Workflow },
-  { id: 'security', label: 'Access & security', icon: ShieldCheck }
+  { id: 'mapping', label: 'Data mapping', icon: Layers3 }, { id: 'delivery', label: 'Delivery plan', icon: Workflow }
 ];
 function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => void }) {
   const initial = window.location.pathname.slice(1);
@@ -90,16 +111,41 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
       {tab === 'dashboard' && <Dashboard navigate={navigate} />}
       {tab === 'mapping' && <><PageTitle eyebrow="ONE DATABASE" title="Your data, mapped." description="The existing website stays the source of truth. These are the inspected connections and proposed extensions." /><div className="notice"><Database size={18} />Read-only live schema sample verified on 30 October 2026. Some legacy documents may contain additional fields.</div><div className="mapping-grid">{mapping.filter(row => `${row.label} ${row.source} ${row.fields} ${row.plan}`.toLowerCase().includes(search.toLowerCase())).map((row, i) => <article className="mapping-card glass" key={row.label}><div className="mapping-card-top"><span className="row-number">0{i + 1}</span><span className="source-tag">Existing source</span></div><h2>{row.label}</h2><code>{row.source}</code><p className="field-list">{row.fields}</p><p>{row.plan}</p></article>)}</div>{mapping.filter(row => JSON.stringify(row).toLowerCase().includes(search.toLowerCase())).length === 0 && <div className="empty-state">No matching fields. Try “stock”, “phone” or “price”.</div>}<div className="notice"><FileText size={18} />Full mapping, schema proposal and rollback instructions are in the project’s docs folder.</div></>}
       {tab === 'delivery' && <><PageTitle eyebrow="SEVEN-PHASE DELIVERY" title="What is built and what remains." description="These labels describe the current local implementation. They do not imply a production rollout." /><div className="glass phase-list">{phases.map(phase => <article key={phase.number} className="phase-row"><span className={`phase-number ${phase.state === 'local' ? 'active' : ''}`}>{phase.state === 'local' ? <Check size={22} /> : `0${phase.number}`}</span><div><h2>{phase.name}</h2><p><strong>Built:</strong> {phase.built}</p><p><strong>Remaining:</strong> {phase.remaining}</p></div><span className={`pill phase-pill ${phase.state}`}>{phase.label}</span></article>)}</div><div className="notice"><CircleDot size={18} />Website checkout integration is coded locally. Stock reservations and live business writes stay off until the shared stock-writer cutover passes staging tests.</div></>}
-      {tab === 'security' && <><PageTitle eyebrow="PRIVATE BY DESIGN" title="Your workspace. Your access." description="The foundation checks your PIN on the server and keeps privileged access out of the browser." /><div className="mapping-grid">{[
-        ['PIN access', 'Enter the four-digit shop PIN. It is checked on the server and never included in the browser bundle.'],
-        ['Protected sessions', 'Opaque HttpOnly, SameSite cookies with automatic expiry. Signing out revokes the session. Production requires HTTPS.'],
-        ['Server-side credentials', 'The server reads the existing environment. Firebase service credentials, ImageKit secrets and Razorpay secrets are never sent to the browser.'],
-        ['Safe rollout', 'Live business writes are locked by default. Schema migration defaults to a dry run. No production stock, products, orders or customers have been changed.']
-      ].map(([title, detail]) => <article key={title} className="mapping-card glass"><ShieldCheck size={23} /><h2>{title}</h2><p>{detail}</p></article>)}</div><div className="notice"><LockKeyhole size={18} />Hosted PIN access requires production-domain protection before sign-in can be enabled.</div></>}
+      {tab === 'security' && <TrustedDevices />}
       {['products', 'pos', 'inventory', 'orders', 'customers', 'suppliers', 'reports', 'sync'].includes(tab) && <CommerceView tab={tab} />}
       <footer className="page-footer"><span>BROTHERS OUTFIT GALLERY <span className="footer-separator">/</span> STUDIO</span><span>A little more clarity. Every day.</span></footer>
     </main></div>
   </div>;
+}
+type DeviceInfo = { id: string; label: string; createdAt: number; expiresAt: number; lastUsedAt: number | null };
+function TrustedDevices() {
+  const [devices, setDevices] = useState<DeviceInfo[]>([]);
+  const [invite, setInvite] = useState<{ url: string; expiresAt: number } | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [local] = useState(() => ['localhost', '127.0.0.1'].includes(window.location.hostname));
+  async function load() {
+    try { setDevices((await api<{ devices: DeviceInfo[] }>('/api/auth/device/list')).devices); }
+    catch (cause) { setError((cause as Error).message); }
+  }
+  useEffect(() => { void load(); }, []);
+  async function createInvite() {
+    setBusy(true); setError('');
+    try { setInvite(await post<{ url: string; expiresAt: number }>('/api/auth/device/invite', {})); }
+    catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+  async function revoke(id: string) {
+    setBusy(true); setError('');
+    try { await post('/api/auth/device/revoke', { id }); await load(); }
+    catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+  return <><PageTitle eyebrow="DEVICE ACCESS" title="Trusted devices" description="Pair your own browsers once. Daily sign-in uses the shop PIN; lost devices can be revoked here." />
+    {error && <div className="error-banner" role="alert">{error}</div>}
+    <section className="glass device-panel"><h2>Pair a new device</h2><p>Open the invitation link on the phone or computer you want to use. It works once and expires after 10 minutes.</p>{local ? <button className="button primary" disabled={busy} onClick={() => void createInvite()}>Create one-time link</button> : <div className="notice"><LockKeyhole size={18} />Create invitations from the local shop preview at localhost:4310.</div>}
+    {invite && <div className="device-invite"><strong>Open this link on the new device before {new Date(invite.expiresAt).toLocaleTimeString('en-IN')}:</strong><a href={invite.url} target="_blank" rel="noreferrer">{invite.url}</a><button className="button secondary" onClick={() => void navigator.clipboard.writeText(invite.url)}>Copy link</button><small>Keep this link private. It grants one device access to the PIN screen.</small></div>}</section>
+    <section className="glass device-panel"><h2>Active trusted devices</h2>{devices.length ? devices.map(device => <div className="device-row" key={device.id}><div><strong>{device.label}</strong><small>Trusted {new Date(device.createdAt).toLocaleDateString('en-IN')} · Expires {new Date(device.expiresAt).toLocaleDateString('en-IN')}</small></div><button className="button secondary" disabled={busy} onClick={() => void revoke(device.id)}>Revoke</button></div>) : <p>No active trusted devices yet.</p>}</section></>;
 }
 function PageTitle({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
   return <div className="page-title"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{description}</p></div></div>;

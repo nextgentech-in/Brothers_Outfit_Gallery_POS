@@ -5,7 +5,7 @@ const args = process.argv.slice(2);
 const apply = args.includes('--apply');
 const project = args.find(value => value.startsWith('--project='))?.slice('--project='.length);
 if (!apply) {
-  console.log('Auth rollback preview: first remove ADMIN_PROTECTED_DEPLOYMENT from the host, then run with --apply --project=<exact-project-id> to revoke all POS sessions and clear its login counters. No product, order or stock data is touched.');
+  console.log('Auth rollback preview: disable hosted POS access, then run with --apply --project=<exact-project-id> to revoke all POS sessions, trusted devices and login counters. No product, order or stock data is touched.');
   process.exit(0);
 }
 if (!project || project !== config.projectId) throw new Error('Exact configured Firebase project ID is required.');

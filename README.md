@@ -17,9 +17,9 @@ npm run dev
 
 Open [http://localhost:4310](http://localhost:4310). Use `localhost` consistently: CSRF checks require the configured origin. The server reads the existing `../Brothers_Outfit/brothers/.env`; keys are not copied. An optional local `.env` overrides names from that file; process environment takes precedence. Do not copy the website `.env` into frontend source.
 
-Sign in with the four-digit PIN configured as `ADMIN_PIN` in the admin project's ignored `.env` file. No email, ID or password is requested. The local preview PIN was set by the owner. Sessions are opaque and expire after eight hours by default; logout revokes that session. Local sessions are in memory and a server restart signs everyone out. Hosted sessions and sign-in limits use the additive `erp_authState` collection. Firebase Auth accounts and website authentication are not changed.
+Sign in with the four-digit PIN configured as `ADMIN_PIN` in the admin project's ignored `.env` file. No email, ID or password is requested. The local preview PIN was set by the owner. Sessions are opaque and expire after eight hours by default; logout revokes that session. Local sessions are in memory and a server restart signs everyone out. Hosted sign-in also requires a one-time trusted-device pairing from the local preview; ordinary sign-in on paired devices remains PIN-only. Hosted sessions, devices and sign-in limits use the additive `erp_authState` collection. Firebase Auth accounts and website authentication are not changed.
 
-The preview binds to `127.0.0.1`. Its business-write routes return HTTP 423 unless `ADMIN_BUSINESS_WRITES=enabled` is configured server-side. Keep that lock in place until the schema, stock-writer cutover and checkout changes are reviewed. Hosted sign-in has a distributed login limiter and remains disabled until production-domain access protection is in place. A four-digit PIN alone is inadequate for a public POS containing billing and customer data.
+The preview binds to `127.0.0.1`. Its business-write routes return HTTP 423 unless `ADMIN_BUSINESS_WRITES=enabled` is configured server-side. Keep that lock in place until the schema, stock-writer cutover and checkout changes are reviewed. Hosted sign-in has a distributed login limiter and requires a valid trusted-device cookie, because the requested four-digit PIN is already known publicly.
 
 ## Review first
 
@@ -41,6 +41,7 @@ The owner later requested all seven phases in one pass. The [implementation revi
 | `npm run inspect` | Read at most 3 documents in each of 8 existing collections; output field names/types only |
 | `npm run migrate` | Print Phase 1 migration proposal; no DB access |
 | `npm run rollback` | Print non-destructive rollback proposal; no DB access |
+| `npm run device:rollback` | Preview revocation of only paired-device records; exact project ID and `--apply` required for deletion |
 | `npm run commerce:rollout` | Print the guarded commerce enable/disable and rollback procedure; no DB access without `--apply --project=` |
 | `npm run seed:demo` | Refuses production; seeds one fixture only when both Firebase emulators and a demo project are configured |
 
@@ -64,7 +65,8 @@ Commerce writes additionally require a database rollout flag. After reviewing th
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | Alternative server credential representation; project must match |
 | `ADMIN_PIN` | Four-digit PIN used only by the admin server; keep in an ignored `.env` or server secret store |
 | `ADMIN_SESSION_SECRET` | Random 32+ character server secret used to hash hosted session tokens and login-limit addresses |
-| `ADMIN_PROTECTED_DEPLOYMENT` | Set to `enabled` only after host-level protection covers the public admin domain; otherwise online PIN login returns 503 |
+| `ADMIN_PAIRING_ORIGIN` | HTTPS production POS origin used when creating a one-time device invitation; defaults to the canonical Vercel URL |
+| `ADMIN_DEVICE_ACCESS` | Set to `disabled` to stop hosted pairing, sign-in and active sessions before device rollback; enabled when unset |
 | `ADMIN_BUSINESS_WRITES` | Set to `enabled` only after reviewed stock and schema cutover; otherwise every business write is locked |
 | `ADMIN_ORIGIN`, `ADMIN_PORT`, `ADMIN_HOST`, `SESSION_HOURS` | Origin, bind address and session lifetime |
 | `TRUST_PROXY_HOPS` | Exact trusted reverse-proxy topology; default zero |
@@ -88,9 +90,9 @@ Set the Vercel project's Root Directory to this repository's root, Framework Pre
 
 Required Vercel environment names for sign-in and data: `ADMIN_PIN`, `ADMIN_SESSION_SECRET` (random 32+ characters), `FIREBASE_ADMIN_PROJECT_ID`, and either `FIREBASE_SERVICE_ACCOUNT_JSON` or `FIREBASE_CLIENT_EMAIL` plus `FIREBASE_PRIVATE_KEY`. The canonical URL is the fallback `ADMIN_ORIGIN`; set `ADMIN_ORIGIN` explicitly if using another domain. The Firebase project must be the same project as the website. For ImageKit uploads add `IMAGEKIT_PRIVATE_KEY`. Keep `ADMIN_BUSINESS_WRITES` disabled until the shared schema and checkout cutover are reviewed.
 
-**The requested four-digit local PIN is known from this project discussion. Do not expose customer/order data behind that PIN alone on a public domain.** Apply host-level access restriction to the production admin domain first. Vercel's [deployment protection documentation](https://vercel.com/docs/deployment-protection) notes that standard protection excludes production domains; use a production-domain protection option available to your plan, or an equivalent trusted network restriction. `ADMIN_PROTECTED_DEPLOYMENT=enabled` only acknowledges that this restriction is in place; it does not create the restriction. Until then, hosted PIN sign-in returns 503 by design.
+**The requested four-digit local PIN is known from this project discussion.** Hosted PIN sign-in requires a device paired from the local shop preview. Open `http://localhost:4310/security`, select **Create one-time link**, and open that link on the browser you want to use. The link expires after 10 minutes and works once. Once paired, visit `/login` on that same browser and enter the PIN. If a device is lost, revoke it from Trusted devices; its active sessions then fail their grant check. [The exact additive document mapping and rollback](docs/06-trusted-device-access-proposal.md) were approved before implementation.
 
-Hosted PIN sessions and login limits use the additive `erp_authState` collection, with HMAC-hashed document IDs and no raw PIN/IP data. This collection is first written only after protected hosted sign-in is enabled. The rollback plan and `npm run auth:rollback` dry run are in [the schema proposal](docs/02-schema-and-rollback.md). Vercel Functions do not run the interval worker in `server/index.ts`; WhatsApp retry scheduling needs a separate hosted worker or a suitable scheduled function before Phase 7 can be called complete.
+Hosted PIN sessions and login limits use `erp_authState` with HMAC-hashed IDs; invitations and device grants use SHA-256 IDs derived from random 256-bit tokens. No raw PIN, token or client IP is stored. The device rollback script dry-runs by default and deletes only device invitations, grants and linked sessions when applied with an exact project ID. The broader `npm run auth:rollback` revokes every POS auth document. Vercel Functions do not run the interval worker in `server/index.ts`; WhatsApp retry scheduling needs a separate hosted worker or a suitable scheduled function before Phase 7 can be called complete.
 
 For a dedicated Node host, run `npm ci`, `npm run build`, then `npm start` behind HTTPS. Set `ADMIN_ORIGIN`, `ADMIN_HOST`, `ADMIN_PORT`, credentials and trusted proxy topology for that host. Production uses the same durable sessions and write gates. No production stock or order mutation has been applied from the local preview.
 
