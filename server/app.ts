@@ -166,7 +166,7 @@ export function createApp(options: AppOptions = {}) {
   });
   app.use('/api', (req, res, next) => ['GET', 'HEAD', 'OPTIONS'].includes(req.method) ? next() : csrf(req, res, next));
   app.use('/api', async (req, res, next) => {
-    const writes = new Set(['/products/create', '/products/patch', '/products/images/upload', '/inventory/adjust', '/pos/sale', '/orders/status',
+    const writes = new Set(['/products/create', '/products/patch', '/products/images/upload', '/inventory/adjust', '/inventory/adjust-batch', '/pos/sale', '/orders/status',
       '/orders/invoice', '/orders/return', '/suppliers/create', '/purchases/receive', '/sync/retry']);
     if (req.method !== 'POST' || !writes.has(req.path)) { next(); return; }
     if (!config.businessWritesEnabled) { res.status(423).json({ error: 'Live business writes are locked pending schema and stock-cutover review.' }); return; }

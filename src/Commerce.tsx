@@ -3,11 +3,13 @@ import { ArrowRight, Check, FileDown, LayoutGrid, List, Plus, Printer, RefreshCw
 import { BarcodeBatch } from './BarcodeBatch';
 import { BarcodeLabel, type LabelProduct } from './BarcodeLabel';
 import { BrandLogo } from './BrandLogo';
+import { ProductEditor, type ProductEditInput } from './ProductEditor';
 import { ProductFormDialog, type NewProductInput } from './ProductForm';
 import { cacheCatalog, cachedCatalog, queueSale, queuedSales, removeSale, syncQueuedSales, type QueuedSale } from './offlineQueue';
 
-type Product = { id: string; name: string; sku: string; barcode?: string; price: number; mrp: number; category: string; active: boolean; stock: number;
-  variants: { sku: string; barcode?: string; size?: string; color?: string; stock: number; price: number }[] };
+type Product = { id: string; name: string; sku: string; barcode?: string; price: number; mrp: number; costPrice?: number;
+  category: string; subCategory?: string; shortDescription?: string; description?: string; gsl?: string; active: boolean; stock: number;
+  variants: { sku: string; barcode?: string; size?: string; color?: string; stock: number; price: number; costPrice?: number }[] };
 type Order = { id: string; status?: string; totalAmount?: number; paymentMethod?: string; createdBy?: string; createdAt?: { _seconds?: number; seconds?: number };
   customerName?: string; shippingAddress?: { fullName?: string }; items?: { name?: string; quantity?: number }[] };
 type Customer = { id: string; fullName: string; phone: string; email: string };
@@ -74,7 +76,7 @@ export function CommerceView({ tab }: { tab: string }) {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Product | null>(null);
   const [creating, setCreating] = useState(false);
-  const [productView, setProductView] = useState<'grid' | 'list'>('grid');
+  const [productView, setProductView] = useState<'grid' | 'list'>('list');
   const [batchLabels, setBatchLabels] = useState(false);
   const [labelProduct, setLabelProduct] = useState<LabelProduct | null>(null);
   const [cart, setCart] = useState<{ product: Product; sku: string; quantity: number; price: number }[]>([]);
@@ -195,6 +197,16 @@ export function CommerceView({ tab }: { tab: string }) {
       if (tab === 'pos' && product && product.stock > 0 && product.variants[0]) addToCart(product, product.variants[0].sku);
     } catch { setNotice('Product saved. Refresh the catalog to add it to the bill.'); }
   }
+  async function saveProductEdit(product: Product, input: ProductEditInput) {
+    setError(''); setNotice('');
+    await send('products/patch', { requestId: requestId(), productId: product.id, patch: input.patch });
+    if (input.stockAdjustments.length) {
+      await send('inventory/adjust-batch', { requestId: requestId(), productId: product.id, adjustments: input.stockAdjustments });
+    }
+    setSelected(null);
+    setNotice(input.stockAdjustments.length ? 'Product details and variant stock updated.' : 'Product details updated.');
+    await load();
+  }
   function addToCart(product: Product, sku: string) {
     const variant = product.variants.find(v => v.sku === sku);
     const available = variant?.stock ?? product.stock;
@@ -268,20 +280,7 @@ export function CommerceView({ tab }: { tab: string }) {
     {notice && <div className="success-banner" role="status"><Check size={16} />{notice}<button onClick={() => setNotice('')}>Dismiss</button></div>}
     {tab === 'products' && <><div className="product-add-toolbar"><button className="button secondary" onClick={() => setBatchLabels(true)}><Printer size={18} />Print multiple product barcodes</button><button className="button primary" onClick={() => setCreating(true)}><Plus size={18} />Add product to website catalog</button></div><div className="commerce-toolbar"><label className="field-search"><Search size={17} /><input placeholder="Search name, SKU or category" value={query} onChange={e => setQuery(e.target.value)} /></label><div className="product-view-tools"><span>{shownProducts.length} products</span><div className="view-toggle" role="group" aria-label="Product view"><button type="button" className={productView === 'grid' ? 'active' : ''} onClick={() => setProductView('grid')} aria-pressed={productView === 'grid'}><LayoutGrid size={17} />Grid</button><button type="button" className={productView === 'list' ? 'active' : ''} onClick={() => setProductView('list')} aria-pressed={productView === 'list'}><List size={18} />List</button></div></div></div>
       <div className="stock-summary glass"><div><span>All product stock</span><strong>{stockUnits.toLocaleString('en-IN')} units</strong></div><div><span>Available stock retail value</span><strong>{money(stockRetailTotal)}</strong></div></div><div className={`commerce-grid product-view-${productView}`}>{shownProducts.map(product => <article className="glass product-tile" key={product.id}><div className="product-body"><div className="product-identity"><span className="eyebrow">{product.category || 'PRODUCT'}</span><h2>{product.name}</h2><p>SKU {product.sku} · {product.variants.length || 1} variants</p></div><div className="product-bottom"><strong>{money(product.price)}</strong><span className={product.stock > 0 ? 'available' : 'unavailable'}>{product.stock > 0 ? `${product.stock} available` : 'Out of stock'}</span></div><p className="stock-value">Available stock value: {money(retailStockValue(product))}</p><details className="variant-stock"><summary>View stock by variant</summary><div className="variant-stock-list">{(product.variants.length ? product.variants : [{ sku: product.sku, stock: product.stock, price: product.price, size: 'Standard', color: '' }]).map(variant => <div key={variant.sku}><span><strong>{variant.size || 'Standard'} {variant.color || ''}</strong><small>{variant.sku} · {money(variant.price)}</small></span><b className={variant.stock > 0 ? 'available' : 'unavailable'}>{variant.stock} in stock</b></div>)}</div></details><button className="button secondary" onClick={() => setSelected(product)}>Edit product <ArrowRight size={15} /></button></div></article>)}</div>
-      {selected && <div className="editor-backdrop" onClick={() => setSelected(null)}><form className="editor glass" onClick={event => event.stopPropagation()} onSubmit={async event => {
-        event.preventDefault(); const form = new FormData(event.currentTarget);
-        const variantPatches = selected.variants.every(v => Boolean(v.sku)) ? selected.variants.map((variant, i) => ({
-          sku: variant.sku, barcode: String(form.get(`variant-barcode-${i}`) || '').trim(), size: String(form.get(`variant-size-${i}`) || variant.size || 'Standard'),
-          color: String(form.get(`variant-color-${i}`) || variant.color || 'Standard'),
-          price: Number(form.get(`variant-price-${i}`) ?? variant.price)
-        })) : undefined;
-        const result = await act('products/patch', { requestId: requestId(), productId: selected.id, patch: {
-          name: String(form.get('name')), barcode: String(form.get('barcode') || '').trim(), salePrice: Number(form.get('price')), mrp: Number(form.get('mrp')),
-          active: form.get('active') === 'on',
-          ...(variantPatches ? { variantPatches } : {})
-        } }, 'Product updated on the shared website catalog.');
-        if (result) setSelected(null);
-      }}><button type="button" className="editor-close" onClick={() => setSelected(null)}>×</button><span className="eyebrow">EDIT SHARED PRODUCT</span><h2>{selected.name}</h2><label>Name<input name="name" defaultValue={selected.name} required /></label><label>Selling price<input name="price" type="number" min="0" step="0.01" defaultValue={selected.price} required /></label><label>MRP<input name="mrp" type="number" min="0" step="0.01" defaultValue={selected.mrp} required /></label><label>Product barcode<input name="barcode" pattern="[A-Za-z0-9_.:-]*" defaultValue={selected.barcode || ''} placeholder="SKU is used if blank" /></label>{selected.variants.map((variant, i) => <div className="variant-edit" key={variant.sku || i}><strong>{variant.sku || `Variant ${i + 1}`}</strong><label>Barcode<input name={`variant-barcode-${i}`} pattern="[A-Za-z0-9_.:-]*" defaultValue={variant.barcode || ''} placeholder="Variant SKU is used if blank" /></label><label>Size<input name={`variant-size-${i}`} defaultValue={variant.size || 'Standard'} required /></label><label>Color<input name={`variant-color-${i}`} defaultValue={variant.color || 'Standard'} required /></label><label>Price<input name={`variant-price-${i}`} type="number" min="0" step="0.01" defaultValue={variant.price} required /></label>{variant.sku && <div className="label-links"><a href={`/api/products/${encodeURIComponent(selected.id)}/label?sku=${encodeURIComponent(variant.sku)}&format=code128`} target="_blank" rel="noreferrer">Code128 label</a><a href={`/api/products/${encodeURIComponent(selected.id)}/label?sku=${encodeURIComponent(variant.sku)}&format=qrcode`} target="_blank" rel="noreferrer">QR label</a></div>}</div>)}{!selected.variants.length && selected.sku && <div className="label-links"><a href={`/api/products/${encodeURIComponent(selected.id)}/label?sku=${encodeURIComponent(selected.sku)}&format=code128`} target="_blank" rel="noreferrer">Code128 label</a><a href={`/api/products/${encodeURIComponent(selected.id)}/label?sku=${encodeURIComponent(selected.sku)}&format=qrcode`} target="_blank" rel="noreferrer">QR label</a></div>}<label className="check-row"><input name="active" type="checkbox" defaultChecked={selected.active} />Publish to website</label><p>Stock is adjusted separately so every change has a movement record. Product photos remain managed only on the website.</p><button className="button secondary" type="button" onClick={() => setLabelProduct(selected)}>Print barcode labels</button><button className="button primary">Save changes</button></form></div>}
+      {selected && <ProductEditor product={selected} onClose={() => setSelected(null)} onPrint={() => setLabelProduct(selected)} onSave={input => saveProductEdit(selected, input)} />}
     </>}
     {tab === 'pos' && <><div className="pos-toolbar"><div className="stock-summary glass"><div><span>All product stock</span><strong>{stockUnits.toLocaleString('en-IN')} units</strong></div><div><span>Available stock retail value</span><strong>{money(stockRetailTotal)}</strong></div></div><button className="button secondary add-pos-product" onClick={() => setCreating(true)}><Plus size={18} />Add new product</button></div><div className="pos-layout"><section className="glass pos-catalog"><div className="commerce-toolbar"><h2>Scan or search a product</h2><label className="field-search"><Search size={20} /><input ref={scanRef} autoFocus placeholder="Scan barcode, type SKU or search name" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); scanOrFind(); } }} /></label></div><p className="microcopy">A USB or Bluetooth scanner can type the barcode here and press Enter. Press F2 to focus the scanner field, or choose a variant below when searching by name.</p>
       <div className="pos-products">{shownProducts.slice(0, 60).map(product => <div className="pos-product" key={product.id}><div><strong>{product.name}</strong><small>{product.sku} · {money(product.price)} each · {product.stock} available</small><small>Stock retail value {money(retailStockValue(product))}</small></div><select aria-label={`Add variant of ${product.name}`} value="" onChange={event => { if (event.target.value) addToCart(product, event.target.value); }}><option value="">Add variant</option>{(product.variants.length ? product.variants : [{ sku: product.sku, stock: product.stock, price: product.price }]).map(v => <option key={v.sku} value={v.sku} disabled={v.stock <= 0}>{v.size || 'Standard'} {v.color || ''} · {v.stock} left</option>)}</select></div>)}</div></section>

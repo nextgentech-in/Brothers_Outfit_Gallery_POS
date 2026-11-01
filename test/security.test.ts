@@ -115,6 +115,8 @@ test('business routes require CSRF and stay locked before schema review', async 
   assert.equal(locked.status, 423);
   const lockedProduct = await fetch(origin + '/api/products/create', { method: 'POST', headers: { ...headers, 'x-csrf-token': token }, body: '{}' });
   assert.equal(lockedProduct.status, 423);
+  const lockedBatchAdjustment = await fetch(origin + '/api/inventory/adjust-batch', { method: 'POST', headers: { ...headers, 'x-csrf-token': token }, body: '{}' });
+  assert.equal(lockedBatchAdjustment.status, 423);
 });
 test('forged sessions never reach protected data', async () => {
   const res = await fetch(origin + '/api/overview', { headers: { cookie: 'bo_session=forged-token' } });

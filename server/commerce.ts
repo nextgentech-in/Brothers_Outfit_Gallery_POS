@@ -22,13 +22,19 @@ const saleSchema = z.object({ requestId: key, lines: z.array(lineSchema).min(1).
   whatsappOptIn: z.boolean().default(false) }).strict();
 const adjustmentSchema = z.object({ requestId: key, productId: id, sku: id, delta: z.number().int().min(-10_000).max(10_000).refine(x => x !== 0),
   reason: z.enum(['purchase', 'adjustment', 'damage', 'return']), note: z.string().trim().max(500).optional() }).strict();
+const batchAdjustmentSchema = z.object({ requestId: key, productId: id,
+  adjustments: z.array(z.object({ sku: id, delta: z.number().int().min(-10_000).max(10_000).refine(x => x !== 0),
+    note: z.string().trim().max(500).optional() }).strict()).min(1).max(100)
+}).strict().refine(input => new Set(input.adjustments.map(item => item.sku)).size === input.adjustments.length);
 const productPatchSchema = z.object({ requestId: key, productId: id, patch: z.object({
   name: z.string().trim().min(1).max(200).optional(), description: z.string().trim().max(5000).optional(),
-  salePrice: money.optional(), mrp: money.optional(), active: z.boolean().optional(),
+  shortDescription: z.string().trim().max(500).optional(), category: z.string().trim().min(2).max(100).optional(),
+  subCategory: z.string().trim().max(100).optional(), gsl: z.string().trim().max(120).optional(),
+  salePrice: money.optional(), mrp: money.optional(), costPrice: money.optional(), active: z.boolean().optional(),
   primaryImageUrl: z.url().max(2048).optional(),
   barcode: id.or(z.literal('')).optional(),
   variantPatches: z.array(z.object({ sku: id, barcode: id.or(z.literal('')).optional(), size: z.string().trim().min(1).max(50),
-    color: z.string().trim().min(1).max(80), price: money })).max(100).optional(),
+    color: z.string().trim().min(1).max(80), price: money, costPrice: money.optional() })).max(100).optional(),
   images: z.array(z.object({ url: z.url().max(2048), isPrimary: z.boolean().optional(), color: z.string().max(80).optional() })).max(20).optional()
 }).strict().refine(x => Object.keys(x).length > 0) }).strict();
 const productCreateSchema = z.object({ requestId: key,
@@ -98,11 +104,14 @@ export function changeStock(product: Product, sku: string, delta: number): { pro
 function publicProduct(doc: FirebaseFirestore.QueryDocumentSnapshot) {
   const data = doc.data();
   return { id: doc.id, name: data.name || '', sku: data.sku || '', barcode: data.barcode || data.posBarcode || '', price: data.salePrice ?? data.price ?? 0,
-    mrp: data.mrp ?? 0, category: data.category || '', active: data.active !== false,
+    mrp: data.mrp ?? 0, costPrice: data.costPrice ?? data.cost_price ?? data.purchasePrice ?? 0,
+    category: data.category || '', subCategory: data.subCategory || '', shortDescription: data.shortDescription || '',
+    description: data.description || '', gsl: data.gsl || '', active: data.active !== false,
     stock: Number(data.stock ?? 0) - Number(data.reserved ?? 0),
     image: data.thumbnailUrl || data.image || data.images?.[0]?.url || data.images?.[0] || '',
     variants: (data.variants || []).map((v: Variant) => ({ sku: v.sku, barcode: v.barcode || v.posBarcode || '', size: v.size, color: v.color,
-      stock: Number(v.stock ?? v.quantity ?? 0) - Number(v.reserved ?? 0), price: Number(v.price ?? v.salePrice ?? data.salePrice ?? data.price ?? 0) })) };
+      stock: Number(v.stock ?? v.quantity ?? 0) - Number(v.reserved ?? 0), price: Number(v.price ?? v.salePrice ?? data.salePrice ?? data.price ?? 0),
+      costPrice: Number(v.costPrice ?? v.cost_price ?? v.purchasePrice ?? data.costPrice ?? data.cost_price ?? 0) })) };
 }
 async function idempotent<T>(db: Firestore, scope: string, requestId: string, payload: unknown,
   operation: (tx: Tx, commandRef: DocumentReference) => Promise<T>): Promise<T> {
@@ -348,7 +357,11 @@ commerceRouter.post('/products/patch', async (req, res) => {
       const before = Object.fromEntries(Object.keys(patch).map(field => [field, snapshot.data()?.[field] ?? null]));
       const { primaryImageUrl, variantPatches, ...direct } = patch;
       const after: Record<string, unknown> = { ...direct,
-        ...(patch.salePrice !== undefined ? { price: patch.salePrice } : {}), updatedAt: FieldValue.serverTimestamp() };
+        ...(patch.salePrice !== undefined ? { price: patch.salePrice } : {}),
+        ...(patch.costPrice !== undefined ? { cost_price: patch.costPrice, purchasePrice: patch.costPrice, purchase_price: patch.costPrice } : {}),
+        ...(patch.category !== undefined ? { categoryId: patch.category, categoryKey: patch.category.toLowerCase().replace(/[^a-z0-9]+/g, '-') } : {}),
+        ...(patch.subCategory !== undefined ? { subCategoryKey: patch.subCategory.toLowerCase().replace(/[^a-z0-9]+/g, '-') } : {}),
+        updatedAt: FieldValue.serverTimestamp() };
       if (primaryImageUrl) {
         const existing = Array.isArray(snapshot.data()?.images) ? snapshot.data()!.images : [];
         const rest = existing.filter((image: unknown) => (typeof image === 'string' ? image : (image as { url?: string })?.url) !== primaryImageUrl);
@@ -365,7 +378,8 @@ commerceRouter.post('/products/patch', async (req, res) => {
         after.variants = existing.map(variant => {
           const edit = changes.get(String(variant.sku || ''));
           if (!edit) throw Object.assign(new Error('Variant SKU changed; refresh before editing.'), { status: 409 });
-          return { ...variant, barcode: edit.barcode ?? variant.barcode ?? '', size: edit.size, color: edit.color, price: edit.price, salePrice: edit.price };
+          return { ...variant, barcode: edit.barcode ?? variant.barcode ?? '', size: edit.size, color: edit.color, price: edit.price, salePrice: edit.price,
+            ...(edit.costPrice !== undefined ? { costPrice: edit.costPrice, cost_price: edit.costPrice, purchasePrice: edit.costPrice, purchase_price: edit.costPrice } : {}) };
         });
         after.sizes = [...new Set((after.variants as Variant[]).filter(v => Number(v.stock ?? v.quantity ?? 0) > 0).map(v => v.size).filter(Boolean))];
       }
@@ -420,6 +434,34 @@ commerceRouter.post('/inventory/adjust', async (req, res) => {
         source: 'admin', note: input.note || '', createdAt: FieldValue.serverTimestamp()
       });
       return { productId: input.productId, sku: input.sku, stockAfter: changed.after };
+    });
+    res.json(result);
+  } catch (error) { fail(res, error); }
+});
+
+commerceRouter.post('/inventory/adjust-batch', async (req, res) => {
+  const parsed = batchAdjustmentSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(422).json({ error: 'Invalid variant stock adjustments.' }); return; }
+  try {
+    const input = parsed.data, db = firebase().db;
+    const result = await idempotent(db, 'stock_adjustment_batch', input.requestId, input, async tx => {
+      const ref = db.collection('products').doc(input.productId), doc = await tx.get(ref);
+      if (!doc.exists) throw Object.assign(new Error('Product not found.'), { status: 404 });
+      let current = doc.data() as Product;
+      const changes: { sku: string; delta: number; stockAfter: number }[] = [];
+      for (const adjustment of input.adjustments) {
+        const changed = changeStock(current, adjustment.sku, adjustment.delta);
+        current = changed.product;
+        const movementId = `erp_${hash(`${input.requestId}:${adjustment.sku}`)}`;
+        tx.create(db.collection('stockMovements').doc(movementId), {
+          movementId, productId: input.productId, sku: adjustment.sku, deltaChange: adjustment.delta,
+          stockAfter: changed.after, reason: 'adjustment', source: 'admin-product-edit',
+          note: adjustment.note || 'Adjusted from Edit product', createdAt: FieldValue.serverTimestamp()
+        });
+        changes.push({ sku: adjustment.sku, delta: adjustment.delta, stockAfter: changed.after });
+      }
+      tx.update(ref, { ...current, updatedAt: FieldValue.serverTimestamp() });
+      return { productId: input.productId, changes };
     });
     res.json(result);
   } catch (error) { fail(res, error); }
