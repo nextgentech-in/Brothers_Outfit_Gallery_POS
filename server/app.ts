@@ -169,7 +169,13 @@ export function createApp(options: AppOptions = {}) {
       res.clearCookie(sessionName, cookieOptions).clearCookie(csrfName, cookieOptions).json({ success: true });
     } catch { res.status(503).json({ error: 'Sign-out could not be completed. Please retry.' }); }
   });
-  app.get('/api/foundation', (_req, res) => res.json({ mapping, phases, businessWritesEnabled: config.businessWritesEnabled }));
+  app.get('/api/foundation', async (_req, res) => {
+    if (!config.businessWritesEnabled) { res.json({ mapping, phases, businessWritesEnabled: false }); return; }
+    try {
+      const rollout = await firebase().db.collection('erp_settings').doc('commerce').get();
+      res.json({ mapping, phases, businessWritesEnabled: rollout.data()?.enabled === true });
+    } catch { res.status(503).json({ error: 'Store activation status is unavailable.' }); }
+  });
   app.get('/api/overview', async (_req, res) => {
     try {
       const overview = options.overview ? await options.overview() : await readOverview();

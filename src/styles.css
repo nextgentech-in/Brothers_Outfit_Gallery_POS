@@ -117,3 +117,4 @@
 @media print{.invoice-sheet{padding:0!important}.invoice-title>span{background:#fff!important}.invoice-meta{background:#f6f3ed!important;print-color-adjust:exact}.invoice-sheet thead{display:table-header-group}.invoice-sheet tr{break-inside:avoid}.invoice-footer{break-inside:avoid}}
 @media(max-width:850px){.product-editor-grid{grid-template-columns:1fr 1fr}.product-editor-section>.section-heading{display:block}.product-editor-section>.section-heading .button{margin-top:12px}}
 @media(max-width:550px){.product-editor-grid{grid-template-columns:1fr}.product-editor-header,.product-editor-section,.product-editor-actions{padding-left:17px;padding-right:17px}.product-editor-actions .button{flex:1}.variant-edit-heading{align-items:flex-start;flex-direction:column}}
+.checkout-actions .primary{grid-column:1/-1}

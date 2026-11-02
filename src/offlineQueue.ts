@@ -15,20 +15,21 @@ const DB_NAME = 'brothers-pos-offline';
 const STORE = 'sales';
 function db(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 2);
+    const request = indexedDB.open(DB_NAME, 3);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(STORE)) request.result.createObjectStore(STORE, { keyPath: 'requestId' });
       if (!request.result.objectStoreNames.contains('catalog')) request.result.createObjectStore('catalog');
+      if (!request.result.objectStoreNames.contains('heldBills')) request.result.createObjectStore('heldBills', { keyPath: 'requestId' });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
 }
-async function request<T>(mode: IDBTransactionMode, operation: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+async function request<T>(mode: IDBTransactionMode, operation: (store: IDBObjectStore) => IDBRequest<T>, storeName = STORE): Promise<T> {
   const database = await db();
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction(STORE, mode);
-    const action = operation(transaction.objectStore(STORE));
+    const transaction = database.transaction(storeName, mode);
+    const action = operation(transaction.objectStore(storeName));
     let result: T;
     action.onsuccess = () => { result = action.result; };
     action.onerror = () => reject(action.error);
@@ -39,6 +40,9 @@ async function request<T>(mode: IDBTransactionMode, operation: (store: IDBObject
 export const queueSale = (sale: QueuedSale) => request('readwrite', store => store.put(sale));
 export const queuedSales = () => request<QueuedSale[]>('readonly', store => store.getAll());
 export const removeSale = (requestId: string) => request('readwrite', store => store.delete(requestId));
+export const holdBill = (sale: QueuedSale) => request('readwrite', store => store.put(sale), 'heldBills');
+export const heldBills = () => request<QueuedSale[]>('readonly', store => store.getAll(), 'heldBills');
+export const removeHeldBill = (id: string) => request('readwrite', store => store.delete(id), 'heldBills');
 export async function cacheCatalog<T>(products: T[]) {
   const database = await db();
   await new Promise<void>((resolve, reject) => {
@@ -65,8 +69,8 @@ export async function syncQueuedSales(send: (sale: QueuedSale) => Promise<void>)
     if (sale.state === 'review') { results.review++; continue; }
     try { await send(sale); await removeSale(sale.requestId); results.sent++; }
     catch (error) {
-      if ((error as { status?: number }).status === 409) {
-        await queueSale({ ...sale, state: 'review', error: 'Stock or identity conflict. Review before retrying.' });
+      if ([400, 403, 409, 422].includes((error as { status?: number }).status || 0)) {
+        await queueSale({ ...sale, state: 'review', error: (error as Error).message || 'This bill was rejected. Review before retrying.' });
         results.review++;
       } else results.pending++;
     }
