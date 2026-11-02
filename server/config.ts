@@ -52,6 +52,11 @@ export const config = {
   businessWritesEnabled: env.ADMIN_BUSINESS_WRITES === 'enabled',
   erpSyncSecret: env.ERP_SYNC_SECRET || '',
   imagekitPrivateKey: env.IMAGEKIT_PRIVATE_KEY || '',
+  sms: {
+    apiKey: env.FAST2SMS_API_KEY || '',
+    senderId: env.FAST2SMS_DLT_SENDER_ID || '',
+    templateId: env.FAST2SMS_DLT_BILL_TEMPLATE_ID || ''
+  },
   whatsapp: {
     graphVersion: env.WA_GRAPH_VERSION || '', phoneNumberId: env.WA_PHONE_NUMBER_ID || '',
     accessToken: env.WA_ACCESS_TOKEN || '', templateName: env.WA_TEMPLATE_NAME || '',

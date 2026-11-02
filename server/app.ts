@@ -10,6 +10,8 @@ import { cookieValue, csrfGuard, csrfToken, loginLimiter } from './security.js';
 import { mapping, phases, type Overview, type DashboardSummary } from '../shared/contracts.js';
 import { commerceRouter } from './commerce.js';
 import { deliverInvoice } from './whatsapp.js';
+import { validBillLink } from './billLink.js';
+import { invoicePdf } from './invoicePdf.js';
 import { deviceAccess, type DeviceAccess } from './deviceAccess.js';
 
 export type AppOptions = { auth?: AuthService; devices?: DeviceAccess; overview?: () => Promise<Overview> };
@@ -56,6 +58,20 @@ export function createApp(options: AppOptions = {}) {
   });
   app.use(express.json({ limit: '16kb' }));
   app.get('/api/health', (_req, res) => res.json({ status: 'ok', phase: 'review-preview' }));
+  app.get('/api/public/bills/:invoiceId/pdf', rateLimit({ windowMs: 60_000, limit: 30,
+    standardHeaders: 'draft-8', legacyHeaders: false }), async (req, res) => {
+    const invoiceId = String(req.params.invoiceId || '');
+    if (!validBillLink(invoiceId, req.query.expires, req.query.sig)) {
+      res.status(404).json({ error: 'Bill link is invalid or expired.' }); return;
+    }
+    try {
+      const snap = await firebase().db.collection('erp_invoices').doc(invoiceId).get();
+      if (!snap.exists) { res.status(404).json({ error: 'Bill not found.' }); return; }
+      res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="' + invoiceId + '.pdf"',
+        'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex, nofollow' })
+        .send(invoicePdf({ id: invoiceId, ...snap.data() }));
+    } catch { res.status(503).json({ error: 'Bill is temporarily unavailable.' }); }
+  });
   app.get('/api/auth/csrf', (_req, res) => {
     const token = csrfToken();
     res.cookie(csrfName, token, { ...cookieOptions, maxAge: config.sessionMs }).json({ token });
