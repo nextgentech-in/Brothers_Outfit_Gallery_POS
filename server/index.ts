@@ -6,7 +6,6 @@ import { config, root } from './config.js';
 import { createApp } from './app.js';
 import { firebase } from './firebase.js';
 import { deliverInvoice, whatsappReady } from './whatsapp.js';
-import { deliverBillSms, billSmsReady } from './billSms.js';
 
 const app = createApp();
 const server = createServer(app);
@@ -28,17 +27,14 @@ server.listen(config.port, config.host, () => console.log(`Brothers Outfit Admin
 
 let deliveryWorkerBusy = false;
 const deliveryWorker = setInterval(async () => {
-  if (deliveryWorkerBusy || !config.businessWritesEnabled || (!whatsappReady() && !billSmsReady())) return;
+  if (deliveryWorkerBusy || !config.businessWritesEnabled || !whatsappReady()) return;
   deliveryWorkerBusy = true;
   try {
     const db = firebase().db;
     const rollout = await db.collection('erp_settings').doc('commerce').get();
     if (rollout.data()?.enabled !== true) return;
     const pending = await db.collection('erp_syncLog').where('status', '==', 'awaiting_provider').limit(20).get();
-    for (const event of pending.docs) {
-      if (event.data().event === 'invoice_delivery' && whatsappReady()) await deliverInvoice(db, event.id);
-      if (event.data().event === 'sms_bill_delivery' && billSmsReady()) await deliverBillSms(db, event.id);
-    }
+    for (const event of pending.docs) await deliverInvoice(db, event.id);
   } catch { /* A pending outbox record remains for the next attempt. */ }
   finally { deliveryWorkerBusy = false; }
 }, 45_000);

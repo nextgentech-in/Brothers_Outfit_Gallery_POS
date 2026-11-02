@@ -8,7 +8,6 @@ import { firebase } from './firebase.js';
 import { invoicePdf } from './invoicePdf.js';
 import { deliverInvoice } from './whatsapp.js';
 import { customerBillUrl } from './billLink.js';
-import { deliverBillSms } from './billSms.js';
 import { customerKey } from './customerIdentity.js';
 import { config } from './config.js';
 
@@ -21,7 +20,7 @@ const saleSchema = z.object({ requestId: key, lines: z.array(lineSchema).min(1).
   customerName: z.string().trim().max(120).optional(), customerPhone: z.string().trim().max(20).optional(),
   customerEmail: z.email().max(254).optional(),
   discount: money.default(0), paymentMethod: z.enum(['cash', 'upi', 'card', 'credit']),
-  whatsappOptIn: z.boolean().default(false), smsOptIn: z.boolean().default(false) }).strict();
+  whatsappOptIn: z.boolean().default(false) }).strict();
 const adjustmentSchema = z.object({ requestId: key, productId: id, sku: id, delta: z.number().int().min(-10_000).max(10_000).refine(x => x !== 0),
   reason: z.enum(['purchase', 'adjustment', 'damage', 'return']), note: z.string().trim().max(500).optional() }).strict();
 const batchAdjustmentSchema = z.object({ requestId: key, productId: id,
@@ -233,23 +232,20 @@ commerceRouter.post('/sync/retry', async (req, res) => {
     const result = await idempotent(db, 'sync_retry', input.requestId, input, async tx => {
       const ref = db.collection('erp_syncLog').doc(input.eventId);
       const snap = await tx.get(ref);
-      if (!snap.exists || !['invoice_delivery', 'sms_bill_delivery'].includes(snap.data()?.event)) throw Object.assign(new Error('Delivery event not found.'), { status: 404 });
+      if (!snap.exists || snap.data()?.event !== 'invoice_delivery') throw Object.assign(new Error('Delivery event not found.'), { status: 404 });
       const event = snap.data()!;
       if (!['failed', 'awaiting_provider'].includes(event.status)) {
         throw Object.assign(new Error('Only failed or pending deliveries can be retried.'), { status: 409 });
       }
       const invoice = await tx.get(db.collection('erp_invoices').doc(String(event.invoiceId || '')));
-      if (!invoice.exists || (event.event === 'invoice_delivery' && invoice.data()?.whatsappOptIn !== true) ||
-          (event.event === 'sms_bill_delivery' && !invoice.data()?.customerPhone)) {
+      if (!invoice.exists || invoice.data()?.whatsappOptIn !== true) {
         throw Object.assign(new Error('Customer receipt consent is missing.'), { status: 409 });
       }
       tx.update(ref, { status: 'awaiting_provider', retryCount: Number(event.retryCount || 0) + 1,
         error: null, updatedAt: FieldValue.serverTimestamp() });
       return { eventId: input.eventId, queued: true };
     });
-    const event = await db.collection('erp_syncLog').doc(input.eventId).get();
-    const delivery = event.data()?.event === 'sms_bill_delivery'
-      ? await deliverBillSms(db, input.eventId) : await deliverInvoice(db, input.eventId);
+    const delivery = await deliverInvoice(db, input.eventId);
     res.json({ ...result, delivery });
   } catch (error) { fail(res, error); }
 });
@@ -604,17 +600,10 @@ commerceRouter.post('/pos/sale', async (req, res) => {
         source: 'pos', status: input.whatsappOptIn && input.customerPhone ? 'awaiting_provider' : 'consent_missing',
         invoiceId, retryCount: 0, createdAt: FieldValue.serverTimestamp()
       });
-      tx.create(db.collection('erp_syncLog').doc(`sms_${hash(input.requestId)}`), { event: 'sms_bill_delivery',
-        source: 'pos', status: input.smsOptIn && input.customerPhone ? 'awaiting_provider' : 'consent_missing',
-        invoiceId, retryCount: 0, createdAt: FieldValue.serverTimestamp()
-      });
       return { orderId, invoiceId, total, channel: 'POS' };
     });
     if (input.whatsappOptIn && input.customerPhone) await deliverInvoice(db, `invoice_${hash(input.requestId)}`).catch(() => {});
-    const sms = input.smsOptIn && input.customerPhone
-      ? await deliverBillSms(db, `sms_${hash(input.requestId)}`).catch(() => ({ status: 'unknown' }))
-      : { status: 'consent_missing' };
-    res.status(201).json({ ...result, billUrl: customerBillUrl(result.invoiceId), smsStatus: sms.status });
+    res.status(201).json({ ...result, billUrl: customerBillUrl(result.invoiceId) });
   } catch (error) { fail(res, error); }
 });
 

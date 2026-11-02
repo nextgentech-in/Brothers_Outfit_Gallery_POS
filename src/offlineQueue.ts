@@ -5,7 +5,6 @@ export type QueuedSale = {
   customerPhone?: string;
   customerEmail?: string;
   whatsappOptIn?: boolean;
-  smsOptIn?: boolean;
   discount: number;
   paymentMethod: 'cash' | 'upi' | 'card' | 'credit';
   queuedAt: string;
