@@ -4,6 +4,10 @@ export type QueuedSale = {
   customerName?: string;
   customerPhone?: string;
   customerEmail?: string;
+  customerDateOfBirth?: string;
+  birthdayOffersOptIn?: boolean;
+  creditDueDate?: string;
+  creditWhatsAppOptIn?: boolean;
   whatsappOptIn?: boolean;
   discount: number;
   paymentMethod: 'cash' | 'upi' | 'card' | 'credit';

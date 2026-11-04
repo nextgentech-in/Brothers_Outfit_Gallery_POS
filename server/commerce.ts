@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import express, { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
-import { FieldValue, type DocumentData, type DocumentReference, type Firestore } from 'firebase-admin/firestore';
+import { FieldValue, type DocumentData } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { toSVG } from '@bwip-js/node';
 import { firebase } from './firebase.js';
@@ -9,7 +9,14 @@ import { invoicePdf } from './invoicePdf.js';
 import { deliverInvoice } from './whatsapp.js';
 import { customerBillUrl } from './billLink.js';
 import { customerKey } from './customerIdentity.js';
+import { customerDirectory, customerProfileFields } from './customers.js';
+import { customerDetailsError, mobileNumber } from '../shared/customers.js';
 import { config } from './config.js';
+import { idempotent } from './transactions.js';
+import { appendCreditEntry, readCreditState } from './creditLedger.js';
+import { deliverCustomerMessage, queueCustomerMessage } from './customerMessages.js';
+import { validDueDate } from '../shared/credit.js';
+import { shopDate } from '../shared/customers.js';
 
 const id = z.string().trim().min(1).max(128).regex(/^[\w.:-]+$/);
 const key = z.string().trim().min(12).max(128).regex(/^[\w.:-]+$/);
@@ -19,8 +26,21 @@ const lineSchema = z.object({ productId: id, sku: id, quantity: positiveInt }).s
 const saleSchema = z.object({ requestId: key, lines: z.array(lineSchema).min(1).max(30),
   customerName: z.string().trim().max(120).optional(), customerPhone: z.string().trim().max(20).optional(),
   customerEmail: z.email().max(254).optional(),
+  customerDateOfBirth: z.string().max(10).optional(), birthdayOffersOptIn: z.boolean().optional(),
+  creditDueDate: z.string().max(10).optional(), creditWhatsAppOptIn: z.boolean().optional(),
   discount: money.default(0), paymentMethod: z.enum(['cash', 'upi', 'card', 'credit']),
-  whatsappOptIn: z.boolean().default(false) }).strict();
+  whatsappOptIn: z.boolean().default(false) }).strict().superRefine((input, ctx) => {
+    const error = customerDetailsError(input.customerPhone || '', input.customerDateOfBirth || '');
+    if (error) ctx.addIssue({ code: 'custom', path: ['customerDateOfBirth'], message: error });
+    if (input.birthdayOffersOptIn && !input.customerPhone?.trim())
+      ctx.addIssue({ code: 'custom', path: ['birthdayOffersOptIn'], message: 'A mobile number is required for birthday offers.' });
+    if (input.paymentMethod === 'credit') {
+      if (!input.customerName?.trim() || !mobileNumber(input.customerPhone || ''))
+        ctx.addIssue({ code: 'custom', message: 'Customer name and mobile number are required for udhar.' });
+      if (!validDueDate(input.creditDueDate) || input.creditDueDate < shopDate())
+        ctx.addIssue({ code: 'custom', message: 'Choose a credit repayment due date today or later.' });
+    }
+  });
 const adjustmentSchema = z.object({ requestId: key, productId: id, sku: id, delta: z.number().int().min(-10_000).max(10_000).refine(x => x !== 0),
   reason: z.enum(['purchase', 'adjustment', 'damage', 'return']), note: z.string().trim().max(500).optional() }).strict();
 const batchAdjustmentSchema = z.object({ requestId: key, productId: id,
@@ -65,7 +85,6 @@ const rupees = (value: unknown) => Math.round(Number(value || 0) * 100);
 const safe = (value: unknown) => JSON.parse(JSON.stringify(value));
 type Variant = { sku?: string; stock?: number; quantity?: number; reserved?: number; price?: number; salePrice?: number; size?: string; color?: string; [key: string]: unknown };
 type Product = DocumentData & { variants?: Variant[]; stock?: number; quantity?: number; reserved?: number; active?: boolean; name?: string; sku?: string; salePrice?: number; price?: number };
-type Tx = Parameters<Firestore['runTransaction']>[0] extends (tx: infer T) => unknown ? T : never;
 
 export function fiscalYear(now = new Date()) {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', year: 'numeric', month: 'numeric' }).formatToParts(now);
@@ -114,22 +133,6 @@ function publicProduct(doc: FirebaseFirestore.QueryDocumentSnapshot) {
       stock: Number(v.stock ?? v.quantity ?? 0) - Number(v.reserved ?? 0), price: Number(v.price ?? v.salePrice ?? data.salePrice ?? data.price ?? 0),
       costPrice: Number(v.costPrice ?? v.cost_price ?? v.purchasePrice ?? data.costPrice ?? data.cost_price ?? 0) })) };
 }
-async function idempotent<T>(db: Firestore, scope: string, requestId: string, payload: unknown,
-  operation: (tx: Tx, commandRef: DocumentReference) => Promise<T>): Promise<T> {
-  const commandRef = db.collection('erp_commands').doc(hash(`${scope}:${requestId}`));
-  const fingerprint = hash(JSON.stringify(payload));
-  return db.runTransaction(async tx => {
-    const old = await tx.get(commandRef);
-    if (old.exists) {
-      if (old.data()?.fingerprint !== fingerprint) throw Object.assign(new Error('Idempotency key reused with different data.'), { status: 409 });
-      return old.data()?.result as T;
-    }
-    const result = await operation(tx, commandRef);
-    tx.create(commandRef, { scope, requestId, fingerprint, result: safe(result), createdAt: FieldValue.serverTimestamp() });
-    return result;
-  });
-}
-
 export const commerceRouter = Router();
 commerceRouter.get('/products', async (_req, res) => {
   try { const docs = await firebase().db.collection('products').get();
@@ -184,9 +187,21 @@ commerceRouter.get('/orders', async (_req, res) => {
   catch { res.status(503).json({ error: 'Orders are unavailable.' }); }
 });
 commerceRouter.get('/customers', async (_req, res) => {
-  try { const docs = await firebase().db.collection('users').limit(150).get();
-    res.json({ items: docs.docs.map(d => ({ id: d.id, fullName: d.data().fullName || '', phone: d.data().phone || '', email: d.data().email || '' })) }); }
+  try {
+    const db = firebase().db;
+    const [users, profiles] = await Promise.all([db.collection('users').get(), db.collection('erp_customerProfiles').get()]);
+    res.json({ items: customerDirectory(users.docs.map(d => ({ id: d.id, data: d.data() })),
+      profiles.docs.map(d => ({ id: d.id, data: d.data() }))) });
+  }
   catch { res.status(503).json({ error: 'Customers are unavailable.' }); }
+});
+commerceRouter.get('/customers/by-phone', async (req, res) => {
+  const phone = typeof req.query.phone === 'string' ? mobileNumber(req.query.phone) : '';
+  if (!phone) { res.status(422).json({ error: 'Enter a valid mobile number.' }); return; }
+  try {
+    const profile = await firebase().db.collection('erp_customerProfiles').doc(customerKey(phone, '')).get();
+    res.json({ customer: profile.exists ? customerDirectory([], [{ id: profile.id, data: profile.data()! }])[0] : null });
+  } catch { res.status(503).json({ error: 'Saved customer details are unavailable. Enter the date of birth to continue.' }); }
 });
 commerceRouter.get('/suppliers', async (_req, res) => {
   try { const docs = await firebase().db.collection('erp_suppliers').orderBy('createdAt', 'desc').limit(100).get();
@@ -534,10 +549,13 @@ commerceRouter.post('/purchases/receive', async (req, res) => {
 
 commerceRouter.post('/pos/sale', async (req, res) => {
   const parsed = saleSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(422).json({ error: 'Invalid sale.' }); return; }
+  if (!parsed.success) { res.status(422).json({ error: parsed.error.issues.find(issue => issue.code === 'custom')?.message || 'Invalid sale.' }); return; }
   try {
     const input = parsed.data, db = firebase().db;
     const result = await idempotent(db, 'pos_sale', input.requestId, input, async tx => {
+      const identity = customerKey(input.customerPhone, input.customerEmail);
+      const creditState = input.paymentMethod === 'credit' ? await readCreditState(db, tx, identity) : null;
+      const creditProfile = creditState ? await tx.get(db.collection('erp_customerProfiles').doc(identity)) : null;
       const fy = fiscalYear(), counterRef = db.collection('erp_invoiceSequences').doc(fy);
       const orderId = `POS-${hash(input.requestId).slice(0,24)}`;
       const products = new Map<string, Product>();
@@ -575,15 +593,20 @@ commerceRouter.post('/pos/sale', async (req, res) => {
         paymentMethod: input.paymentMethod, customerName: input.customerName || '', customerPhone: input.customerPhone || '',
         createdBy: 'admin-pos', inventoryDeducted: true, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()
       });
-      const identity = customerKey(input.customerPhone, input.customerEmail);
       tx.create(db.collection('erp_orderMeta').doc(orderId), { channel: 'POS', invoiceId,
         customerKey: identity || null, createdAt: FieldValue.serverTimestamp() });
       if (identity) {
         tx.set(db.collection('erp_customerProfiles').doc(identity), {
-          customerKey: identity, name: input.customerName || '', phone: input.customerPhone || '',
-          email: input.customerEmail || '', updatedAt: FieldValue.serverTimestamp()
+          customerKey: identity, ...customerProfileFields(input),
+          ...(creditState && input.creditWhatsAppOptIn !== undefined ? { creditWhatsAppOptIn: input.creditWhatsAppOptIn } : {}), updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
-        tx.create(db.collection('erp_customerLedger').doc(orderId), {
+        if (creditState) {
+          const summary = appendCreditEntry(db, tx, creditState, orderId, { kind: 'credit', creditDelta: total, loyaltyDelta: 0,
+            orderId, invoiceId, dueDate: input.creditDueDate!, note: `POS bill ${invoiceId}`, paymentMethod: 'credit' });
+          queueCustomerMessage(db, tx, `credit_${hash(input.requestId)}`, { customerKey: identity, name: input.customerName!, phone: mobileNumber(input.customerPhone!),
+            action: 'Credit sale recorded', amount: total, balance: summary.balance, dueDate: input.creditDueDate!,
+            consent: input.creditWhatsAppOptIn ?? creditProfile?.data()?.creditWhatsAppOptIn === true });
+        } else tx.create(db.collection('erp_customerLedger').doc(orderId), {
           customerKey: identity, orderId, invoiceId, channel: 'POS',
           creditDelta: input.paymentMethod === 'credit' ? total : 0,
           loyaltyDelta: input.paymentMethod === 'credit' ? 0 : Math.floor(total / 100),
@@ -594,7 +617,8 @@ commerceRouter.post('/pos/sale', async (req, res) => {
         customerName: input.customerName || '', customerPhone: input.customerPhone || '', customerEmail: input.customerEmail || '',
         customerKey: identity || null, lines: lineSnapshots,
         subtotal: subtotalPaise / 100, discount: discountPaise / 100, total, paymentMethod: input.paymentMethod,
-        channel: 'POS', kind: 'sales_receipt', whatsappOptIn: input.whatsappOptIn, createdAt: FieldValue.serverTimestamp()
+        channel: 'POS', kind: 'sales_receipt', whatsappOptIn: input.whatsappOptIn, createdAt: FieldValue.serverTimestamp(),
+        ...(creditState ? { creditDueDate: input.creditDueDate } : {})
       });
       tx.create(db.collection('erp_syncLog').doc(`invoice_${hash(input.requestId)}`), { event: 'invoice_delivery',
         source: 'pos', status: input.whatsappOptIn && input.customerPhone ? 'awaiting_provider' : 'consent_missing',
@@ -603,6 +627,7 @@ commerceRouter.post('/pos/sale', async (req, res) => {
       return { orderId, invoiceId, total, channel: 'POS' };
     });
     if (input.whatsappOptIn && input.customerPhone) await deliverInvoice(db, `invoice_${hash(input.requestId)}`).catch(() => {});
+    if (input.paymentMethod === 'credit') await deliverCustomerMessage(db, `credit_${hash(input.requestId)}`).catch(() => {});
     res.status(201).json({ ...result, billUrl: customerBillUrl(result.invoiceId) });
   } catch (error) { fail(res, error); }
 });
@@ -732,6 +757,10 @@ commerceRouter.post('/orders/return', async (req, res) => {
       if (order.status !== 'Delivered' || !order.inventoryDeducted || order.stockRestoredAt) {
         throw Object.assign(new Error('Only a delivered, stock-deducted order can be returned.'), { status: 409 });
       }
+      const meta = order.paymentMethod === 'credit' ? await tx.get(db.collection('erp_orderMeta').doc(input.orderId)) : null;
+      const creditIdentity = meta?.data()?.customerKey;
+      const creditState = creditIdentity ? await readCreditState(db, tx, creditIdentity) : null;
+      const creditCancelled = creditState?.summary.debts.find(debt => debt.id === input.orderId)?.remaining || 0;
       const items = Array.isArray(order.items) ? order.items : [];
       if (!items.length) throw Object.assign(new Error('Order has no returnable items.'), { status: 409 });
       const refs = [...new Set(items.map((item: DocumentData) => String(item.productId || item.id || '')))].filter(Boolean)
@@ -745,6 +774,9 @@ commerceRouter.post('/orders/return', async (req, res) => {
       });
       const nextNumber = Number(counter.data()?.lastNumber || 0) + 1;
       const creditNoteId = `BOG-CN-${fy}-${String(nextNumber).padStart(5, '0')}`;
+      if (creditState && creditCancelled > 0) appendCreditEntry(db, tx, creditState, `return_${hash(input.orderId)}`, {
+        kind: 'return', creditDelta: -creditCancelled, appliesTo: input.orderId, orderId: input.orderId, note: `Credit cancelled by ${creditNoteId}`
+      });
       items.forEach((item: DocumentData, index: number) => {
         const productId = String(item.productId || item.id || '');
         const product = working.get(productId);
@@ -762,6 +794,7 @@ commerceRouter.post('/orders/return', async (req, res) => {
       for (const ref of refs) tx.update(ref, { ...working.get(ref.id), updatedAt: FieldValue.serverTimestamp() });
       tx.set(counterRef, { lastNumber: nextNumber, updatedAt: FieldValue.serverTimestamp() });
       tx.create(returnRef, { orderId: input.orderId, creditNoteId, reason: input.reason,
+        creditCancelled, refundAmountToReview: Math.max(0, Number(order.totalAmount || 0) - creditCancelled),
         refundStatus: 'review_required', createdAt: FieldValue.serverTimestamp() });
       tx.create(db.collection('erp_creditNotes').doc(creditNoteId), {
         orderId: input.orderId, creditNoteNumber: nextNumber, fiscalYear: fy, reason: input.reason,

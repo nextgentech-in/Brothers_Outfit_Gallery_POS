@@ -25,6 +25,30 @@ Sign in with the four-digit PIN configured as `ADMIN_PIN` in the admin project's
 
 The preview binds to `127.0.0.1`. Its business-write routes return HTTP 423 unless `ADMIN_BUSINESS_WRITES=enabled` is configured server-side. Keep that lock in place until the schema, stock-writer cutover and checkout changes are reviewed. Hosted sign-in has a distributed login limiter and requires a valid trusted-device cookie, because the requested four-digit PIN is already known publicly.
 
+## Customer birthdays in billing
+
+Select **Mobile number** in Checkout to open the customer dialog. A valid date of birth is required whenever a mobile number is added; walk-in bills can still omit both. Indian mobile numbers may be entered as 10 digits, and international numbers need their country code. Existing POS birthdays are looked up by mobile number. Confirm the birthday with the customer before using the details.
+
+Birthdays are saved only when the sale succeeds, in `erp_customerProfiles/{customerKey}.dateOfBirth` as a date-only `YYYY-MM-DD` string. The separate `birthdayOffersOptIn` field records whether the customer agreed to birthday offers; receipt-sharing consent does not enable offers. The **Customers** view combines website accounts and POS profiles, shows dates of birth, and filters birthdays for today or this month using India time. The **Birthday offer** action opens a WhatsApp draft for opted-in customers; staff review it and tap Send. It does not send automatically.
+
+Held and offline bills retain birthday details. Completing or queuing a bill clears its customer details for the next customer. Legacy held bills with a phone prompt for a birthday before checkout; older queued bills without a birthday remain available for review if rejected by the new validation. DOB stays off receipts and public bill PDFs. All existing sale activation gates still apply; no live migration is needed for the additive profile fields.
+
+## Customer credit (udhar) and WhatsApp
+
+**Udhar / Credit** shows customer balances in red and payments received in green. Add a customer with an optional opening balance, add credit, or record a partial/full repayment by cash, UPI or card. Credit entries require one due date; quick choices set 7, 15 or 30 days. The customer history keeps every credit, repayment and return adjustment. Partial repayments settle the oldest credit first; overdue amounts use the shop date in India. Earlier credit entries without dates stay visible as undated debt.
+
+Selecting **Credit / udhaar** during billing requires the customer's name, mobile, birthday and repayment date. The same transaction saves the credit entry with the sale. Held/offline bills retain that date. Credit PDFs say **PAYMENT DUE**, and full returns cancel only the unpaid part of the returned bill; any already-paid part remains subject to the existing refund review.
+
+Ledger entries stay in `erp_customerLedger`. New entries include `kind`, `sequence`, `dueDate`, `note` and `paymentMethod`; return reductions identify the original entry through `appliesTo`. `erp_creditAccounts/{customerKey}` serializes changes to each account. Repayment amounts cannot exceed the outstanding balance, and stable request IDs make retries idempotent. No migration or balance rewrite is applied automatically. All new mutation routes retain authentication, CSRF and both commerce-write gates.
+
+**WhatsApp** shows configured/missing settings, a live Meta connection check, sending-number details, quality rating, template approval when checkable, and customer message history. Automatic account creation, credit and repayment messages use the separate `creditWhatsAppOptIn` preference. New messages are created atomically in `erp_customerMessages` with the ledger change. They are attempted after commit and remain queued if provider settings are missing. Accepted means accepted by Meta, not delivered/read; delivery webhooks are not implemented. Ambiguous timeouts and interrupted sends require review rather than automatic resend. Confirmed rejections support an explicit retry.
+
+For automatic account messages configure `WA_GRAPH_VERSION`, `WA_PHONE_NUMBER_ID`, `WA_ACCESS_TOKEN`, `WA_CREDIT_TEMPLATE_NAME`, and `WA_TEMPLATE_LANGUAGE`. Configure `WA_BUSINESS_ACCOUNT_ID` to check template approval. Keep `WA_TEMPLATE_NAME` for the existing receipt-PDF template. Meta calls require HTTPS access to `graph.facebook.com`. Provide values through the server's secure environment settings, not frontend code.
+
+The approved account/credit utility template must use a static body with **five positional text parameters**, in this order: customer name, activity, transaction amount, remaining balance, repayment due date (or “No payment due”). Example body for provider review: `Hello {{1}}, your Brothers Outfit Gallery account update: {{2}}. Amount: {{3}}. Balance: {{4}}. Repayment due: {{5}}.` The account owner must obtain Meta approval for their template and language before sending.
+
+The dedicated Node server processes queued customer messages every 45 seconds while commerce writes are enabled. Vercel Functions do not run that background loop: new events are attempted during their request; use **Process queued messages** or a separately configured authenticated worker for pending delivery. Due-date reminder messages are not scheduled automatically. Real Firebase, provider authorization, template approval and live message delivery still require environment-specific verification.
+
 ## Review first
 
 - [Inspection and field mapping](docs/01-inspection-and-mapping.md)

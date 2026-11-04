@@ -22,7 +22,7 @@ export const phases = [
     remaining: 'Split payments, hold/resume, exchanges and thermal printing. GST was deferred.' },
   { number: 4, name: 'Relationships', state: 'partial', label: 'PARTLY BUILT',
     built: 'Shared customer keys for new orders, credit/loyalty events, suppliers and stock receipts.',
-    remaining: 'Historical customer merge, credit collection, redemption and full purchase workflow.' },
+    remaining: 'Historical customer merge, loyalty redemption and full purchase workflow.' },
   { number: 5, name: 'Business insights', state: 'early', label: 'EARLY BUILD',
     built: 'Recent POS and website sales overview and stock history.',
     remaining: 'Full reports, profit/valuation, expenses, day close and backup restore.' },
