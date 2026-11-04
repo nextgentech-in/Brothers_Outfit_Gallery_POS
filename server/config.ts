@@ -26,7 +26,7 @@ if (!serviceKey && env.FIREBASE_SERVICE_ACCOUNT_JSON) {
 // a second secret when the existing Firebase service key is already present.
 // HKDF gives this use a separate key domain from Firebase signing.
 const sessionSecret = env.ADMIN_SESSION_SECRET || (serviceKey
-  ? Buffer.from(hkdfSync('sha256', serviceKey, 'brothers-outfit-pos-auth-v1', 'session-document-hmac', 32)).toString('hex') : (!production ? 'dev-insecure-secret-brothers-outfit-gallery-2026' : ''));
+  ? Buffer.from(hkdfSync('sha256', serviceKey, 'brothers-outfit-pos-auth-v1', 'session-document-hmac', 32)).toString('hex') : '');
 const port = z.coerce.number().int().min(1024).max(65535).parse(env.ADMIN_PORT || 4310);
 const vercelHost = env.VERCEL_ENV === 'production' ? env.VERCEL_PROJECT_PRODUCTION_URL : env.VERCEL_URL;
 // The production alias is known for this dedicated POS project. Vercel's

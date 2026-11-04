@@ -17,7 +17,6 @@ import { appendCreditEntry, readCreditState } from './creditLedger.js';
 import { deliverCustomerMessage, queueCustomerMessage } from './customerMessages.js';
 import { validDueDate } from '../shared/credit.js';
 import { shopDate } from '../shared/customers.js';
-import { previewCustomers, previewOrders, previewProducts, previewShopDetails, savePreviewInvoice, getPreviewInvoice } from './previewData.js';
 
 const id = z.string().trim().min(1).max(128).regex(/^[\w.:-]+$/);
 const key = z.string().trim().min(12).max(128).regex(/^[\w.:-]+$/);
@@ -140,10 +139,7 @@ export const commerceRouter = Router();
 commerceRouter.get('/products', async (_req, res) => {
   try { const docs = await firebase().db.collection('products').get();
     res.json({ items: docs.docs.filter(d => d.data().isDeleted !== true).map(publicProduct) }); }
-  catch {
-    if (!config.production) { res.json({ items: previewProducts() }); return; }
-    res.status(503).json({ error: 'Products are unavailable.' });
-  }
+  catch { res.status(503).json({ error: 'Products are unavailable.' }); }
 });
 commerceRouter.get('/products/:productId/label', async (req, res) => {
   const productId = id.safeParse(req.params.productId), sku = id.safeParse(req.query.sku);
@@ -190,10 +186,7 @@ commerceRouter.post('/products/images/upload', rateLimit({ windowMs: 60_000, lim
 commerceRouter.get('/orders', async (_req, res) => {
   try { const docs = await firebase().db.collection('orders').orderBy('createdAt', 'desc').limit(80).get();
     res.json({ items: docs.docs.map(d => ({ id: d.id, ...d.data() })) }); }
-  catch {
-    if (!config.production) { res.json({ items: previewOrders() }); return; }
-    res.status(503).json({ error: 'Orders are unavailable.' });
-  }
+  catch { res.status(503).json({ error: 'Orders are unavailable.' }); }
 });
 commerceRouter.get('/customers', async (_req, res) => {
   try {
@@ -202,10 +195,7 @@ commerceRouter.get('/customers', async (_req, res) => {
     res.json({ items: customerDirectory(users.docs.map(d => ({ id: d.id, data: d.data() })),
       profiles.docs.map(d => ({ id: d.id, data: d.data() }))) });
   }
-  catch {
-    if (!config.production) { res.json({ items: previewCustomers() }); return; }
-    res.status(503).json({ error: 'Customers are unavailable.' });
-  }
+  catch { res.status(503).json({ error: 'Customers are unavailable.' }); }
 });
 commerceRouter.get('/customers/by-phone', async (req, res) => {
   const phone = typeof req.query.phone === 'string' ? mobileNumber(req.query.phone) : '';
@@ -240,40 +230,11 @@ commerceRouter.get('/invoices/:invoiceId/pdf', async (req, res) => {
   if (!parsed.success) { res.status(400).json({ error: 'Invalid receipt ID.' }); return; }
   try {
     const snapshot = await firebase().db.collection('erp_invoices').doc(parsed.data).get();
-    if (!snapshot.exists) {
-      if (!config.production) {
-        const stored = getPreviewInvoice(parsed.data);
-        if (stored) {
-          const pdf = invoicePdf(stored);
-          res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${parsed.data}.pdf"`,
-            'Cache-Control': 'private, no-store' }).send(pdf);
-          return;
-        }
-      }
-      res.status(404).json({ error: 'Receipt not found.' }); return;
-    }
+    if (!snapshot.exists) { res.status(404).json({ error: 'Receipt not found.' }); return; }
     const pdf = invoicePdf({ id: snapshot.id, ...snapshot.data() });
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${parsed.data}.pdf"`,
       'Cache-Control': 'private, no-store' }).send(pdf);
-  } catch {
-    if (!config.production) {
-      const stored = getPreviewInvoice(parsed.data);
-      const fallbackInvoice = stored || {
-        id: parsed.data,
-        lines: [{ name: 'Brothers Special Outfit', sku: 'BOG-ITEM', quantity: 1, price: 999 }],
-        subtotal: 999,
-        discount: 0,
-        total: 999,
-        paymentMethod: 'cash',
-        channel: 'POS'
-      };
-      const pdf = invoicePdf(fallbackInvoice);
-      res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${parsed.data}.pdf"`,
-        'Cache-Control': 'private, no-store' }).send(pdf);
-      return;
-    }
-    res.status(503).json({ error: 'Receipt PDF is unavailable.' });
-  }
+  } catch { res.status(503).json({ error: 'Receipt PDF is unavailable.' }); }
 });
 commerceRouter.get('/sync-health', async (_req, res) => {
   try { const docs = await firebase().db.collection('erp_syncLog').orderBy('createdAt', 'desc').limit(100).get();
@@ -311,10 +272,7 @@ commerceRouter.get('/shop-details', async (_req, res) => {
       address: doc.data()?.address || 'FF-57, Pratham Square, Sahakari Jin Road, Himatnagar, Gujarat 383001',
       email: doc.data()?.email || 'brothersoutfitgallery@gmail.com', whatsapp: doc.data()?.whatsappNumber || '918460233020',
       logo: '/favicon.svg' }); }
-  catch {
-    if (!config.production) { res.json(previewShopDetails()); return; }
-    res.status(503).json({ error: 'Shop details are unavailable.' });
-  }
+  catch { res.status(503).json({ error: 'Shop details are unavailable.' }); }
 });
 
 commerceRouter.post('/products/create', async (req, res) => {
@@ -675,46 +633,7 @@ commerceRouter.post('/pos/sale', async (req, res) => {
     if (input.whatsappOptIn && input.customerPhone) await deliverInvoice(db, `invoice_${hash(input.requestId)}`).catch(() => {});
     if (input.paymentMethod === 'credit') await deliverCustomerMessage(db, `credit_${hash(input.requestId)}`).catch(() => {});
     res.status(201).json({ ...result, billUrl: customerBillUrl(result.invoiceId) });
-  } catch (error) {
-    if (!config.production) {
-      const invoiceId = input.billNumber || `BOG-POS-${Date.now().toString().slice(-6)}`;
-      const orderId = `POS-${Date.now().toString().slice(-8)}`;
-      const calculatedSubtotal = input.lines.reduce((s: number, l) => s + (l.price ?? 100) * l.quantity, 0);
-      const total = Math.max(0, calculatedSubtotal - input.discount);
-      savePreviewInvoice({
-        id: invoiceId,
-        customBillNumber: input.billNumber,
-        billingDate: input.billingDate || shopDate(),
-        orderId,
-        customerName: input.customerName || 'Valued Customer',
-        customerPhone: input.customerPhone || '',
-        customerEmail: input.customerEmail || '',
-        lines: input.lines.map(line => {
-          const product = previewProducts().find(p => p.id === line.productId);
-          return {
-            name: product?.name || 'Garment Item',
-            sku: line.sku,
-            quantity: line.quantity,
-            price: line.price ?? product?.price ?? 100
-          };
-        }),
-        subtotal: calculatedSubtotal,
-        discount: input.discount,
-        total,
-        paymentMethod: input.paymentMethod,
-        channel: 'POS'
-      });
-      res.status(201).json({
-        orderId,
-        invoiceId,
-        total,
-        channel: 'POS',
-        billUrl: customerBillUrl(invoiceId)
-      });
-      return;
-    }
-    fail(res, error);
-  }
+  } catch (error) { fail(res, error); }
 });
 
 const statusSchema = z.object({ requestId: key, orderId: id,

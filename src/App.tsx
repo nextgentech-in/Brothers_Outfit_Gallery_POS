@@ -11,6 +11,7 @@ import { WhatsAppView } from './WhatsAppView';
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'same-origin', ...options });
+  if (response.status === 401 && !url.includes('/auth/')) window.location.assign('/login');
   if (!(response.headers.get('content-type') || '').includes('application/json')) throw new Error('The admin API is not connected on this deployment. Check the Vercel function and environment settings.');
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Something went wrong. Please retry.');
@@ -30,7 +31,7 @@ export function App() {
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#111111' : '#f4f5f7');
     localStorage.setItem('bo-theme-v2', dark ? 'dark' : 'light');
   }, [dark]);
-  return <><div className="ambient ambient-one" /><div className="ambient ambient-two" />{window.location.pathname === '/enroll' ? <EnrollDevice /> : <Workspace dark={dark} toggleTheme={() => setDark(!dark)} />}</>;
+  return <><div className="ambient ambient-one" /><div className="ambient ambient-two" />{window.location.pathname === '/login' ? <Login /> : window.location.pathname === '/enroll' ? <EnrollDevice /> : <Workspace dark={dark} toggleTheme={() => setDark(!dark)} />}</>;
 }
 function Login() {
   const [busy, setBusy] = useState(false);
@@ -95,8 +96,7 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
   const search = '';
   function navigate(id: string) { setTab(id); history.pushState(null, '', id === 'dashboard' ? '/' : `/${id}`); }
   useEffect(() => {
-    if (window.location.pathname === '/login') history.replaceState(null, '', '/');
-    api<Owner>('/api/auth/me').then(setOwner).catch(() => setOwner({ uid: 'pin-owner', email: null, role: 'owner' }));
+    api<Owner>('/api/auth/me').then(setOwner).catch(() => window.location.assign('/login'));
     const pop = () => setTab(window.location.pathname.slice(1) || 'dashboard');
     window.addEventListener('popstate', pop);
     return () => window.removeEventListener('popstate', pop);
