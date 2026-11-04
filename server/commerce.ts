@@ -22,8 +22,10 @@ const id = z.string().trim().min(1).max(128).regex(/^[\w.:-]+$/);
 const key = z.string().trim().min(12).max(128).regex(/^[\w.:-]+$/);
 const positiveInt = z.number().int().min(1).max(10_000);
 const money = z.number().finite().min(0).max(10_000_000);
-const lineSchema = z.object({ productId: id, sku: id, quantity: positiveInt }).strict();
+const lineSchema = z.object({ productId: id, sku: id, quantity: positiveInt, price: money.optional() }).strict();
 const saleSchema = z.object({ requestId: key, lines: z.array(lineSchema).min(1).max(30),
+  billNumber: z.string().trim().max(120).optional(),
+  billingDate: z.string().max(10).optional(),
   customerName: z.string().trim().max(120).optional(), customerPhone: z.string().trim().max(20).optional(),
   customerEmail: z.email().max(254).optional(),
   customerDateOfBirth: z.string().max(10).optional(), birthdayOffersOptIn: z.boolean().optional(),
@@ -550,8 +552,9 @@ commerceRouter.post('/purchases/receive', async (req, res) => {
 commerceRouter.post('/pos/sale', async (req, res) => {
   const parsed = saleSchema.safeParse(req.body);
   if (!parsed.success) { res.status(422).json({ error: parsed.error.issues.find(issue => issue.code === 'custom')?.message || 'Invalid sale.' }); return; }
+  const input = parsed.data;
   try {
-    const input = parsed.data, db = firebase().db;
+    const db = firebase().db;
     const result = await idempotent(db, 'pos_sale', input.requestId, input, async tx => {
       const identity = customerKey(input.customerPhone, input.customerEmail);
       const creditState = input.paymentMethod === 'credit' ? await readCreditState(db, tx, identity) : null;
@@ -570,7 +573,7 @@ commerceRouter.post('/pos/sale', async (req, res) => {
         const product = products.get(line.productId)!;
         const current = stockFor(product, line.sku);
         const variant = current.index >= 0 ? product.variants?.[current.index] : undefined;
-        const pricePaise = rupees(variant?.price ?? variant?.salePrice ?? product.salePrice ?? product.price);
+        const pricePaise = rupees(line.price !== undefined ? line.price : (variant?.price ?? variant?.salePrice ?? product.salePrice ?? product.price));
         if (!Number.isSafeInteger(pricePaise) || pricePaise < 0) throw Object.assign(new Error('Invalid product price.'), { status: 409 });
         subtotalPaise += pricePaise * line.quantity;
         const changed = changeStock(product, line.sku, -line.quantity);
@@ -614,6 +617,7 @@ commerceRouter.post('/pos/sale', async (req, res) => {
         });
       }
       tx.create(db.collection('erp_invoices').doc(invoiceId), { orderId, invoiceNumber, fiscalYear: fy,
+        customBillNumber: input.billNumber || invoiceId, billingDate: input.billingDate || shopDate(),
         customerName: input.customerName || '', customerPhone: input.customerPhone || '', customerEmail: input.customerEmail || '',
         customerKey: identity || null, lines: lineSnapshots,
         subtotal: subtotalPaise / 100, discount: discountPaise / 100, total, paymentMethod: input.paymentMethod,
