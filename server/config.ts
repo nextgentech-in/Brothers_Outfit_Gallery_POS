@@ -55,6 +55,7 @@ export const config = {
   whatsapp: {
     graphVersion: env.WA_GRAPH_VERSION || '', phoneNumberId: env.WA_PHONE_NUMBER_ID || '',
     accessToken: env.WA_ACCESS_TOKEN || '', templateName: env.WA_TEMPLATE_NAME || '',
+    creditTemplateName: env.WA_CREDIT_TEMPLATE_NAME || '', businessAccountId: env.WA_BUSINESS_ACCOUNT_ID || '',
     templateLanguage: env.WA_TEMPLATE_LANGUAGE || 'en_US'
   },
   sessionMs: z.coerce.number().int().min(1).max(24).parse(env.SESSION_HOURS || 8) * 3600_000,

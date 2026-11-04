@@ -9,6 +9,7 @@ import { firebase } from './firebase.js';
 import { cookieValue, csrfGuard, csrfToken, loginLimiter } from './security.js';
 import { mapping, phases, type Overview, type DashboardSummary } from '../shared/contracts.js';
 import { commerceRouter } from './commerce.js';
+import { creditRouter } from './credit.js';
 import { deliverInvoice } from './whatsapp.js';
 import { validBillLink } from './billLink.js';
 import { invoicePdf } from './invoicePdf.js';
@@ -189,7 +190,8 @@ export function createApp(options: AppOptions = {}) {
   app.use('/api', (req, res, next) => ['GET', 'HEAD', 'OPTIONS'].includes(req.method) ? next() : csrf(req, res, next));
   app.use('/api', async (req, res, next) => {
     const writes = new Set(['/products/create', '/products/patch', '/products/images/upload', '/inventory/adjust', '/inventory/adjust-batch', '/pos/sale', '/orders/status',
-      '/orders/invoice', '/orders/return', '/suppliers/create', '/purchases/receive', '/sync/retry']);
+      '/orders/invoice', '/orders/return', '/suppliers/create', '/purchases/receive', '/sync/retry',
+      '/credit/customers', '/credit/entries', '/credit/preferences', '/whatsapp/process', '/whatsapp/retry']);
     if (req.method !== 'POST' || !writes.has(req.path)) { next(); return; }
     if (!config.businessWritesEnabled) { res.status(423).json({ error: 'Live business writes are locked pending schema and stock-cutover review.' }); return; }
     try {
@@ -199,6 +201,7 @@ export function createApp(options: AppOptions = {}) {
     } catch { res.status(503).json({ error: 'Commerce rollout status is unavailable.' }); }
   });
   app.use('/api', commerceRouter);
+  app.use('/api', creditRouter);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Operation not found.' }));
   const errors: ErrorRequestHandler = (_error, _req, res, _next) => res.status(400).json({ error: 'The request could not be processed.' });
   app.use(errors);

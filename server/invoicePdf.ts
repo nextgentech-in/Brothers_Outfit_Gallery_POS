@@ -1,4 +1,4 @@
-type Invoice = { id: string; orderId?: string; customerName?: string; total?: number;
+type Invoice = { id: string; orderId?: string; customerName?: string; total?: number; creditDueDate?: string;
   lines?: { name?: string; sku?: string; quantity?: number; price?: number }[]; paymentMethod?: string; subtotal?: number; discount?: number; createdAt?: { _seconds?: number; seconds?: number } };
 const ascii = (value: unknown) => String(value ?? '').normalize('NFKD').replace(/[^\x20-\x7e]/g, '?').slice(0, 100);
 const escaped = (value: unknown) => ascii(value).replaceAll('\\', '\\\\').replaceAll('(', '\\(').replaceAll(')', '\\)');
@@ -17,11 +17,12 @@ export function invoicePdf(invoice: Invoice): Buffer {
     'Phone: +91 84602 33020',
     'brothersoutfitgallery@gmail.com',
     '====================================================================',
-    'SALES RECEIPT                                      PAYMENT RECEIVED',
+    invoice.paymentMethod === 'credit' ? 'SALES RECEIPT                                      PAYMENT DUE' : 'SALES RECEIPT                                      PAYMENT RECEIVED',
     `Receipt: ${ascii(invoice.id)}`,
     issued ? `Date: ${new Date(issued * 1000).toLocaleString('en-IN')}` : '',
     `Customer: ${ascii(invoice.customerName || 'Walk-in')}`,
     `Payment: ${ascii(invoice.paymentMethod || '')}`,
+    ...(invoice.paymentMethod === 'credit' ? [`Repayment due: ${ascii(invoice.creditDueDate || 'Not recorded')}`] : []),
     '',
     'ITEM / SKU                         QTY      RATE         AMOUNT',
     '--------------------------------------------------------------------',

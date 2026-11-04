@@ -6,6 +6,8 @@ import { mapping, phases, type Owner } from '../shared/contracts';
 import { CommerceView } from './Commerce';
 import { BrandLogo } from './BrandLogo';
 import { Dashboard } from './Dashboard';
+import { CreditView } from './CreditView';
+import { WhatsAppView } from './WhatsAppView';
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'same-origin', ...options });
@@ -76,7 +78,8 @@ function EnrollDevice() {
 const primaryTabs: { id: string; label: string; icon: LucideIcon }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard }, { id: 'products', label: 'Products', icon: Package },
   { id: 'pos', label: 'Billing / POS', icon: ShoppingBag }, { id: 'inventory', label: 'Inventory', icon: ArrowDownUp },
-  { id: 'orders', label: 'Orders', icon: FileText }, { id: 'customers', label: 'Customers', icon: Users }
+  { id: 'orders', label: 'Orders', icon: FileText }, { id: 'customers', label: 'Customers', icon: Users },
+  { id: 'credit', label: 'Udhar / Credit', icon: ArrowDownUp }, { id: 'whatsapp', label: 'WhatsApp', icon: Workflow }
 ];
 const moreTabs: { id: string; label: string; icon: LucideIcon }[] = [
   { id: 'suppliers', label: 'Suppliers', icon: ShoppingBag }, { id: 'reports', label: 'Reports', icon: LayoutDashboard },
@@ -112,6 +115,8 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
       {tab === 'mapping' && <><PageTitle eyebrow="ONE DATABASE" title="Your data, mapped." description="The existing website stays the source of truth. These are the inspected connections and proposed extensions." /><div className="notice"><Database size={18} />Read-only live schema sample verified on 30 October 2026. Some legacy documents may contain additional fields.</div><div className="mapping-grid">{mapping.filter(row => `${row.label} ${row.source} ${row.fields} ${row.plan}`.toLowerCase().includes(search.toLowerCase())).map((row, i) => <article className="mapping-card glass" key={row.label}><div className="mapping-card-top"><span className="row-number">0{i + 1}</span><span className="source-tag">Existing source</span></div><h2>{row.label}</h2><code>{row.source}</code><p className="field-list">{row.fields}</p><p>{row.plan}</p></article>)}</div>{mapping.filter(row => JSON.stringify(row).toLowerCase().includes(search.toLowerCase())).length === 0 && <div className="empty-state">No matching fields. Try “stock”, “phone” or “price”.</div>}<div className="notice"><FileText size={18} />Full mapping, schema proposal and rollback instructions are in the project’s docs folder.</div></>}
       {tab === 'delivery' && <><PageTitle eyebrow="SEVEN-PHASE DELIVERY" title="What is built and what remains." description="These labels describe the current local implementation. They do not imply a production rollout." /><div className="glass phase-list">{phases.map(phase => <article key={phase.number} className="phase-row"><span className={`phase-number ${phase.state === 'local' ? 'active' : ''}`}>{phase.state === 'local' ? <Check size={22} /> : `0${phase.number}`}</span><div><h2>{phase.name}</h2><p><strong>Built:</strong> {phase.built}</p><p><strong>Remaining:</strong> {phase.remaining}</p></div><span className={`pill phase-pill ${phase.state}`}>{phase.label}</span></article>)}</div><div className="notice"><CircleDot size={18} />Website checkout integration is coded locally. Stock reservations and live business writes stay off until the shared stock-writer cutover passes staging tests.</div></>}
       {tab === 'security' && <TrustedDevices />}
+      {tab === 'credit' && <CreditView />}
+      {tab === 'whatsapp' && <WhatsAppView />}
       {['products', 'pos', 'inventory', 'orders', 'customers', 'suppliers', 'reports', 'sync'].includes(tab) && <CommerceView tab={tab} />}
       <footer className="page-footer"><span>BROTHERS OUTFIT GALLERY <span className="footer-separator">/</span> STUDIO</span><span>A little more clarity. Every day.</span></footer>
     </main></div>

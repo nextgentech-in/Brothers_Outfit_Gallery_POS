@@ -6,6 +6,10 @@ import { BrandLogo } from './BrandLogo';
 import { ProductEditor, type ProductEditInput } from './ProductEditor';
 import { ProductFormDialog, type NewProductInput } from './ProductForm';
 import { PurchaseReceive } from './PurchaseReceive';
+import { CustomerPhoneDialog } from './CustomerPhoneDialog';
+import { CreditDueFields } from './CreditView';
+import { dueDateAfter, validDueDate } from '../shared/credit';
+import { customerDetailsError, displayBirthDate, mobileNumber, shopDate, type Customer } from '../shared/customers';
 import { cacheCatalog, cachedCatalog, queueSale, queuedSales, removeSale, syncQueuedSales, holdBill, heldBills, removeHeldBill, type QueuedSale } from './offlineQueue';
 
 type Product = { id: string; name: string; sku: string; barcode?: string; price: number; mrp: number; costPrice?: number;
@@ -13,11 +17,11 @@ type Product = { id: string; name: string; sku: string; barcode?: string; price:
   variants: { sku: string; barcode?: string; size?: string; color?: string; stock: number; price: number; costPrice?: number }[] };
 type Order = { id: string; status?: string; totalAmount?: number; paymentMethod?: string; createdBy?: string; createdAt?: { _seconds?: number; seconds?: number };
   customerName?: string; shippingAddress?: { fullName?: string }; items?: { name?: string; quantity?: number }[] };
-type Customer = { id: string; fullName: string; phone: string; email: string };
 type Supplier = { id: string; name: string; phone: string; email: string; gstin: string };
 type Purchase = { id: string; supplierName: string; supplierInvoice: string; total: number; amountPaid: number; payable: number };
 type Movement = { id: string; productId?: string; sku?: string; deltaChange?: number; reason?: string; source?: string; stockAfter?: number };
 type Invoice = { id: string; orderId: string; total: number; lines: { name?: string; sku?: string; quantity?: number; price?: number }[];
+  creditDueDate?: string;
   customerName?: string; customerPhone?: string; channel: string; paymentMethod: string; kind?: string; subtotal?: number; discount?: number; billUrl?: string; createdAt?: { _seconds?: number; seconds?: number } };
 type SyncRecord = { id: string; event?: string; status?: string; invoiceId?: string; source?: string; retryCount?: number; error?: string; providerMessageId?: string };
 type Shop = { name: string; phone: string; address: string; email: string; whatsapp: string; logo: string };
@@ -42,7 +46,7 @@ function ReceiptDialog({ invoice, shop, preview = false, onClose }: { invoice: I
     <div className="invoice-meta"><div><small>Receipt number</small><strong>{preview ? 'Assigned after sale' : invoice.id}</strong></div><div><small>Date</small><strong>{issuedAt || '—'}</strong></div><div><small>Customer</small><strong>{invoice.customerName || 'Walk-in'}{invoice.customerPhone ? ` · ${invoice.customerPhone}` : ''}</strong></div><div><small>Payment</small><strong>{invoice.paymentMethod.toUpperCase()}</strong></div></div>
     <table><thead><tr><th>Item / SKU</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead><tbody>{invoice.lines.map((line, index) => <tr key={`${line.sku || index}:${index}`}><td><strong>{line.name || line.sku || 'Item'}</strong><small>{line.sku || ''}</small></td><td>{line.quantity}</td><td>{money(line.price)}</td><td>{money(Number(line.price || 0) * Number(line.quantity || 0))}</td></tr>)}</tbody></table>
     <div className="invoice-summary"><span>{units} item{units === 1 ? '' : 's'} · {invoice.channel} sale</span><div><div><span>Subtotal</span><strong>{money(subtotal)}</strong></div>{discount > 0 && <div><span>Discount</span><strong>− {money(discount)}</strong></div>}<div className="invoice-grand-total"><span>Total</span><strong>{money(invoice.total)}</strong></div></div></div>
-    <div className="invoice-footer"><strong>Thank you for visiting.</strong><span>Keep this receipt for your records. For assistance, contact {shop?.phone || '+91 84602 33020'}.</span><small>Sales receipt · GST tax invoice not issued</small></div>
+    {invoice.paymentMethod === 'credit' && <p className="credit-red"><strong>Repayment due: {invoice.creditDueDate || 'Not recorded'}</strong></p>}<div className="invoice-footer"><strong>Thank you for visiting.</strong><span>Keep this receipt for your records. For assistance, contact {shop?.phone || '+91 84602 33020'}.</span><small>Sales receipt · GST tax invoice not issued</small></div>
   </div></div>;
 }
 async function get<T>(path: string): Promise<T> {
@@ -66,6 +70,8 @@ async function send<T>(path: string, body: unknown): Promise<T> {
 const requestId = () => crypto.randomUUID();
 const salePayload = (sale: QueuedSale) => ({ requestId: sale.requestId, lines: sale.lines,
   customerName: sale.customerName, customerPhone: sale.customerPhone, customerEmail: sale.customerEmail || undefined,
+  customerDateOfBirth: sale.customerDateOfBirth || undefined, birthdayOffersOptIn: sale.birthdayOffersOptIn,
+  ...(sale.paymentMethod === 'credit' ? { creditDueDate: sale.creditDueDate, creditWhatsAppOptIn: sale.creditWhatsAppOptIn } : {}),
   whatsappOptIn: sale.whatsappOptIn === true, discount: sale.discount, paymentMethod: sale.paymentMethod });
 
 export function CommerceView({ tab }: { tab: string }) {
@@ -92,6 +98,12 @@ export function CommerceView({ tab }: { tab: string }) {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
+  const [customerDateOfBirth, setCustomerDateOfBirth] = useState('');
+  const [birthdayOffersOptIn, setBirthdayOffersOptIn] = useState(false);
+  const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
+  const [birthdayFilter, setBirthdayFilter] = useState('all');
+  const [creditDueDate, setCreditDueDate] = useState(dueDateAfter(7));
+  const [creditWhatsAppOptIn, setCreditWhatsAppOptIn] = useState(false);
   const [whatsappOptIn, setWhatsAppOptIn] = useState(true);
   const [discount, setDiscount] = useState(0);
   const [billPreview, setBillPreview] = useState(false);
@@ -106,11 +118,11 @@ export function CommerceView({ tab }: { tab: string }) {
   const scanRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (tab !== 'pos') return;
+    if (tab !== 'pos' || customerDialogOpen) return;
     const focusScanner = (event: KeyboardEvent) => { if (event.key === 'F2') { event.preventDefault(); scanRef.current?.focus(); scanRef.current?.select(); } };
     window.addEventListener('keydown', focusScanner);
     return () => window.removeEventListener('keydown', focusScanner);
-  }, [tab]);
+  }, [tab, customerDialogOpen]);
 
   useEffect(() => { void get<{ businessWritesEnabled: boolean }>('foundation').then(data => setWritesEnabled(data.businessWritesEnabled)).catch(() => setWritesEnabled(false)); }, []);
 
@@ -181,6 +193,17 @@ export function CommerceView({ tab }: { tab: string }) {
   const stockUnits = products.reduce((sum, product) => sum + product.stock, 0);
   const stockRetailTotal = products.reduce((sum, product) => sum + retailStockValue(product), 0);
   const billSubtotal = cart.reduce((sum, line) => sum + line.price * line.quantity, 0);
+  const today = shopDate();
+  const shownCustomers = customers.filter(customer =>
+    `${customer.fullName} ${customer.phone} ${customer.email} ${displayBirthDate(customer.dateOfBirth)} ${customer.dateOfBirth}`.toLowerCase().includes(query.toLowerCase()) &&
+    (birthdayFilter === 'all' || (birthdayFilter === 'today'
+      ? customer.dateOfBirth.slice(5) === today.slice(5)
+      : customer.dateOfBirth.slice(5, 7) === today.slice(5, 7))));
+  function clearCustomer() {
+    setCustomerName(''); setCustomerPhone(''); setCustomerEmail(''); setCustomerDateOfBirth('');
+    setBirthdayOffersOptIn(false); setWhatsAppOptIn(true);
+    setCreditDueDate(dueDateAfter(7)); setCreditWhatsAppOptIn(false);
+  }
   function scanOrFind() {
     const scanned = query.trim().toLowerCase();
     if (!scanned) return;
@@ -247,20 +270,22 @@ export function CommerceView({ tab }: { tab: string }) {
     if (checkoutGuard.current) return;
     if (!writesEnabled) { setError('Billing is locked until the shared stock and schema review is complete.'); return; }
     if (!cart.length) return;
-    const phoneDigits = customerPhone.replace(/\D/g, '');
-    if (customerPhone.trim() && (phoneDigits.length < 10 || phoneDigits.length > 15)) {
-      setError('Enter a valid WhatsApp phone number, or leave it blank.'); return;
-    }
+    const customerError = customerDetailsError(customerPhone, customerDateOfBirth);
+    if (customerError) { setError(customerError); setCustomerDialogOpen(true); return; }
+    if (payment === 'credit' && (!customerName.trim() || !customerPhone.trim())) { setError('Enter the customer name and mobile number for udhar.'); return; }
+    if (payment === 'credit' && (!validDueDate(creditDueDate) || creditDueDate < shopDate())) { setError('Choose a repayment due date today or later.'); return; }
     if (discount > billSubtotal) { setError('Discount cannot exceed the bill subtotal.'); return; }
     const command: QueuedSale = { requestId: requestId(), lines: cart.map(line => ({ productId: line.product.id, sku: line.sku, quantity: line.quantity })),
       customerName, customerPhone, customerEmail, whatsappOptIn: Boolean(customerPhone.trim()) && whatsappOptIn,
+      customerDateOfBirth, birthdayOffersOptIn,
+      ...(payment === 'credit' ? { creditDueDate, creditWhatsAppOptIn } : {}),
       discount, paymentMethod: payment, queuedAt: new Date().toISOString(), state: 'pending' };
     checkoutGuard.current = true; setCheckoutBusy(true);
     try {
     try { await queueSale(command); await refreshOffline(); }
     catch { setError('Bill storage is unavailable on this device. Keep the bill open and retry.'); return; }
     if (!navigator.onLine) {
-      setNotice('Bill queued offline with a provisional ID. It will sync on reconnect.'); setCart([]);
+      setNotice('Bill queued offline with a provisional ID. It will sync on reconnect.'); setCart([]); setDiscount(0); clearCustomer();
       return;
     }
     try {
@@ -268,8 +293,8 @@ export function CommerceView({ tab }: { tab: string }) {
       await removeSale(command.requestId); await refreshOffline();
       setLastInvoice({ id: String(result.invoiceId), orderId: String(result.orderId), total: Number(result.total),
         lines: cart.map(line => ({ name: line.product.name, sku: line.sku, quantity: line.quantity, price: line.price })),
-        customerName, customerPhone, channel: 'POS', paymentMethod: payment, kind: 'sales_receipt', subtotal: billSubtotal, discount, billUrl: result.billUrl });
-      setCart([]); setDiscount(0); setCustomerName(''); setCustomerPhone(''); setCustomerEmail(''); setWhatsAppOptIn(true);
+        customerName, customerPhone, channel: 'POS', paymentMethod: payment, kind: 'sales_receipt', subtotal: billSubtotal, discount, billUrl: result.billUrl, creditDueDate: payment === 'credit' ? creditDueDate : undefined });
+      setCart([]); setDiscount(0); clearCustomer();
       scanRef.current?.focus();
       setNotice('Sale recorded. The receipt has a secure bill link to share by SMS or WhatsApp.');
       await load();
@@ -285,7 +310,7 @@ export function CommerceView({ tab }: { tab: string }) {
       setError((error as { status?: number }).status === 409
         ? 'Stock conflict. This bill is saved for review and was not posted.'
         : 'Connection failed. The bill is saved locally and will retry with the same ID.');
-      setCart([]);
+      setCart([]); setDiscount(0); clearCustomer();
     }
     } finally { checkoutGuard.current = false; setCheckoutBusy(false); }
   }
@@ -294,9 +319,10 @@ export function CommerceView({ tab }: { tab: string }) {
     checkoutGuard.current = true; setCheckoutBusy(true);
     try {
       await holdBill({ requestId: requestId(), lines: cart.map(line => ({ productId: line.product.id, sku: line.sku, quantity: line.quantity })),
-        customerName, customerPhone, customerEmail, whatsappOptIn, discount, paymentMethod: payment,
+        customerName, customerPhone, customerEmail, customerDateOfBirth, birthdayOffersOptIn, whatsappOptIn, discount, paymentMethod: payment,
+        ...(payment === 'credit' ? { creditDueDate, creditWhatsAppOptIn } : {}),
         queuedAt: new Date().toISOString(), state: 'pending' });
-      setHeld(await heldBills()); setCart([]); setDiscount(0); setCustomerName(''); setCustomerPhone(''); setCustomerEmail('');
+      setHeld(await heldBills()); setCart([]); setDiscount(0); clearCustomer();
       setNotice('Bill held on this device. Stock is checked again when you resume.');
     } catch { setError('Unable to save the held bill. Your current cart is still open.'); }
     finally { checkoutGuard.current = false; setCheckoutBusy(false); }
@@ -316,6 +342,8 @@ export function CommerceView({ tab }: { tab: string }) {
       });
       setProducts(fresh.items); setCart(restored); setCustomerName(bill.customerName || ''); setCustomerPhone(bill.customerPhone || '');
       setCustomerEmail(bill.customerEmail || ''); setPayment(bill.paymentMethod); setWhatsAppOptIn(bill.whatsappOptIn === true);
+      setCustomerDateOfBirth(bill.customerDateOfBirth || ''); setBirthdayOffersOptIn(bill.birthdayOffersOptIn === true);
+      setCreditDueDate(bill.creditDueDate || ''); setCreditWhatsAppOptIn(bill.creditWhatsAppOptIn === true);
       setDiscount(Math.min(bill.discount, restored.reduce((sum, line) => sum + line.quantity * line.price, 0)));
       await removeHeldBill(bill.requestId); setHeld(await heldBills());
       setNotice('Bill resumed with current prices and stock. Review before completing the sale.');
@@ -341,7 +369,7 @@ export function CommerceView({ tab }: { tab: string }) {
     {tab === 'pos' && <>{held.length > 0 && <div className="glass table-panel"><h2>Held bills · {held.length}</h2><p className="microcopy">Saved on this device. Held bills do not reserve stock.</p>{held.map(bill => <div className="device-row" key={bill.requestId}><div><strong>{bill.customerName || 'Walk-in customer'}</strong><small>{bill.lines.length} lines · {new Date(bill.queuedAt).toLocaleString('en-IN')}</small></div><button type="button" className="button secondary" disabled={cart.length > 0 || checkoutBusy} onClick={() => void resumeBill(bill)}>Resume bill</button></div>)}</div>}<div className="pos-toolbar"><div className="stock-summary glass"><div><span>All product stock</span><strong>{stockUnits.toLocaleString('en-IN')} units</strong></div><div><span>Available stock retail value</span><strong>{money(stockRetailTotal)}</strong></div></div><button className="button secondary add-pos-product" onClick={() => setCreating(true)}><Plus size={18} />Add new product</button></div><div className="pos-layout"><section className="glass pos-catalog"><div className="commerce-toolbar"><h2>Scan or search a product</h2><label className="field-search"><Search size={20} /><input ref={scanRef} autoFocus placeholder="Scan barcode, type SKU or search name" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); scanOrFind(); } }} /></label></div><p className="microcopy">A USB or Bluetooth scanner can type the barcode here and press Enter. Press F2 to focus the scanner field, or choose a variant below when searching by name.</p>
       <div className="pos-products">{shownProducts.slice(0, 60).map(product => <div className="pos-product" key={product.id}><div><strong>{product.name}</strong><small>{product.sku} · {money(product.price)} each · {product.stock} available</small><small>Stock retail value {money(retailStockValue(product))}</small></div><select aria-label={`Add variant of ${product.name}`} value="" onChange={event => { if (event.target.value) addToCart(product, event.target.value); }}><option value="">Add variant</option>{(product.variants.length ? product.variants : [{ sku: product.sku, stock: product.stock, price: product.price }]).map(v => <option key={v.sku} value={v.sku} disabled={v.stock <= 0}>{v.size || 'Standard'} {v.color || ''} · {v.stock} left</option>)}</select></div>)}</div></section>
       <form className="glass pos-checkout" onSubmit={completeSale}><span className="eyebrow">CURRENT BILL</span><h2>Checkout <span>{cart.reduce((sum, line) => sum + line.quantity, 0)} items</span></h2>{cart.length === 0 && <p className="empty-cart">Choose a product to start a bill.</p>}{cart.map(line => <div className="cart-line" key={`${line.product.id}:${line.sku}`}><div className="cart-description"><strong>{line.product.name}</strong><small>{line.sku} · {money(line.price)} each · {(line.product.variants.find(v => v.sku === line.sku)?.stock ?? line.product.stock)} available</small></div><label className="cart-qty">Qty<input type="number" min="1" max={line.product.variants.find(v => v.sku === line.sku)?.stock ?? line.product.stock} step="1" value={line.quantity} onChange={e => setCartQuantity(line.product.id, line.sku, Number(e.target.value))} aria-label={`Quantity for ${line.product.name}`} /></label><strong className="line-total">{money(line.price * line.quantity)}</strong><button type="button" onClick={() => setCart(old => old.filter(item => item !== line))} aria-label={`Remove ${line.product.name}`}>×</button></div>)}
-      <div className="checkout-fields"><label>Customer name<input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Optional" /></label><label>Customer email<input type="email" value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} placeholder="Optional" /></label><label>WhatsApp phone<input value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="With country code for receipt" /></label><label className="check-row"><input type="checkbox" checked={whatsappOptIn} onChange={e => setWhatsAppOptIn(e.target.checked)} disabled={!customerPhone.trim()} />Send bill on WhatsApp by default when a phone is entered</label><p className="whatsapp-note">Enter the number only after the customer agrees to receive their bill. After completing the sale, use Share by SMS to open a prepared text message.</p><label>Discount ₹<input type="number" min="0" step="0.01" value={discount} onChange={e => setDiscount(Number(e.target.value))} /></label><label>Payment method<select value={payment} onChange={e => setPayment(e.target.value as typeof payment)}><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option><option value="credit">Credit / udhaar</option></select></label></div>
+      <div className="checkout-fields"><label>Customer name<input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Optional" /></label><label>Customer email<input type="email" value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} placeholder="Optional" /></label><div className="checkout-customer-phone"><span id="billing-mobile-label">Mobile number</span><button className="customer-phone-trigger" type="button" aria-labelledby="billing-mobile-label billing-mobile-value" aria-haspopup="dialog" onClick={() => setCustomerDialogOpen(true)}><span id="billing-mobile-value">{customerPhone ? `+${mobileNumber(customerPhone) || customerPhone}` : 'Add mobile number & birthday'}</span><span aria-hidden="true">{customerPhone ? 'Edit' : '+'}</span></button>{customerPhone && <><p>Date of birth: <strong>{displayBirthDate(customerDateOfBirth)}</strong></p><button className="text-button" type="button" onClick={() => { setCustomerPhone(''); setCustomerDateOfBirth(''); setBirthdayOffersOptIn(false); setCreditWhatsAppOptIn(false); }}>Remove mobile number</button></>}</div><label className="check-row"><input type="checkbox" checked={whatsappOptIn} onChange={e => setWhatsAppOptIn(e.target.checked)} disabled={!customerPhone.trim()} />Send bill on WhatsApp by default when a phone is entered</label><p className="whatsapp-note">Enter the number only after the customer agrees to receive their bill. After completing the sale, use Share by SMS to open a prepared text message.</p><label>Discount ₹<input type="number" min="0" step="0.01" value={discount} onChange={e => setDiscount(Number(e.target.value))} /></label><label>Payment method<select aria-label="Payment method" value={payment} onChange={e => setPayment(e.target.value as typeof payment)}><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option><option value="credit">Credit / udhaar</option></select></label>{payment === 'credit' && <div className="billing-credit-fields"><CreditDueFields value={creditDueDate} onChange={setCreditDueDate} /><label className="check-row"><input type="checkbox" checked={creditWhatsAppOptIn} onChange={event => setCreditWhatsAppOptIn(event.target.checked)} />Customer agrees to automatic udhar and payment updates on WhatsApp</label><p className="microcopy">One due date. Partial repayments can be recorded in Udhar / Credit.</p></div>}</div>
       <div className="bill-breakdown"><div><span>Subtotal</span><strong>{money(billSubtotal)}</strong></div><div><span>Discount</span><strong>− {money(discount)}</strong></div></div><div className="bill-total"><span>Total</span><strong>{money(Math.max(0, billSubtotal - discount))}</strong></div><div className="checkout-actions"><button className="button secondary" type="button" disabled={!cart.length || checkoutBusy} onClick={() => void parkBill()}>Hold bill</button><button className="button secondary" type="button" disabled={!cart.length} onClick={() => setBillPreview(true)}><Printer size={17} />Preview bill</button><button className="button primary" disabled={!cart.length || checkoutBusy || !writesEnabled} title={!writesEnabled ? "Store activation is required for live sales" : undefined}>{checkoutBusy ? 'Saving…' : 'Complete sale'} <ArrowRight size={17} /></button></div><p className="microcopy">After completing the sale, share the secure PDF link by SMS or WhatsApp from the receipt. You tap Send in the messaging app. Firebase Phone Auth only sends login codes; automatic bill SMS needs a separate messaging provider.</p></form></div>
       </>}
     {tab === 'inventory' && <><div className="stock-summary glass inventory-summary"><div><span>Available stock, all products</span><strong>{stockUnits.toLocaleString('en-IN')} units</strong></div><div><span>Total stock retail value</span><strong>{money(stockRetailTotal)}</strong></div></div><div className="glass table-panel"><div className="commerce-toolbar"><h2>Stock value by product</h2><label className="field-search"><Search size={17} /><input placeholder="Search product or SKU" value={query} onChange={e => setQuery(e.target.value)} /></label></div><div className="table-wrap valuation-table"><table><thead><tr><th>Product</th><th>SKU</th><th>Available quantity</th><th>Selling price</th><th>Stock retail value</th></tr></thead><tbody>{shownProducts.map(product => <tr key={product.id}><td><strong>{product.name}</strong></td><td>{product.sku}</td><td>{product.stock.toLocaleString('en-IN')}</td><td>{money(product.price)}</td><td><strong>{money(retailStockValue(product))}</strong></td></tr>)}</tbody></table></div></div><div className="glass table-panel"><h2>Adjust stock</h2><form className="stock-form" onSubmit={async event => { event.preventDefault(); const target = event.currentTarget; const form = new FormData(target); const result = await act('inventory/adjust', { requestId: requestId(), productId: String(form.get('productId')), sku: String(form.get('sku')), delta: Number(form.get('delta')), reason: String(form.get('reason')), note: String(form.get('note') || '') }, 'Stock movement recorded.'); if (result) { target.reset(); setSelected(null); } }}>
@@ -353,7 +381,18 @@ export function CommerceView({ tab }: { tab: string }) {
       <div className="glass table-panel"><h2>Recent stock movements</h2><div className="table-wrap"><table><thead><tr><th>SKU</th><th>Change</th><th>Reason</th><th>Source</th><th>After</th></tr></thead><tbody>{movements.map(row => <tr key={row.id}><td>{row.sku || '—'}</td><td className={Number(row.deltaChange) < 0 ? 'unavailable' : 'available'}>{Number(row.deltaChange) > 0 ? '+' : ''}{row.deltaChange}</td><td>{row.reason || '—'}</td><td>{row.source || '—'}</td><td>{row.stockAfter ?? '—'}</td></tr>)}</tbody></table></div></div></>}
     {tab === 'orders' && <><div className="commerce-toolbar"><span>{newOrderCount ? `${newOrderCount} new orders` : `${orders.length} recent orders`}</span><button className="button secondary" onClick={() => { setSoundEnabled(true); setNewOrderCount(0); }}><Volume2 size={16} />{soundEnabled ? 'Sound on' : 'Enable new-order sound'}</button></div>
       <div className="glass table-panel"><div className="table-wrap"><table><thead><tr><th>Order</th><th>Channel</th><th>Customer</th><th>Total</th><th>Status</th><th>Action</th></tr></thead><tbody>{orders.map(row => <tr key={row.id}><td><strong>{row.id}</strong><small>{row.paymentMethod || ''}</small></td><td>{row.createdBy === 'admin-pos' ? 'POS' : 'Website'}</td><td>{row.customerName || row.shippingAddress?.fullName || '—'}</td><td>{money(row.totalAmount)}</td><td><span className="source-tag">{row.status || 'Processing'}</span></td><td><select aria-label={`Update ${row.id}`} value="" onChange={event => { const status = event.target.value; if (status) void act('orders/status', { requestId: requestId(), orderId: row.id, status }, `Order marked ${status}.`); }}><option value="">Set status</option>{['Confirmed', 'Packed', 'Shipped', 'Delivered', 'Cancelled'].map(s => <option key={s} value={s}>{s}</option>)}</select><button className="text-button" onClick={async () => { const result = await act('orders/invoice', { requestId: requestId(), orderId: row.id }, 'Invoice created.'); if (result?.invoiceId) { const invoice = (await get<{ items: Invoice[] }>('invoices')).items.find(i => i.id === result.invoiceId); if (invoice) setLastInvoice(invoice); } }}>Invoice</button>{row.status === 'Delivered' && <button className="text-button" onClick={() => { const reason = window.prompt('Return reason (at least 3 characters)'); if (reason?.trim() && reason.trim().length >= 3) void act('orders/return', { requestId: requestId(), orderId: row.id, reason: reason.trim() }, 'Return recorded; credit note created. Review the refund separately.'); }}>Return</button>}</td></tr>)}</tbody></table></div></div></>}
-    {tab === 'customers' && <div className="glass table-panel"><div className="commerce-toolbar"><label className="field-search"><Search size={16} /><input placeholder="Search customer" value={query} onChange={e => setQuery(e.target.value)} /></label><span>{customers.length} profiles</span></div><div className="table-wrap"><table><thead><tr><th>Name</th><th>Phone</th><th>Email</th></tr></thead><tbody>{customers.filter(c => `${c.fullName} ${c.phone} ${c.email}`.toLowerCase().includes(query.toLowerCase())).map(c => <tr key={c.id}><td>{c.fullName || '—'}</td><td>{c.phone || '—'}</td><td>{c.email || '—'}</td></tr>)}</tbody></table></div></div>}
+    {tab === 'customers' && <div className="glass table-panel"><div className="commerce-toolbar customer-toolbar">
+      <label className="field-search"><Search size={16} /><input placeholder="Search customer" value={query} onChange={e => setQuery(e.target.value)} /></label>
+      <label className="birthday-filter">Birthdays<select aria-label="Birthday filter" value={birthdayFilter} onChange={event => setBirthdayFilter(event.target.value)}><option value="all">All customers</option><option value="today">Today</option><option value="month">This month</option></select></label>
+      <span>{shownCustomers.length} of {customers.length} profiles</span></div>
+      <p className="microcopy">Website and POS customers. Open WhatsApp to prepare an offer, review the message, then tap Send.</p>
+      <div className="table-wrap"><table><thead><tr><th>Name</th><th>Mobile number</th><th>Email</th><th>Date of birth</th><th>Birthday offers</th></tr></thead><tbody>{shownCustomers.map(customer => <tr key={customer.id}>
+        <td>{customer.fullName || '—'}</td><td>{customer.phone || '—'}</td><td>{customer.email || '—'}</td>
+        <td>{displayBirthDate(customer.dateOfBirth)}{customer.dateOfBirth && customer.dateOfBirth.slice(5) === today.slice(5) && <small className="birthday-today">Birthday today</small>}</td>
+        <td>{customer.birthdayOffersOptIn && mobileNumber(customer.phone) && customer.dateOfBirth
+          ? <a className="button secondary" target="_blank" rel="noopener noreferrer" href={`https://wa.me/${mobileNumber(customer.phone)}?text=${encodeURIComponent(`Hi${customer.fullName ? ` ${customer.fullName}` : ''}, birthday wishes from Brothers Outfit Gallery! Contact us to find out about our birthday offers.`)}`}><MessageCircle size={15} />Birthday offer</a>
+          : <span className="muted">{customer.birthdayOffersOptIn ? 'Details incomplete' : 'Not opted in'}</span>}</td>
+      </tr>)}{shownCustomers.length === 0 && <tr><td colSpan={5}>No customers match this search or birthday filter.</td></tr>}</tbody></table></div></div>}
     {tab === 'suppliers' && <><div className="glass table-panel"><h2>Add supplier</h2><form className="stock-form" onSubmit={async event => { event.preventDefault(); const target = event.currentTarget, form = new FormData(target); const result = await act('suppliers/create', { requestId: requestId(), name: String(form.get('name')), phone: String(form.get('phone') || ''), email: String(form.get('email') || '') || undefined, gstin: String(form.get('gstin') || '') }, 'Supplier added.'); if (result) target.reset(); }}><label>Name<input name="name" required minLength={2} /></label><label>Phone<input name="phone" inputMode="tel" /></label><label>Email<input name="email" type="email" /></label><label>GSTIN<input name="gstin" maxLength={15} /></label><button className="button primary">Add supplier</button></form></div><PurchaseReceive products={products} suppliers={suppliers} receive={async input => Boolean(await act('purchases/receive', { requestId: requestId(), ...input }, 'Purchase received and stock updated.'))} /><div className="glass table-panel"><h2>Recent purchases</h2><div className="table-wrap"><table><thead><tr><th>Receipt</th><th>Supplier</th><th>Invoice</th><th>Total</th><th>Payable</th></tr></thead><tbody>{purchases.map(p => <tr key={p.id}><td>{p.id}</td><td>{p.supplierName}</td><td>{p.supplierInvoice}</td><td>{money(p.total)}</td><td>{money(p.payable)}</td></tr>)}</tbody></table></div></div></>}
     {tab === 'reports' && <><div className="stats-grid">{[{ label: 'Website sales', value: orders.filter(o => o.createdBy !== 'admin-pos' && o.status !== 'Cancelled').reduce((sum, o) => sum + Number(o.totalAmount || 0), 0) },
       { label: 'POS sales', value: orders.filter(o => o.createdBy === 'admin-pos' && o.status !== 'Cancelled').reduce((sum, o) => sum + Number(o.totalAmount || 0), 0) },
@@ -362,7 +401,13 @@ export function CommerceView({ tab }: { tab: string }) {
     {creating && <ProductFormDialog onClose={() => setCreating(false)} onCreate={createPosProduct} />}
     {batchLabels && <BarcodeBatch products={products} onClose={() => setBatchLabels(false)} />}
     {labelProduct && <BarcodeLabel product={labelProduct} onClose={() => setLabelProduct(null)} />}
-    {billPreview && <ReceiptDialog preview shop={shop} onClose={() => setBillPreview(false)} invoice={{ id: 'PREVIEW', orderId: '', total: Math.max(0, billSubtotal - discount), subtotal: billSubtotal, discount, lines: cart.map(line => ({ name: line.product.name, sku: line.sku, quantity: line.quantity, price: line.price })), customerName, customerPhone, channel: 'POS', paymentMethod: payment, kind: 'bill_preview' }} />}
+    {tab === 'pos' && customerDialogOpen && <CustomerPhoneDialog value={{ phone: customerPhone, dateOfBirth: customerDateOfBirth, birthdayOffersOptIn }}
+      onClose={() => setCustomerDialogOpen(false)} onSave={details => {
+        if (mobileNumber(details.phone) !== mobileNumber(customerPhone)) setCreditWhatsAppOptIn(false);
+        setCustomerPhone(details.phone); setCustomerDateOfBirth(details.dateOfBirth); setBirthdayOffersOptIn(details.birthdayOffersOptIn);
+        setCustomerDialogOpen(false); setError('');
+      }} />}
+    {billPreview && <ReceiptDialog preview shop={shop} onClose={() => setBillPreview(false)} invoice={{ id: 'PREVIEW', orderId: '', total: Math.max(0, billSubtotal - discount), subtotal: billSubtotal, discount, lines: cart.map(line => ({ name: line.product.name, sku: line.sku, quantity: line.quantity, price: line.price })), customerName, customerPhone, channel: 'POS', paymentMethod: payment, creditDueDate: payment === 'credit' ? creditDueDate : undefined, kind: 'bill_preview' }} />}
     {lastInvoice && <ReceiptDialog invoice={lastInvoice} shop={shop} onClose={() => setLastInvoice(null)} />}
   </div>;
 }
