@@ -3,6 +3,7 @@ import { ArrowDownLeft, ArrowUpRight, MessageCircle, Plus, RefreshCw, Search } f
 import { readAdmin, writeAdmin } from './adminApi';
 import { dueDateAfter, displayDueDate, type CreditCustomer, type CreditEntry } from '../shared/credit';
 import { mobileNumber, shopDate } from '../shared/customers';
+import { PaymentInDialog } from './PaymentInDialog';
 
 const money = (value: number) => `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 type Detail = { customer: CreditCustomer; entries: CreditEntry[] };
@@ -65,6 +66,7 @@ export function CreditView() {
   const [detail, setDetail] = useState<Detail | null>(null), [query, setQuery] = useState(''), [filter, setFilter] = useState('all');
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [loading, setLoading] = useState(false);
   const [writes, setWrites] = useState(false), [mode, setMode] = useState<FormMode | null>(null), [savingPreference, setSavingPreference] = useState(false);
+  const [paymentInOpen, setPaymentInOpen] = useState(false);
   async function load() {
     setLoading(true); setError('');
     try { const [data, foundation] = await Promise.all([readAdmin<{ items: CreditCustomer[] }>('credit/customers'), readAdmin<{ businessWritesEnabled: boolean }>('foundation')]); setCustomers(data.items); setWrites(foundation.businessWritesEnabled);
@@ -86,7 +88,7 @@ export function CreditView() {
   const shown = customers.filter(customer => `${customer.name} ${customer.phone}`.toLowerCase().includes(query.toLowerCase()) &&
     (filter === 'all' || (filter === 'due' ? customer.summary.balance > 0 : filter === 'overdue' ? customer.summary.overdue > 0 : customer.summary.balance === 0)));
   const total = customers.reduce((sum, c) => sum + c.summary.balance, 0), received = customers.reduce((sum, c) => sum + c.summary.received, 0);
-  return <div className="credit-page"><div className="page-title"><div><span className="eyebrow">CUSTOMER ACCOUNTS</span><h1>Udhar / Credit</h1><p>Track money given, payments received and promised repayment dates.</p></div><div className="credit-toolbar-actions"><button className="button secondary" onClick={() => void load()} disabled={loading}><RefreshCw size={16} />Refresh</button><button className="button primary" disabled={!writes} onClick={() => setMode('customer')}><Plus size={17} />Add customer</button></div></div>
+  return <div className="credit-page"><div className="page-title"><div><span className="eyebrow">CUSTOMER ACCOUNTS</span><h1>Udhar / Credit</h1><p>Track money given, payments received and promised repayment dates.</p></div><div className="credit-toolbar-actions"><button className="button secondary" onClick={() => void load()} disabled={loading}><RefreshCw size={16} />Refresh</button><button className="button primary" disabled={!writes} onClick={() => setMode('customer')}><Plus size={17} />Add customer</button><button className="button credit-receive" disabled={!writes} onClick={() => setPaymentInOpen(true)}><ArrowDownLeft size={17} />Payment In</button></div></div>
     {error && <div className="error-banner" role="alert">{error}</div>}{notice && <div className="success-banner" role="status">{notice}</div>}
     {!writes && <p className="notice">Credit changes require store activation.</p>}
     <div className="credit-totals"><div className="glass"><span>Customers owe you</span><strong className="credit-red">{money(total)}</strong></div><div className="glass"><span>Payments received</span><strong className="credit-green">{money(received)}</strong></div><div className="glass"><span>Overdue customers</span><strong className="credit-red">{customers.filter(c => c.summary.overdue > 0).length}</strong></div></div>
@@ -104,5 +106,6 @@ export function CreditView() {
         <p className="microcopy">Partial payments reduce the oldest outstanding credit first. Green return adjustments are separate from cash received.</p>
       </> : <p className="empty-state">{selected ? 'Loading ledger…' : 'Select a customer to view their udhar and record payments.'}</p>}</section></div>
     {mode && <CreditForm mode={mode} customer={detail?.customer || null} onClose={() => setMode(null)} onSaved={key => void saved(key)} />}
+    {paymentInOpen && <PaymentInDialog customers={customers} preselectedKey={selected} onClose={() => setPaymentInOpen(false)} onSaved={key => { setPaymentInOpen(false); void saved(key); }} />}
   </div>;
 }

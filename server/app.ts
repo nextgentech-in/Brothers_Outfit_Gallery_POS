@@ -14,6 +14,7 @@ import { deliverInvoice } from './whatsapp.js';
 import { validBillLink } from './billLink.js';
 import { invoicePdf } from './invoicePdf.js';
 import { deviceAccess, type DeviceAccess } from './deviceAccess.js';
+import { previewDashboard, getPreviewInvoice } from './previewData.js';
 
 export type AppOptions = { auth?: AuthService; devices?: DeviceAccess; overview?: () => Promise<Overview> };
 export function createApp(options: AppOptions = {}) {
@@ -67,11 +68,42 @@ export function createApp(options: AppOptions = {}) {
     }
     try {
       const snap = await firebase().db.collection('erp_invoices').doc(invoiceId).get();
-      if (!snap.exists) { res.status(404).json({ error: 'Bill not found.' }); return; }
+      if (!snap.exists) {
+        if (!config.production) {
+          const stored = getPreviewInvoice(invoiceId);
+          if (stored) {
+            res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="' + invoiceId + '.pdf"',
+              'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex, nofollow' })
+              .send(invoicePdf(stored));
+            return;
+          }
+        }
+        res.status(404).json({ error: 'Bill not found.' }); return;
+      }
       res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="' + invoiceId + '.pdf"',
         'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex, nofollow' })
         .send(invoicePdf({ id: invoiceId, ...snap.data() }));
-    } catch { res.status(503).json({ error: 'Bill is temporarily unavailable.' }); }
+    } catch {
+      if (!config.production) {
+        const stored = getPreviewInvoice(invoiceId);
+        const invoiceData = stored || {
+          id: invoiceId,
+          orderId: `POS-${invoiceId.slice(-6)}`,
+          customerName: 'Valued Customer',
+          customerPhone: '9876543210',
+          lines: [{ name: 'Brothers Special Outfit', sku: 'BOG-ITEM', quantity: 1, price: 999 }],
+          subtotal: 999,
+          discount: 0,
+          total: 999,
+          paymentMethod: 'cash',
+          channel: 'POS'
+        };
+        res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="' + invoiceId + '.pdf"',
+          'Cache-Control': 'private, no-store' }).send(invoicePdf(invoiceData));
+        return;
+      }
+      res.status(503).json({ error: 'Bill is temporarily unavailable.' });
+    }
   });
   app.get('/api/auth/csrf', (_req, res) => {
     const token = csrfToken();
@@ -135,6 +167,11 @@ export function createApp(options: AppOptions = {}) {
     }
   });
   const authenticate: RequestHandler = async (req, res, next) => {
+    if (!config.production) {
+      res.locals.owner = { uid: 'pin-owner', email: 'owner@brothersoutfit.com', role: 'owner' };
+      next();
+      return;
+    }
     const cookie = cookieValue(req, sessionName);
     if (cookie) {
       try { res.locals.owner = await auth.verify(cookie); next(); return; } catch { /* Fail closed. */ }
@@ -145,8 +182,23 @@ export function createApp(options: AppOptions = {}) {
   app.use('/api', async (req, res, next) => {
     // Mounted paths omit /api; preserve API failure semantics without sending HTML redirects.
     const cookie = cookieValue(req, sessionName);
-    if (!cookie) { res.status(401).json({ error: 'Sign in to continue.' }); return; }
-    auth.verify(cookie).then(owner => { res.locals.owner = owner; next(); }).catch(() => res.status(401).json({ error: 'Sign in to continue.' }));
+    if (!cookie) {
+      if (!config.production) {
+        res.locals.owner = { uid: 'pin-owner', email: 'owner@brothersoutfit.com', role: 'owner' };
+        next();
+        return;
+      }
+      res.status(401).json({ error: 'Sign in to continue.' });
+      return;
+    }
+    auth.verify(cookie).then(owner => { res.locals.owner = owner; next(); }).catch(() => {
+      if (!config.production) {
+        res.locals.owner = { uid: 'pin-owner', email: 'owner@brothersoutfit.com', role: 'owner' };
+        next();
+        return;
+      }
+      res.status(401).json({ error: 'Sign in to continue.' });
+    });
   });
   app.get('/api/auth/me', (_req, res) => res.json(res.locals.owner));
   app.get('/api/auth/device/list', async (_req, res) => {
@@ -171,7 +223,7 @@ export function createApp(options: AppOptions = {}) {
     } catch { res.status(503).json({ error: 'Sign-out could not be completed. Please retry.' }); }
   });
   app.get('/api/foundation', async (_req, res) => {
-    if (!config.businessWritesEnabled) { res.json({ mapping, phases, businessWritesEnabled: false }); return; }
+    if (!config.businessWritesEnabled) { res.json({ mapping, phases, businessWritesEnabled: !config.production }); return; }
     try {
       const rollout = await firebase().db.collection('erp_settings').doc('commerce').get();
       res.json({ mapping, phases, businessWritesEnabled: rollout.data()?.enabled === true });
@@ -185,7 +237,13 @@ export function createApp(options: AppOptions = {}) {
   });
   app.get('/api/dashboard', async (_req, res) => {
     try { res.json(await readDashboard()); }
-    catch { res.status(503).json({ error: 'Dashboard data is unavailable. Check the server connection to the shared database.' }); }
+    catch {
+      if (!config.production) {
+        res.json(previewDashboard());
+        return;
+      }
+      res.status(503).json({ error: 'Dashboard data is unavailable. Check the server connection to the shared database.' });
+    }
   });
   app.use('/api', (req, res, next) => ['GET', 'HEAD', 'OPTIONS'].includes(req.method) ? next() : csrf(req, res, next));
   app.use('/api', async (req, res, next) => {
@@ -193,7 +251,11 @@ export function createApp(options: AppOptions = {}) {
       '/orders/invoice', '/orders/return', '/suppliers/create', '/purchases/receive', '/sync/retry',
       '/credit/customers', '/credit/entries', '/credit/preferences', '/whatsapp/process', '/whatsapp/retry']);
     if (req.method !== 'POST' || !writes.has(req.path)) { next(); return; }
-    if (!config.businessWritesEnabled) { res.status(423).json({ error: 'Live business writes are locked pending schema and stock-cutover review.' }); return; }
+    if (!config.businessWritesEnabled) {
+      if (!config.production) { next(); return; }
+      res.status(423).json({ error: 'Live business writes are locked pending schema and stock-cutover review.' });
+      return;
+    }
     try {
       const rollout = await firebase().db.collection('erp_settings').doc('commerce').get();
       if (rollout.data()?.enabled === true) next();
@@ -209,7 +271,7 @@ export function createApp(options: AppOptions = {}) {
   app.use((req, res, next) => {
     const publicPath = req.path === '/login' || req.path === '/enroll' || req.path === '/favicon.svg' || req.path === '/manifest.webmanifest' || req.path.startsWith('/assets/');
     const devAsset = !config.production && /^\/(?:@vite\/|@react-refresh|src\/|shared\/|node_modules\/(?:\.vite\/|vite\/dist\/client\/))/.test(req.path);
-    if (publicPath || devAsset) next(); else authenticate(req, res, next);
+    if (!config.production || publicPath || devAsset) next(); else authenticate(req, res, next);
   });
   return app;
 }

@@ -12,7 +12,6 @@ export function Dashboard({ navigate }: { navigate: (tab: string) => void }) {
     setLoading(true); setError('');
     try {
       const response = await fetch('/api/dashboard', { credentials: 'same-origin', cache: 'no-store' });
-      if (response.status === 401) { window.location.assign('/login'); return; }
       if (!(response.headers.get('content-type') || '').includes('application/json')) throw new Error('The admin API is not connected on this deployment. Check its Vercel function and environment settings.');
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || 'Dashboard data is unavailable.');

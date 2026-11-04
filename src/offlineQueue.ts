@@ -1,6 +1,8 @@
 export type QueuedSale = {
   requestId: string;
-  lines: { productId: string; sku: string; quantity: number }[];
+  lines: { productId: string; sku: string; quantity: number; price?: number }[];
+  billNumber?: string;
+  billingDate?: string;
   customerName?: string;
   customerPhone?: string;
   customerEmail?: string;

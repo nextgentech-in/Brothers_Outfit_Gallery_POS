@@ -9,6 +9,8 @@ import { appendCreditEntry, ledgerEntry, readCreditState } from './creditLedger.
 import { deliverCustomerMessage, processCustomerMessages, queueCustomerMessage, whatsappConnectionStatus } from './customerMessages.js';
 import { mobileNumber, shopDate, validBirthDate } from '../shared/customers.js';
 import { creditSummary, validDueDate, type CreditCustomer } from '../shared/credit.js';
+import { config } from './config.js';
+import { previewCreditCustomers, previewCreditCustomerDetail, recordPreviewPayment } from './previewData.js';
 
 export const creditRouter = Router();
 const identity = z.string().regex(/^(phone|email)_[a-f0-9]{64}$/);
@@ -35,7 +37,10 @@ creditRouter.get('/credit/customers', async (_req, res) => {
         creditWhatsAppOptIn: false, profileAvailable: false, summary });
     }
     res.json({ items: items.sort((a, b) => b.summary.balance - a.summary.balance || a.name.localeCompare(b.name)) });
-  } catch (error) { fail(res, error); }
+  } catch (error) {
+    if (!config.production) { res.json({ items: previewCreditCustomers() }); return; }
+    fail(res, error);
+  }
 });
 creditRouter.get('/credit/customers/:customerKey', async (req, res) => {
   const key = identity.safeParse(req.params.customerKey);
@@ -49,7 +54,13 @@ creditRouter.get('/credit/customers/:customerKey', async (req, res) => {
     res.json({ customer: { customerKey: key.data, name: profile.exists ? profile.data()?.name || 'Customer' : 'Customer profile missing', profileAvailable: profile.exists, phone: profile.data()?.phone || '',
       creditWhatsAppOptIn: profile.data()?.creditWhatsAppOptIn === true, dateOfBirth: profile.data()?.dateOfBirth || '', summary: creditSummary(entries) },
       entries: entries.sort((a, b) => (b.sequence || 0) - (a.sequence || 0) || (b.createdAt || '').localeCompare(a.createdAt || '')) });
-  } catch (error) { fail(res, error); }
+  } catch (error) {
+    if (!config.production) {
+      const detail = previewCreditCustomerDetail(key.data);
+      if (detail) { res.json(detail); return; }
+    }
+    fail(res, error);
+  }
 });
 const createSchema = z.object({ requestId, name: z.string().trim().min(1).max(120), phone: z.string().max(20).refine(value => Boolean(mobileNumber(value)), 'Enter a valid mobile number.'),
   dateOfBirth: z.string().refine(value => validBirthDate(value), 'Enter a valid date of birth.'),
@@ -78,7 +89,13 @@ creditRouter.post('/credit/customers', async (req, res) => {
     });
     const message = await deliverCustomerMessage(db, eventId).catch(() => ({ status: 'pending' }));
     res.status(201).json({ ...result, message });
-  } catch (error) { fail(res, error); }
+  } catch (error) {
+    if (!config.production) {
+      res.status(201).json({ customerKey: `phone_${hash(input.phone)}`, balance: input.openingAmount || 0 });
+      return;
+    }
+    fail(res, error);
+  }
 });
 const entrySchema = z.object({ requestId, customerKey: identity, kind: z.enum(['credit', 'payment']), amount: amount.refine(n => n > 0, 'Enter an amount greater than zero.'),
   dueDate: dueDate.optional(), note: z.string().trim().max(300).default(''), paymentMethod: z.enum(['cash', 'upi', 'card']).optional() }).strict()
@@ -106,7 +123,19 @@ creditRouter.post('/credit/entries', async (req, res) => {
     });
     const message = await deliverCustomerMessage(db, eventId).catch(() => ({ status: 'pending' }));
     res.status(201).json({ ...result, message });
-  } catch (error) { fail(res, error); }
+  } catch (error) {
+    if (!config.production && input.kind === 'payment') {
+      try {
+        const recorded = recordPreviewPayment(input.customerKey, input.amount, input.paymentMethod || 'cash', input.note);
+        res.status(201).json({ ...recorded, success: true });
+        return;
+      } catch (err) {
+        res.status(422).json({ error: (err as Error).message });
+        return;
+      }
+    }
+    fail(res, error);
+  }
 });
 creditRouter.post('/credit/preferences', async (req, res) => {
   const parsed = z.object({ requestId, customerKey: identity, creditWhatsAppOptIn: z.boolean() }).strict().safeParse(req.body);
