@@ -7,11 +7,13 @@ const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
 export function customerProfileFields(input: {
   customerName?: string; customerPhone?: string; customerEmail?: string;
   customerDateOfBirth?: string; birthdayOffersOptIn?: boolean;
+  customerAddress?: string;
 }) {
   return {
     ...(input.customerName?.trim() ? { name: input.customerName.trim() } : {}),
     ...(input.customerPhone?.trim() ? { phone: mobileNumber(input.customerPhone) } : {}),
     ...(input.customerEmail?.trim() ? { email: input.customerEmail.trim() } : {}),
+    ...(input.customerAddress?.trim() ? { address: input.customerAddress.trim() } : {}),
     ...(input.customerDateOfBirth ? { dateOfBirth: input.customerDateOfBirth } : {}),
     ...(input.birthdayOffersOptIn !== undefined ? { birthdayOffersOptIn: input.birthdayOffersOptIn } : {})
   };
@@ -25,10 +27,11 @@ export function customerDirectory(users: CustomerRecord[], profiles: CustomerRec
       const identity = customerKey(phone, email) || `${source}:${id}`;
       const existing = customers.get(identity);
       customers.set(identity, {
-        id: existing?.id || `${source}:${id}`,
+        id: existing?.id || `${source}:${id}`, customerKey: identity,
         fullName: text(data.fullName) || text(data.name) || existing?.fullName || '',
         phone: phone || existing?.phone || '',
         email: email || existing?.email || '',
+        address: text(data.address) || text(data.customerAddress) || existing?.address || '',
         dateOfBirth: validBirthDate(data.dateOfBirth) ? data.dateOfBirth : existing?.dateOfBirth || '',
         birthdayOffersOptIn: source === 'pos' && typeof data.birthdayOffersOptIn === 'boolean'
           ? data.birthdayOffersOptIn : existing?.birthdayOffersOptIn || false

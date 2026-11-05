@@ -1,5 +1,6 @@
 # Activation status — 2 November 2026
 
+> Historical rollout record: see [4 November daily-use update](08-daily-use-update.md) for current local features and remaining validation.
 The owner approved proceeding with live cutover and completing the app. Do not ask again for this authorization. Activation is not yet complete.
 
 ## Completed

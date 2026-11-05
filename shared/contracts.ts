@@ -1,4 +1,4 @@
-export type Owner = { uid: string; email: string | null; role: 'owner' };
+export type Owner = { uid: string; email: string | null; role: 'owner' | 'manager' | 'cashier'; name?: string };
 export type Mapping = { label: string; source: string; fields: string; plan: string };
 export const mapping: Mapping[] = [
   { label: 'Products', source: 'products/{id}', fields: 'name · slug · salePrice · mrp · images · active', plan: 'Edit the same document. Preserve existing price aliases and image formats. No copied catalog.' },
@@ -12,23 +12,23 @@ export const mapping: Mapping[] = [
 ];
 export const phases = [
   { number: 1, name: 'Foundation', state: 'local', label: 'BUILT LOCALLY',
-    built: 'Separate D: app, PIN login, schema mapping, guarded migration and rollback.',
+    built: 'Separate app, owner/staff PIN sessions, trusted devices, schema mapping and guarded migration.',
     remaining: 'Harden access and deploy before public use.' },
   { number: 2, name: 'Inventory', state: 'partial', label: 'PARTLY BUILT',
-    built: 'Shared products and variants, POS product creation, stock movements, labels and retail stock values.',
-    remaining: 'Locations, stock take, import/export, alerts and baseline cutover.' },
+    built: 'Shared variants, immediate purchases/new items, cost valuation, physical counts, reorder thresholds and detailed clothing labels.',
+    remaining: 'Multiple locations, bulk import and live baseline cutover.' },
   { number: 3, name: 'Point of sale', state: 'partial', label: 'PARTLY BUILT',
-    built: 'Barcode search, editable bill quantities, sales receipts, PDF and whole-order returns.',
-    remaining: 'Split payments, hold/resume, exchanges and thermal printing. GST was deferred.' },
+    built: 'Barcode search, saved drafts/held bills, split payments, partial returns, paid-bill exchanges, recorded refunds and thermal layouts.',
+    remaining: 'Live printer verification and payment-provider reconciliation. GST remains deferred.' },
   { number: 4, name: 'Relationships', state: 'partial', label: 'PARTLY BUILT',
-    built: 'Shared customer keys for new orders, credit/loyalty events, suppliers and stock receipts.',
-    remaining: 'Historical customer merge, loyalty redemption and full purchase workflow.' },
+    built: 'Customer editing and birthdays, udhar/repayments, manual multilingual WhatsApp drafts, suppliers and payment settlement.',
+    remaining: 'Historical customer merge and loyalty redemption.' },
   { number: 5, name: 'Business insights', state: 'early', label: 'EARLY BUILD',
-    built: 'Recent POS and website sales overview and stock history.',
-    remaining: 'Full reports, profit/valuation, expenses, day close and backup restore.' },
+    built: 'Date-based sales/returns/collections reports, expenses, cash closing and bill search.',
+    remaining: 'Complete historical cost accounting and live reconciliation verification.' },
   { number: 6, name: 'Shop anywhere', state: 'partial', label: 'PARTLY BUILT',
-    built: 'PWA shell, offline bill queue, same-key retry and shortage review on this device.',
-    remaining: 'Reconnect race tests, durable review queue and production security/performance checks.' },
+    built: 'PWA shell, offline provisional bills, same-key retry, server-checked recovery and pending-bill export.',
+    remaining: 'Real-device offline/printer checks and large-catalog performance checks.' },
   { number: 7, name: 'Website sync', state: 'rollout', label: 'ROLLOUT PENDING',
     built: 'Shared Firestore catalog/orders, live order intake, sync health and guarded checkout reservation code.',
     remaining: 'Staging stock-writer cutover, payment reconciliation, WhatsApp credentials and race tests.' }

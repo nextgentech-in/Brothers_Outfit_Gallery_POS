@@ -1,3 +1,4 @@
+import { staffIdentity, currentStaff } from './staff.js';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Owner } from '../shared/contracts.js';
 import { config } from './config.js';
@@ -11,7 +12,7 @@ export interface AuthService {
 }
 
 // Local preview sessions live in memory; hosted sessions use Firestore below.
-const sessions = new Map<string, number>();
+const sessions = new Map<string, { expiresAt: number; identity: Owner }>();
 const owner: Owner = { uid: 'pin-owner', email: null, role: 'owner' };
 const digest = (value: string) => createHmac('sha256', config.sessionSecret).update(value).digest('hex');
 const authCollection = () => {
@@ -23,7 +24,9 @@ export const authService: AuthService = {
   async login(pin, identity = 'local', deviceGrantId = null) {
     const expected = config.adminPin;
     if (!expected || !/^\d{4}$/.test(expected)) throw new Error('PIN is not configured.');
-    const valid = /^\d{4}$/.test(pin) && timingSafeEqual(Buffer.from(pin), Buffer.from(expected));
+    const ownerValid = /^\d{4}$/.test(pin) && timingSafeEqual(Buffer.from(pin), Buffer.from(expected));
+    const identityOwner = ownerValid ? owner : /^\d{4}$/.test(pin) ? await staffIdentity(pin) : null;
+    const valid = Boolean(identityOwner);
     const session = randomBytes(32).toString('hex');
     if (config.production) {
       if (!config.deviceAccessEnabled) throw new Error('Hosted access is disabled.');
@@ -42,14 +45,14 @@ export const authService: AuthService = {
         tx.set(limitRef, { startedAt: withinWindow ? startedAt : now, attempts: valid ? 0 : attempts + 1,
           expiresAt: now + 15 * 60_000 });
         if (valid) tx.create(sessionRef, { expiresAt: now + config.sessionMs, createdAt: now,
-          deviceGrantId: deviceGrantId || null });
+          deviceGrantId: deviceGrantId || null, identity: identityOwner });
         return valid ? 'ok' : 'invalid';
       });
       if (result !== 'ok') throw new Error(result === 'limited' ? 'Too many sign-in attempts.' : 'Invalid PIN');
       return session;
     }
     if (!valid) throw new Error('Invalid PIN');
-    sessions.set(session, Date.now() + config.sessionMs);
+    sessions.set(session, { expiresAt: Date.now() + config.sessionMs, identity: identityOwner! });
     return session;
   },
   async verify(cookie) {
@@ -61,14 +64,15 @@ export const authService: AuthService = {
       const grantId = snapshot.data()?.deviceGrantId;
       if (!grantId || !await deviceAccess.isGrantActive(String(grantId)))
         throw new Error('Device grant expired or revoked');
-      return owner;
+      return currentStaff(snapshot.data()?.identity || owner);
     }
-    const expiresAt = /^[a-f0-9]{64}$/.test(cookie) ? sessions.get(cookie) : undefined;
+    const session = /^[a-f0-9]{64}$/.test(cookie) ? sessions.get(cookie) : undefined;
+    const expiresAt = session?.expiresAt;
     if (!expiresAt || expiresAt <= Date.now()) {
       sessions.delete(cookie);
       throw new Error('Invalid or expired session');
     }
-    return owner;
+    return currentStaff(session!.identity);
   },
   async logout(cookie) {
     if (config.production) {

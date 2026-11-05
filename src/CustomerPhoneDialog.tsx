@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { customerDetailsError, mobileNumber, shopDate, type Customer } from '../shared/customers';
 
-export type CustomerPhoneDetails = { phone: string; dateOfBirth: string; birthdayOffersOptIn: boolean };
+export type CustomerPhoneDetails = { phone: string; dateOfBirth: string; birthdayOffersOptIn: boolean; fullName?: string; email?: string };
 
 export function CustomerPhoneDialog({ value, onSave, onClose }: {
   value: CustomerPhoneDetails; onSave: (value: CustomerPhoneDetails) => void; onClose: () => void;
@@ -11,6 +11,7 @@ export function CustomerPhoneDialog({ value, onSave, onClose }: {
   const [phone, setPhone] = useState(value.phone);
   const [dateOfBirth, setDateOfBirth] = useState(value.dateOfBirth);
   const [birthdayOffersOptIn, setBirthdayOffersOptIn] = useState(value.birthdayOffersOptIn);
+  const [savedCustomer, setSavedCustomer] = useState<Customer | null>(null);
   const [error, setError] = useState('');
   const [lookupMessage, setLookupMessage] = useState('');
   const editedBirthday = useRef(false);
@@ -40,6 +41,7 @@ export function CustomerPhoneDialog({ value, onSave, onClose }: {
         if (!response.ok) throw new Error('Lookup unavailable');
         const { customer } = await response.json() as { customer: Customer | null };
         if (controller.signal.aborted) return;
+        setSavedCustomer(customer);
         if (customer?.dateOfBirth && !editedBirthday.current) setDateOfBirth(customer.dateOfBirth);
         if (customer && !editedOffers.current) setBirthdayOffersOptIn(customer.birthdayOffersOptIn);
         setLookupMessage(customer?.dateOfBirth ? 'Saved birthday found. Confirm it with the customer.' : 'Ask the customer for their date of birth.');
@@ -52,7 +54,7 @@ export function CustomerPhoneDialog({ value, onSave, onClose }: {
 
   function changePhone(next: string) {
     if (mobileNumber(next) !== canonicalPhone) {
-      setDateOfBirth(''); setBirthdayOffersOptIn(false); setLookupMessage('');
+      setSavedCustomer(null); setDateOfBirth(''); setBirthdayOffersOptIn(false); setLookupMessage('');
       editedBirthday.current = false; editedOffers.current = false;
     }
     setError(''); setPhone(next);
@@ -62,7 +64,7 @@ export function CustomerPhoneDialog({ value, onSave, onClose }: {
     event.preventDefault();
     const message = customerDetailsError(phone, dateOfBirth);
     if (message || !canonicalPhone) { setError(message || 'Enter a mobile number.'); return; }
-    onSave({ phone: canonicalPhone, dateOfBirth, birthdayOffersOptIn });
+    onSave({ phone: canonicalPhone, dateOfBirth, birthdayOffersOptIn, fullName: savedCustomer?.fullName, email: savedCustomer?.email });
   }
 
   return <dialog ref={dialog} className="customer-phone-dialog glass" aria-labelledby="customer-phone-title"
@@ -76,6 +78,7 @@ export function CustomerPhoneDialog({ value, onSave, onClose }: {
         value={phone} onChange={event => changePhone(event.target.value)} placeholder="10-digit mobile or +country code" /></label>
       <label>Date of birth<input type="date" autoComplete="bday" required min="1900-01-01" max={shopDate()} value={dateOfBirth}
         onChange={event => { editedBirthday.current = true; setDateOfBirth(event.target.value); setError(''); }} /></label>
+      {savedCustomer?.fullName && <p>Saved customer: <strong>{savedCustomer.fullName}</strong></p>}
       {lookupMessage && <p className="microcopy" role="status">{lookupMessage}</p>}
       <label className="check-row"><input type="checkbox" checked={birthdayOffersOptIn} onChange={event => {
         editedOffers.current = true; setBirthdayOffersOptIn(event.target.checked);
