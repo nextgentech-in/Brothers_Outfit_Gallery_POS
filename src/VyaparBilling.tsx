@@ -50,7 +50,7 @@ export type BillRow = {
   amount: number;
 };
 
-const createEmptyRow = (id = crypto.randomUUID()): BillRow => ({
+const createEmptyRow = (id: string = crypto.randomUUID()): BillRow => ({
   id,
   productId: '',
   sku: '',
