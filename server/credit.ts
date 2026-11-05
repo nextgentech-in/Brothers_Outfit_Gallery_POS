@@ -25,12 +25,14 @@ creditRouter.get('/credit/customers', async (_req, res) => {
     const db = firebase().db;
     const [profiles, ledger] = await Promise.all([db.collection('erp_customerProfiles').get(), db.collection('erp_customerLedger').get()]);
     const entries = ledger.docs.map(doc => ledgerEntry(doc.id, doc.data()));
+    const grouped=new Map<string,typeof entries>();for(const entry of entries){const rows=grouped.get(entry.customerKey)||[];rows.push(entry);grouped.set(entry.customerKey,rows);}
+    const profileKeys=new Set(profiles.docs.map(doc=>doc.id));
     const items: CreditCustomer[] = profiles.docs.map(doc => ({ customerKey: doc.id, name: String(doc.data().name || 'Customer'),
       phone: String(doc.data().phone || ''), dateOfBirth: String(doc.data().dateOfBirth || ''), creditWhatsAppOptIn: doc.data().creditWhatsAppOptIn === true,
-      summary: creditSummary(entries.filter(entry => entry.customerKey === doc.id)) }));
+      summary: creditSummary(grouped.get(doc.id)||[]) }));
     for (const key of new Set(entries.map(entry => entry.customerKey))) {
-      if (items.some(item => item.customerKey === key)) continue;
-      const summary = creditSummary(entries.filter(entry => entry.customerKey === key));
+      if (profileKeys.has(key)) continue;
+      const summary = creditSummary(grouped.get(key)||[]);
       if (summary.given > 0) items.push({ customerKey: key, name: 'Customer profile missing', phone: '', dateOfBirth: '',
         creditWhatsAppOptIn: false, profileAvailable: false, summary });
     }

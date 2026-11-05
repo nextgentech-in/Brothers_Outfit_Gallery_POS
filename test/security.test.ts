@@ -7,9 +7,10 @@ import { config } from '../server/config.js';
 let server: Server;
 let origin: string;
 let revoked = false;
+let fixtureRole:'owner'|'manager'|'cashier'='owner';
 const fixturePin = '2468';
 beforeEach(async () => {
-  revoked = false;
+  revoked = false; fixtureRole='owner';
   const app = createApp({
     devices: {
       async createInvite() { return { url: 'https://brothers-outfit-gallery-pos.vercel.app/enroll#token=sample', expiresAt: 1000 }; },
@@ -21,7 +22,7 @@ beforeEach(async () => {
     },
     auth: {
       async login(pin) { if (pin !== fixturePin) throw new Error('Secret upstream error'); revoked = false; return 'test-session'; },
-      async verify(cookie) { if (cookie !== 'test-session' || revoked) throw new Error('Invalid'); return { uid: 'pin-owner', email: null, role: 'owner' }; },
+      async verify(cookie) { if (cookie !== 'test-session' || revoked) throw new Error('Invalid'); return { uid: 'pin-owner', email: null, role: fixtureRole }; },
       async logout() { revoked = true; }
     },
     overview: async () => ({ products: 3, orders: 2, customers: 1, movements: 4, checkedAt: new Date().toISOString(), businessWritesEnabled: false })
@@ -131,4 +132,13 @@ test('login rate limiting rejects repeated attempts', async () => {
   let response: Response | undefined;
   for (let n = 0; n < 6; n++) response = await fetch(origin + '/api/auth/login', { method: 'POST', headers: { origin: config.origin, cookie, 'x-csrf-token': token, 'Content-Type': 'application/json' }, body: '{}' });
   assert.equal(response?.status, 429); assert.ok(response?.headers.get('retry-after'));
+});
+
+test('cashier and manager permissions are enforced by the server',async()=>{
+ const {cookie,token}=await csrf();const headers={origin:config.origin,cookie:cookie+'; bo_session=test-session','x-csrf-token':token,'Content-Type':'application/json'};
+ fixtureRole='cashier';
+ for(const path of ['/api/reports/summary','/api/dashboard','/api/suppliers','/api/backup/export','/api/staff'])assert.equal((await fetch(origin+path,{headers})).status,403,path);
+ for(const path of ['/api/orders/return','/api/inventory/count','/api/expenses/create','/api/products/create'])assert.equal((await fetch(origin+path,{method:'POST',headers,body:'{}'})).status,403,path);
+ assert.equal((await fetch(origin+'/api/pos/sale',{method:'POST',headers,body:JSON.stringify({discount:10})})).status,403);
+ fixtureRole='manager';assert.equal((await fetch(origin+'/api/staff',{headers})).status,403);
 });

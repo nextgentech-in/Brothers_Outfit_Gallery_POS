@@ -1,10 +1,12 @@
 export type Customer = {
   id: string;
+  customerKey?: string;
   fullName: string;
   phone: string;
   email: string;
   dateOfBirth: string;
   birthdayOffersOptIn: boolean;
+  address?: string;
 };
 
 // Date-only values stay in YYYY-MM-DD form; birthdays must not shift with time zones.

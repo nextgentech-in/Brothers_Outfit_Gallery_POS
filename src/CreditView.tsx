@@ -1,9 +1,9 @@
+import { CustomerWhatsAppDialog } from './CustomerWhatsAppDialog';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowDownLeft, ArrowUpRight, MessageCircle, Plus, RefreshCw, Search } from 'lucide-react';
 import { readAdmin, writeAdmin } from './adminApi';
 import { dueDateAfter, displayDueDate, type CreditCustomer, type CreditEntry } from '../shared/credit';
 import { mobileNumber, shopDate } from '../shared/customers';
-import { PaymentInDialog } from './PaymentInDialog';
 
 const money = (value: number) => `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 type Detail = { customer: CreditCustomer; entries: CreditEntry[] };
@@ -22,6 +22,8 @@ function CreditForm({ mode, customer, onClose, onSaved }: { mode: FormMode; cust
   const [date, setDate] = useState(dueDateAfter(7));
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false), [error, setError] = useState('');
+  const pendingKey = `credit-pending-${mode}-${customer?.customerKey || 'new'}`;
+  useEffect(() => { try { const saved = JSON.parse(localStorage.getItem(pendingKey) || 'null'); if (saved) { command.current = saved; setAmount(String(saved.amount ?? saved.openingAmount ?? '')); setDate(saved.dueDate || dueDateAfter(7)); setUncertain(true); setError('A saved entry has an unconfirmed result. Retry this reference before entering another payment.'); } } catch {} }, []);
   const title = mode === 'customer' ? 'Add credit customer' : mode === 'credit' ? 'You gave · Add udhar' : 'You received · Record payment';
   useEffect(() => { const el = dialog.current!, previous = document.activeElement; el.showModal(); return () => { el.close(); if (previous instanceof HTMLElement) previous.focus(); }; }, []);
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -35,11 +37,13 @@ function CreditForm({ mode, customer, onClose, onSaved }: { mode: FormMode; cust
     }
     setBusy(true); setError('');
     try {
+      localStorage.setItem(pendingKey, JSON.stringify(command.current));
       const result = await writeAdmin<{ customerKey?: string }>(mode === 'customer' ? 'credit/customers' : 'credit/entries', command.current);
+      localStorage.removeItem(pendingKey);
       onSaved(result.customerKey || customer!.customerKey);
     } catch (cause) {
       const status = (cause as { status?: number }).status;
-      if (status && status < 500) { command.current = null; setUncertain(false); }
+      if (status && [400,404,409,422].includes(status)) { localStorage.removeItem(pendingKey); command.current = null; setUncertain(false); }
       else setUncertain(true);
       setError((cause as Error).message);
     } finally { setBusy(false); }
@@ -62,11 +66,11 @@ function CreditForm({ mode, customer, onClose, onSaved }: { mode: FormMode; cust
 
 export function CreditView() {
   const [customers, setCustomers] = useState<CreditCustomer[]>([]), [selected, setSelected] = useState('');
+  const [messageOpen, setMessageOpen] = useState(false);
   const [detailRevision, setDetailRevision] = useState(0);
   const [detail, setDetail] = useState<Detail | null>(null), [query, setQuery] = useState(''), [filter, setFilter] = useState('all');
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [loading, setLoading] = useState(false);
   const [writes, setWrites] = useState(false), [mode, setMode] = useState<FormMode | null>(null), [savingPreference, setSavingPreference] = useState(false);
-  const [paymentInOpen, setPaymentInOpen] = useState(false);
   async function load() {
     setLoading(true); setError('');
     try { const [data, foundation] = await Promise.all([readAdmin<{ items: CreditCustomer[] }>('credit/customers'), readAdmin<{ businessWritesEnabled: boolean }>('foundation')]); setCustomers(data.items); setWrites(foundation.businessWritesEnabled);
@@ -85,15 +89,17 @@ export function CreditView() {
     setMode(null); setNotice('Credit ledger updated. Customer messages are listed in WhatsApp.');
     setSelected(key); await load();
   }
+  const [visibleCount,setVisibleCount]=useState(50);
+  useEffect(()=>setVisibleCount(50),[query,filter]);
   const shown = customers.filter(customer => `${customer.name} ${customer.phone}`.toLowerCase().includes(query.toLowerCase()) &&
     (filter === 'all' || (filter === 'due' ? customer.summary.balance > 0 : filter === 'overdue' ? customer.summary.overdue > 0 : customer.summary.balance === 0)));
   const total = customers.reduce((sum, c) => sum + c.summary.balance, 0), received = customers.reduce((sum, c) => sum + c.summary.received, 0);
-  return <div className="credit-page"><div className="page-title"><div><span className="eyebrow">CUSTOMER ACCOUNTS</span><h1>Udhar / Credit</h1><p>Track money given, payments received and promised repayment dates.</p></div><div className="credit-toolbar-actions"><button className="button secondary" onClick={() => void load()} disabled={loading}><RefreshCw size={16} />Refresh</button><button className="button primary" disabled={!writes} onClick={() => setMode('customer')}><Plus size={17} />Add customer</button><button className="button credit-receive" disabled={!writes} onClick={() => setPaymentInOpen(true)}><ArrowDownLeft size={17} />Payment In</button></div></div>
+  return <div className="credit-page"><div className="page-title"><div><span className="eyebrow">CUSTOMER ACCOUNTS</span><h1>Udhar / Credit</h1><p>Track money given, payments received and promised repayment dates.</p></div><div className="credit-toolbar-actions"><button className="button secondary" onClick={() => void load()} disabled={loading}><RefreshCw size={16} />Refresh</button><button className="button primary" disabled={!writes} onClick={() => setMode('customer')}><Plus size={17} />Add customer</button></div></div>
     {error && <div className="error-banner" role="alert">{error}</div>}{notice && <div className="success-banner" role="status">{notice}</div>}
     {!writes && <p className="notice">Credit changes require store activation.</p>}
     <div className="credit-totals"><div className="glass"><span>Customers owe you</span><strong className="credit-red">{money(total)}</strong></div><div className="glass"><span>Payments received</span><strong className="credit-green">{money(received)}</strong></div><div className="glass"><span>Overdue customers</span><strong className="credit-red">{customers.filter(c => c.summary.overdue > 0).length}</strong></div></div>
     <div className="credit-layout"><section className="glass table-panel"><div className="commerce-toolbar customer-toolbar"><label className="field-search"><Search size={16} /><input placeholder="Search name or mobile" value={query} onChange={event => setQuery(event.target.value)} /></label><select aria-label="Credit filter" value={filter} onChange={event => setFilter(event.target.value)}><option value="all">All customers</option><option value="due">Outstanding</option><option value="overdue">Overdue</option><option value="clear">Settled</option></select></div>
-      <div className="credit-customer-list">{shown.map(customer => <button type="button" key={customer.customerKey} className={`credit-customer-row ${selected === customer.customerKey ? 'selected' : ''}`} onClick={() => setSelected(customer.customerKey)}><span><strong>{customer.name}</strong><small>{customer.phone}</small><small>{customer.summary.nextDueDate ? `Due ${displayDueDate(customer.summary.nextDueDate)}` : customer.summary.undated ? 'Due date not recorded' : 'No payment due'}</small></span><span className={customer.summary.balance > 0 ? 'credit-red' : 'credit-green'}><strong>{money(customer.summary.balance)}</strong><small>{customer.summary.overdue ? 'Overdue' : customer.summary.balance ? 'You will receive' : 'Settled'}</small></span></button>)}{!shown.length && <p className="empty-state">{loading ? 'Loading customer accounts…' : 'No customers match this filter.'}</p>}</div></section>
+      <div className="credit-customer-list">{shown.slice(0,visibleCount).map(customer => <button type="button" key={customer.customerKey} className={`credit-customer-row ${selected === customer.customerKey ? 'selected' : ''}`} onClick={() => setSelected(customer.customerKey)}><span><strong>{customer.name}</strong><small>{customer.phone}</small><small>{customer.summary.nextDueDate ? `Due ${displayDueDate(customer.summary.nextDueDate)}` : customer.summary.undated ? 'Due date not recorded' : 'No payment due'}</small></span><span className={customer.summary.balance > 0 ? 'credit-red' : 'credit-green'}><strong>{money(customer.summary.balance)}</strong><small>{customer.summary.overdue ? 'Overdue' : customer.summary.balance ? 'You will receive' : 'Settled'}</small></span></button>)}{shown.length>visibleCount&&<button className="button secondary" onClick={()=>setVisibleCount(n=>n+50)}>Load more customers</button>}{!shown.length && <p className="empty-state">{loading ? 'Loading customer accounts…' : 'No customers match this filter.'}</p>}</div></section>
       <section className="glass table-panel credit-detail">{detail ? <><div className="credit-detail-heading"><div><h2>{detail.customer.name}</h2><p>{detail.customer.phone}</p></div><strong className={detail.customer.summary.balance ? 'credit-red' : 'credit-green'}>{money(detail.customer.summary.balance)}</strong></div>
         <div className="credit-entry-actions"><button className="button credit-give" disabled={!writes || detail.customer.profileAvailable === false} onClick={() => setMode('credit')}><ArrowUpRight size={17} />You gave · Add credit</button><button className="button credit-receive" disabled={!writes || detail.customer.profileAvailable === false || detail.customer.summary.balance <= 0} onClick={() => setMode('payment')}><ArrowDownLeft size={17} />You received · Payment</button></div>
         <label className="check-row credit-notify"><input type="checkbox" disabled={!writes || detail.customer.profileAvailable === false || savingPreference} checked={detail.customer.creditWhatsAppOptIn} onChange={async event => {
@@ -101,11 +107,11 @@ export function CreditView() {
           try { await writeAdmin('credit/preferences', { requestId: crypto.randomUUID(), customerKey: detail.customer.customerKey, creditWhatsAppOptIn: enabled }); setDetail(current => current?.customer.customerKey === detail.customer.customerKey ? { ...current, customer: { ...current.customer, creditWhatsAppOptIn: enabled } } : current); }
           catch (cause) { setError((cause as Error).message); } finally { setSavingPreference(false); }
         }} />Customer agrees to automatic credit and payment updates on WhatsApp</label>
-        {detail.customer.creditWhatsAppOptIn && mobileNumber(detail.customer.phone) && <a className="button secondary" target="_blank" rel="noopener noreferrer" href={`https://wa.me/${mobileNumber(detail.customer.phone)}?text=${encodeURIComponent(`Hello ${detail.customer.name}, your Brothers Outfit Gallery balance is ${money(detail.customer.summary.balance)}. Repayment due: ${detail.customer.summary.nextDueDate || (detail.customer.summary.balance ? 'please contact the shop' : 'no payment due')}. Thank you.`)}`}><MessageCircle size={16} />Share balance manually</a>}
+        {mobileNumber(detail.customer.phone) && <button className="button secondary" onClick={() => setMessageOpen(true)}><MessageCircle size={16} />Prepare WhatsApp reminder</button>}
+        {messageOpen && <CustomerWhatsAppDialog customer={{ id: detail.customer.customerKey, customerKey: detail.customer.customerKey, fullName: detail.customer.name, phone: detail.customer.phone, email: '', dateOfBirth: detail.customer.dateOfBirth, birthdayOffersOptIn: false }} shopName="Brothers Outfit Gallery" initialCredit={detail.customer.summary} onClose={() => setMessageOpen(false)} />}
         {detail.customer.profileAvailable === false && <p className="error-banner">This older ledger has no customer profile. Restore the original customer details before recording payments.</p>}<h3>Transaction history</h3><div className="table-wrap"><table><thead><tr><th>Entry</th><th>You gave</th><th>You received / adjusted</th><th>Due date</th></tr></thead><tbody>{detail.entries.map(entry => <tr key={entry.id}><td><strong>{entry.kind === 'return' ? 'Return adjustment' : entry.creditDelta > 0 ? 'Credit given' : 'Payment received'}</strong><small>{entry.note || entry.invoiceId || entry.paymentMethod}</small><small>{entry.createdAt ? new Date(entry.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'Earlier entry'}</small></td><td className="credit-red">{entry.creditDelta > 0 ? money(entry.creditDelta) : '—'}</td><td className="credit-green">{entry.creditDelta < 0 ? money(-entry.creditDelta) : '—'}</td><td>{entry.dueDate ? displayDueDate(entry.dueDate) : '—'}</td></tr>)}{!detail.entries.length && <tr><td colSpan={4}>No credit transactions yet.</td></tr>}</tbody></table></div>
         <p className="microcopy">Partial payments reduce the oldest outstanding credit first. Green return adjustments are separate from cash received.</p>
       </> : <p className="empty-state">{selected ? 'Loading ledger…' : 'Select a customer to view their udhar and record payments.'}</p>}</section></div>
     {mode && <CreditForm mode={mode} customer={detail?.customer || null} onClose={() => setMode(null)} onSaved={key => void saved(key)} />}
-    {paymentInOpen && <PaymentInDialog customers={customers} preselectedKey={selected} onClose={() => setPaymentInOpen(false)} onSaved={key => { setPaymentInOpen(false); void saved(key); }} />}
   </div>;
 }

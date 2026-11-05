@@ -1,5 +1,6 @@
 # Seven-phase implementation review
 
+> Historical rollout record: see [4 November daily-use update](08-daily-use-update.md) for current local features and remaining validation.
 The admin is a separate project at `D:\Brothers_Outfit_Admin`. The public website remains a separate project at `D:\Brothers_Outfit\brothers`. After owner authorization, a guarded checkout integration patch was made in the website project; it has not been deployed. Both use the same Firebase project and existing server credentials. The review preview runs at `http://localhost:4310`. Admin live business writes are locked by both the server environment and the private Firestore rollout flag; website reservations default off.
 
 ## Field mapping inspected before implementation

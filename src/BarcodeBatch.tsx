@@ -1,3 +1,5 @@
+import { createPortal } from 'react-dom';
+import { ClothingLabel } from './ClothingLabel';
 import { useMemo, useState, type CSSProperties } from 'react';
 import { Printer, Search } from 'lucide-react';
 
@@ -6,12 +8,13 @@ export type BatchLabelProduct = {
   name: string;
   sku: string;
   barcode?: string;
+  brand?: string; design?: string; fabric?: string; gsl?: string; subCategory?: string; price?: number; mrp?: number;
   stock: number;
-  variants: { sku: string; barcode?: string; size?: string; color?: string; stock: number }[];
+  variants: { sku: string; barcode?: string; size?: string; color?: string; price?: number; mrp?: number; stock: number }[];
 };
 
 type LabelSize = 'compact' | 'standard' | 'large';
-type LabelRow = { key: string; product: BatchLabelProduct; sku: string; barcode?: string; size?: string; color?: string; stock: number };
+type LabelRow = { key: string; product: BatchLabelProduct; sku: string; barcode?: string; size?: string; color?: string; price?: number; mrp?: number; stock: number };
 
 export function BarcodeBatch({ products, onClose }: { products: BatchLabelProduct[]; onClose: () => void }) {
   const [copies, setCopies] = useState<Record<string, number>>({});
@@ -33,7 +36,7 @@ export function BarcodeBatch({ products, onClose }: { products: BatchLabelProduc
   const validCopies = (value: number) => Number.isSafeInteger(value) ? Math.min(100, Math.max(0, value)) : 0;
   const setVisibleCopies = (value: number) => setCopies(old => ({ ...old, ...Object.fromEntries(visibleRows.map(row => [row.key, validCopies(value)])) }));
 
-  return <div className="editor-backdrop" onClick={onClose}>
+  return createPortal(<div className="editor-backdrop print-backdrop" onClick={onClose}>
     <div className="editor glass barcode-editor barcode-batch-editor" role="dialog" aria-modal="true" aria-label="Print barcodes for multiple products" onClick={event => event.stopPropagation()}>
       <button className="editor-close" type="button" onClick={onClose} aria-label="Close">×</button>
       <div className="barcode-controls">
@@ -45,10 +48,10 @@ export function BarcodeBatch({ products, onClose }: { products: BatchLabelProduc
         <div className="barcode-summary"><strong>{labels.length} labels</strong><span>{selectedProducts} products selected · extra labels continue onto another A4 page.</span><button className="button primary" type="button" disabled={!labels.length} onClick={() => window.print()}><Printer size={17} />Print selected barcodes</button></div>
       </div>
       <div className={`barcode-sheet barcode-size-${labelSize}`} style={sheetStyle}>{labels.map(({ row, copy }) => <div className="barcode-label" key={`${row.key}:${copy}`}>
-        <strong>{row.product.name}</strong><span>{[row.size || 'Standard', row.color].filter(Boolean).join(' · ')}</span>
+        <ClothingLabel product={row.product} variant={row} />
         <img src={`/api/products/${encodeURIComponent(row.product.id)}/label?sku=${encodeURIComponent(row.sku)}&format=code128`} alt={`Barcode for ${row.sku}`} />
         <small>{row.barcode || row.sku}</small>
       </div>)}</div>
     </div>
-  </div>;
+  </div>,document.body);
 }

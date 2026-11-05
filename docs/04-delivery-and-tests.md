@@ -1,5 +1,6 @@
 # Delivery phases and verification
 
+> Historical rollout record: see [4 November daily-use update](08-daily-use-update.md) for current local features and remaining validation.
 The owner later requested all seven phases together. This is a local review build with guarded website integration, not a production rollout. The phase table distinguishes implemented code from unfinished requirements; see [implementation review](05-implementation-review.md).
 
 | Phase | Deliverable | Current state |

@@ -1,8 +1,10 @@
+import { StaffSettings } from './StaffSettings';
+import { DailyOperations } from './DailyOperations';
 import { useEffect, useState, type FormEvent } from 'react';
-import { ArrowDownUp, ArrowRight, ArrowUpRight, Check, ChevronRight, CircleDot, Database, FileText,
-  Layers3, LayoutDashboard, LockKeyhole, LogOut, Moon, Package, RefreshCw, Search, ShieldCheck,
-  ShoppingBag, Sparkles, Sun, Users, Workflow, type LucideIcon } from 'lucide-react';
-import { mapping, phases, type Owner } from '../shared/contracts';
+import { ArrowDownUp, ArrowRight, ChevronRight, FileText,
+  LayoutDashboard, LockKeyhole, MessageCircle, Moon, Package, RefreshCw, ShieldCheck,
+  ShoppingBag, Sun, Truck, Users, type LucideIcon } from 'lucide-react';
+import type { Owner } from '../shared/contracts';
 import { CommerceView } from './Commerce';
 import { BrandLogo } from './BrandLogo';
 import { Dashboard } from './Dashboard';
@@ -11,7 +13,6 @@ import { WhatsAppView } from './WhatsAppView';
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'same-origin', ...options });
-  if (response.status === 401 && !url.includes('/auth/')) window.location.assign('/login');
   if (!(response.headers.get('content-type') || '').includes('application/json')) throw new Error('The admin API is not connected on this deployment. Check the Vercel function and environment settings.');
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Something went wrong. Please retry.');
@@ -27,37 +28,14 @@ function Brand({ compact = false }: { compact?: boolean }) {
 export function App() {
   const [dark, setDark] = useState(() => localStorage.getItem('bo-theme-v2') !== 'light');
   useEffect(() => {
+    if (window.location.pathname === '/login') {
+      history.replaceState(null, '', '/');
+    }
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#111111' : '#f4f5f7');
     localStorage.setItem('bo-theme-v2', dark ? 'dark' : 'light');
   }, [dark]);
-  return <><div className="ambient ambient-one" /><div className="ambient ambient-two" />{window.location.pathname === '/login' ? <Login /> : window.location.pathname === '/enroll' ? <EnrollDevice /> : <Workspace dark={dark} toggleTheme={() => setDark(!dark)} />}</>;
-}
-function Login() {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [deviceStatus, setDeviceStatus] = useState<{ loginAvailable: boolean; disabled?: boolean } | null>(null);
-  useEffect(() => { api<{ loginAvailable: boolean; disabled?: boolean }>('/api/auth/device/status')
-    .then(setDeviceStatus).catch(cause => setError((cause as Error).message)); }, []);
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError('');
-    const form = new FormData(event.currentTarget);
-    try { await post('/api/auth/login', { pin: form.get('pin') }); window.location.assign('/'); }
-    catch (error) { setError((error as Error).message); setBusy(false); }
-  }
-  return <main className="login-page">
-    <section className="login-story"><Brand /><div className="story-copy"><span className="eyebrow"><span className="tiny-line" /> THE BUSINESS BEHIND THE STYLE</span><h1>Your store.<br />Perfectly<br /><em>in view.</em></h1><p>A dedicated workspace for Brothers Outfit Gallery.<br />One place to bring your shop and website together.</p></div>
-      <div className="connection-card glass"><div className="connection-icon"><ShoppingBag size={23} /></div><div><strong>One store. One source of truth.</strong><p>Your existing catalog, orders and customers.</p></div><ArrowDownUp size={20} /></div>
-      <div className="story-footer"><span>MADE FOR BROTHERS OUTFIT GALLERY</span><span>ADMIN PREVIEW</span></div>
-    </section>
-    <section className="login-side"><div className="login-card glass"><span className="pill"><LockKeyhole size={13} /> PRIVATE WORKSPACE</span><h2>Welcome back.</h2><p className="muted">Enter your shop PIN to continue.</p><form onSubmit={submit}>
-      <label htmlFor="pin">4-digit PIN</label><input id="pin" name="pin" type="password" inputMode="numeric" pattern="[0-9]{4}" minLength={4} maxLength={4} autoComplete="off" required placeholder="••••" />
-      {deviceStatus?.disabled && <p className="device-pairing-note" role="status">Hosted POS access is temporarily disabled by the shop owner.</p>}
-      {deviceStatus && !deviceStatus.loginAvailable && !deviceStatus.disabled && <p className="device-pairing-note" role="status">This browser needs a one-time trust link from the local shop preview. Open that link on this device, then return here to enter your PIN.</p>}
-      {new URLSearchParams(window.location.search).has('paired') && <p className="success-banner" role="status">Device trusted. Enter your shop PIN.</p>}
-      {error && <p className="error" role="alert">{error}</p>}<button className="button primary login-submit" disabled={busy || !deviceStatus?.loginAvailable}>{busy ? 'Signing in…' : 'Open your workspace'}<ArrowRight size={17} /></button>
-    </form><div className="login-note"><ShieldCheck size={19} /><p>Your session expires automatically. Use your PIN only on devices you trust.</p></div></div><p className="login-caption">Separate admin preview · Live business writes require reviewed cutover</p></section>
-  </main>;
+  return <><div className="ambient ambient-one" /><div className="ambient ambient-two" />{window.location.pathname === '/enroll' ? <EnrollDevice /> : <Workspace dark={dark} toggleTheme={() => setDark(!dark)} />}</>;
 }
 function EnrollDevice() {
   const [token] = useState(() => {
@@ -76,48 +54,70 @@ function EnrollDevice() {
   return <main className="device-enroll-page"><div className="login-card glass"><Brand /><span className="eyebrow">ONE-TIME SETUP</span><h1>Trust this device</h1><p>Pair this browser with the shop POS. After pairing, daily sign-in uses only your PIN.</p><form onSubmit={event => void submit(event)}><label htmlFor="device-label">Device name</label><input id="device-label" value={label} onChange={event => setLabel(event.target.value)} maxLength={60} minLength={1} required placeholder="Shop laptop or my phone" />{error && <p className="error" role="alert">{error}</p>}<button className="button primary login-submit" disabled={busy || !token}>{busy ? 'Pairing…' : 'Trust this device'}<ArrowRight size={17} /></button></form><p className="muted">This invitation works once and expires after 10 minutes.</p></div></main>;
 }
 const primaryTabs: { id: string; label: string; icon: LucideIcon }[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard }, { id: 'products', label: 'Products', icon: Package },
-  { id: 'pos', label: 'Billing / POS', icon: ShoppingBag }, { id: 'inventory', label: 'Inventory', icon: ArrowDownUp },
-  { id: 'orders', label: 'Orders', icon: FileText }, { id: 'customers', label: 'Customers', icon: Users },
-  { id: 'credit', label: 'Udhar / Credit', icon: ArrowDownUp }, { id: 'whatsapp', label: 'WhatsApp', icon: Workflow }
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'pos', label: 'Billing & POS', icon: ShoppingBag },
+  { id: 'products', label: 'Products', icon: Package },
+  { id: 'customers', label: 'Customers', icon: Users },
+  { id: 'suppliers', label: 'Suppliers', icon: Truck },
+  { id: 'credit', label: 'Credit / Udhar', icon: ArrowDownUp },
+  { id: 'inventory', label: 'Inventory', icon: ArrowDownUp },
+  { id: 'orders', label: 'Orders', icon: FileText }
 ];
 const moreTabs: { id: string; label: string; icon: LucideIcon }[] = [
-  { id: 'suppliers', label: 'Suppliers', icon: ShoppingBag }, { id: 'reports', label: 'Reports', icon: LayoutDashboard },
-  { id: 'sync', label: 'Sync health', icon: RefreshCw }, { id: 'security', label: 'Trusted devices', icon: ShieldCheck }
+  { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
+  { id: 'reports', label: 'Reports', icon: LayoutDashboard },
+  { id: 'sync', label: 'Sync health', icon: RefreshCw },
+  { id: 'security', label: 'Trusted devices', icon: ShieldCheck }
 ];
-const tabs = [...primaryTabs, ...moreTabs,
-  { id: 'mapping', label: 'Data mapping', icon: Layers3 }, { id: 'delivery', label: 'Delivery plan', icon: Workflow }
-];
+const tabs = [...primaryTabs, ...moreTabs];
 function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => void }) {
   const initial = window.location.pathname.slice(1);
-  const [tab, setTab] = useState(tabs.some(t => t.id === initial) ? initial : 'dashboard');
-  const [owner, setOwner] = useState<Owner | null>(null);
+  const [tab, setTab] = useState(tabs.some(t => t.id === initial && t.id !== 'login') ? initial : 'dashboard');
+  const [owner, setOwner] = useState<Owner | null>({ uid: 'pin-owner', email: null, role: 'owner', name: 'Store owner' });
   const [error, setError] = useState('');
-  const search = '';
+  const allowed=(id:string)=>owner?.role!=='cashier'||['pos','customers','credit','sync'].includes(id);
+  useEffect(()=>{if(owner?.role==='cashier'&&!allowed(tab))navigate('pos');},[owner,tab]);
   function navigate(id: string) { setTab(id); history.pushState(null, '', id === 'dashboard' ? '/' : `/${id}`); }
   useEffect(() => {
-    api<Owner>('/api/auth/me').then(setOwner).catch(() => window.location.assign('/login'));
-    const pop = () => setTab(window.location.pathname.slice(1) || 'dashboard');
+    api<Owner>('/api/auth/me').then(identity => {
+      if (identity) {
+        setOwner(identity);
+        localStorage.setItem('pos-offline-session', JSON.stringify({ identity, at: Date.now() }));
+      }
+    }).catch(() => {
+      try {
+        const saved = JSON.parse(localStorage.getItem('pos-offline-session') || 'null');
+        if (saved?.identity) setOwner(saved.identity);
+      } catch {
+        // Default owner remains active
+      }
+    });
+    const pop = () => {
+      const current = window.location.pathname.slice(1);
+      setTab(tabs.some(t => t.id === current && t.id !== 'login') ? current : 'dashboard');
+    };
     window.addEventListener('popstate', pop);
     return () => window.removeEventListener('popstate', pop);
   }, []);
   async function logout() {
-    try { await post('/api/auth/logout', {}); window.location.assign('/login'); } catch (error) { setError((error as Error).message); }
+    try { await post('/api/auth/logout', {}); } catch {}
+    localStorage.removeItem('pos-offline-session');
+    localStorage.removeItem('pos-activation-cache');
+    navigate('dashboard');
   }
   return <div className="workspace">
-    <aside className="sidebar glass"><Brand compact /><div className="workspace-label">YOUR WORKSPACE</div><nav aria-label="Main navigation">{primaryTabs.map(item => <button key={item.id} onClick={() => navigate(item.id)} className={`nav-item ${tab === item.id ? 'selected' : ''}`} aria-current={tab === item.id ? 'page' : undefined}><item.icon size={19} />{item.label}{tab === item.id && <span className="nav-dot" />}</button>)}<details className="sidebar-more"><summary>More tools</summary><div className="more-menu">{moreTabs.map(item => <button key={item.id} onClick={() => navigate(item.id)} className={`nav-item ${tab === item.id ? 'selected' : ''}`}><item.icon size={19} />{item.label}</button>)}</div></details></nav>
-      <div className="sidebar-bottom"><div className="sidebar-connection">Shared website catalog · Review preview</div>
-      <div className="owner"><span className="avatar">BO</span><div><strong>Store owner</strong><small>{owner ? 'PIN session' : 'Verifying session…'}</small></div><button className="icon-button" onClick={logout} aria-label="Sign out"><LogOut size={17} /></button></div></div>
+    <aside className="sidebar glass"><Brand compact /><div className="workspace-label">YOUR WORKSPACE</div><nav aria-label="Main navigation">{primaryTabs.filter(item=>allowed(item.id)).map(item => <button key={item.id} onClick={() => navigate(item.id)} className={`nav-item ${tab === item.id ? 'selected' : ''}`} aria-current={tab === item.id ? 'page' : undefined}><item.icon size={19} />{item.label}{tab === item.id && <span className="nav-dot" />}</button>)}<details className="sidebar-more"><summary>More tools</summary><div className="more-menu">{moreTabs.filter(item=>allowed(item.id)&&(item.id!=='security'||owner?.role==='owner')).map(item => <button key={item.id} onClick={() => navigate(item.id)} className={`nav-item ${tab === item.id ? 'selected' : ''}`}><item.icon size={19} />{item.label}</button>)}</div></details></nav>
+      <div className="sidebar-bottom"><div className="sidebar-connection">Shared website catalog · Live store</div>
+      <div className="owner"><span className="avatar">BO</span><div><strong>{owner?.name || (owner?.role === 'cashier' ? 'Cashier' : owner?.role === 'manager' ? 'Manager' : 'Store owner')}</strong><small>{owner ? 'Active session' : 'Ready'}</small></div><button className="icon-button" onClick={logout} aria-label="Go to dashboard" title="Reset to Dashboard"><LayoutDashboard size={17} /></button></div></div>
     </aside>
-    <div className="main-area"><header className="topbar"><div className="breadcrumbs">Workspace <ChevronRight size={14} /><strong>{tabs.find(t => t.id === tab)?.label || 'Dashboard'}</strong></div><div className="top-actions"><button onClick={toggleTheme} className="icon-button theme-button" aria-label={dark ? 'Use light theme' : 'Use dark theme'}>{dark ? <Sun size={19} /> : <Moon size={19} />}</button><button onClick={() => void logout()} className="icon-button theme-button top-logout" aria-label="Sign out"><LogOut size={18} /></button></div></header>
+    <div className="main-area"><header className="topbar"><div className="breadcrumbs">Workspace <ChevronRight size={14} /><strong>{tabs.find(t => t.id === tab)?.label || 'Dashboard'}</strong></div><div className="top-actions"><button onClick={toggleTheme} className="icon-button theme-button" aria-label={dark ? 'Use light theme' : 'Use dark theme'}>{dark ? <Sun size={19} /> : <Moon size={19} />}</button></div></header>
     <main className="content" id="main-content">{error && <div className="error-banner" role="alert">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
       {tab === 'dashboard' && <Dashboard navigate={navigate} />}
-      {tab === 'mapping' && <><PageTitle eyebrow="ONE DATABASE" title="Your data, mapped." description="The existing website stays the source of truth. These are the inspected connections and proposed extensions." /><div className="notice"><Database size={18} />Read-only live schema sample verified on 30 October 2026. Some legacy documents may contain additional fields.</div><div className="mapping-grid">{mapping.filter(row => `${row.label} ${row.source} ${row.fields} ${row.plan}`.toLowerCase().includes(search.toLowerCase())).map((row, i) => <article className="mapping-card glass" key={row.label}><div className="mapping-card-top"><span className="row-number">0{i + 1}</span><span className="source-tag">Existing source</span></div><h2>{row.label}</h2><code>{row.source}</code><p className="field-list">{row.fields}</p><p>{row.plan}</p></article>)}</div>{mapping.filter(row => JSON.stringify(row).toLowerCase().includes(search.toLowerCase())).length === 0 && <div className="empty-state">No matching fields. Try “stock”, “phone” or “price”.</div>}<div className="notice"><FileText size={18} />Full mapping, schema proposal and rollback instructions are in the project’s docs folder.</div></>}
-      {tab === 'delivery' && <><PageTitle eyebrow="SEVEN-PHASE DELIVERY" title="What is built and what remains." description="These labels describe the current local implementation. They do not imply a production rollout." /><div className="glass phase-list">{phases.map(phase => <article key={phase.number} className="phase-row"><span className={`phase-number ${phase.state === 'local' ? 'active' : ''}`}>{phase.state === 'local' ? <Check size={22} /> : `0${phase.number}`}</span><div><h2>{phase.name}</h2><p><strong>Built:</strong> {phase.built}</p><p><strong>Remaining:</strong> {phase.remaining}</p></div><span className={`pill phase-pill ${phase.state}`}>{phase.label}</span></article>)}</div><div className="notice"><CircleDot size={18} />Website checkout integration is coded locally. Stock reservations and live business writes stay off until the shared stock-writer cutover passes staging tests.</div></>}
-      {tab === 'security' && <TrustedDevices />}
+      {tab === 'security' && owner?.role === 'owner' && <><StaffSettings /><TrustedDevices /></>}
+      {tab === 'reports' && <DailyOperations />}
       {tab === 'credit' && <CreditView />}
-      {tab === 'whatsapp' && <WhatsAppView />}
-      {['products', 'pos', 'inventory', 'orders', 'customers', 'suppliers', 'reports', 'sync'].includes(tab) && <CommerceView tab={tab} />}
+      {tab === 'whatsapp' && <WhatsAppView onCustomers={() => navigate('customers')} />}
+      {['products', 'pos', 'inventory', 'orders', 'customers', 'suppliers', 'sync'].includes(tab) && <CommerceView tab={tab} role={owner?.role} />}
       <footer className="page-footer"><span>BROTHERS OUTFIT GALLERY <span className="footer-separator">/</span> STUDIO</span><span>A little more clarity. Every day.</span></footer>
     </main></div>
   </div>;
