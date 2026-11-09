@@ -1,3 +1,5 @@
+import { createPortal } from 'react-dom';
+import { ClothingLabel } from './ClothingLabel';
 import { useMemo, useState, type CSSProperties } from 'react';
 import { Printer } from 'lucide-react';
 
@@ -6,7 +8,8 @@ export type LabelProduct = {
   name: string;
   sku: string;
   barcode?: string;
-  variants: { sku: string; barcode?: string; size?: string; color?: string }[];
+  brand?: string; design?: string; fabric?: string; gsl?: string; subCategory?: string; price?: number; mrp?: number;
+  variants: { sku: string; barcode?: string; size?: string; color?: string; price?: number; mrp?: number }[];
 };
 
 type LabelSize = 'compact' | 'standard' | 'large';
@@ -20,7 +23,7 @@ export function BarcodeLabel({ product, onClose }: { product: LabelProduct; onCl
   const sheetStyle = { '--barcode-columns': columns } as CSSProperties;
   const updateCopies = (sku: string, value: number) => setCopies(old => ({ ...old, [sku]: Number.isSafeInteger(value) ? Math.min(100, Math.max(0, value)) : 0 }));
 
-  return <div className="editor-backdrop" onClick={onClose}>
+  return createPortal(<div className="editor-backdrop print-backdrop" onClick={onClose}>
     <div className="editor glass barcode-editor" role="dialog" aria-modal="true" aria-label={`Print barcodes for ${product.name}`} onClick={event => event.stopPropagation()}>
       <button className="editor-close" type="button" onClick={onClose} aria-label="Close">×</button>
       <div className="barcode-controls">
@@ -30,10 +33,10 @@ export function BarcodeLabel({ product, onClose }: { product: LabelProduct; onCl
         <div className="barcode-summary"><strong>{labels.length} labels</strong><span>Labels continue onto additional A4 pages automatically.</span><button className="button primary" type="button" disabled={!labels.length} onClick={() => window.print()}><Printer size={17} />Print barcode sheet</button></div>
       </div>
       <div className={`barcode-sheet barcode-size-${labelSize}`} style={sheetStyle}>{labels.map(({ variant, copy }) => <div className="barcode-label" key={`${variant.sku}:${copy}`}>
-        <strong>{product.name}</strong><span>{[variant.size, variant.color].filter(Boolean).join(' · ') || 'Standard'}</span>
+        <ClothingLabel product={product} variant={variant} />
         <img src={`/api/products/${encodeURIComponent(product.id)}/label?sku=${encodeURIComponent(variant.sku)}&format=code128`} alt={`Barcode for ${variant.sku}`} />
         <small>{variant.barcode || variant.sku}</small>
       </div>)}</div>
     </div>
-  </div>;
+  </div>,document.body);
 }

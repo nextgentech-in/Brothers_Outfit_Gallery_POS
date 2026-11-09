@@ -4,6 +4,7 @@ import express from 'express';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { creditRouter } from '../server/credit.js';
+import { returnsRouter } from '../server/returns.js';
 import { commerceRouter } from '../server/commerce.js';
 import { creditSummary, dueDateAfter, type CreditEntry } from '../shared/credit.js';
 import { shopDate } from '../shared/customers.js';
@@ -32,7 +33,7 @@ test('credit receipt says payment due and prints the repayment date', () => {
 
 const db = getFirestore(initializeApp({ projectId: 'demo-credit-ledger' }, 'brothers-admin'));
 const { records, timestamp } = memoryFirestore(db);
-const app = express(); app.use(express.json(), creditRouter, commerceRouter);
+const app = express(); app.use(express.json(), creditRouter, commerceRouter, returnsRouter);
 const server = app.listen(0, '127.0.0.1'); let base = '';
 const originalWhatsApp = { ...config.whatsapp };
 config.whatsapp.accessToken = '';

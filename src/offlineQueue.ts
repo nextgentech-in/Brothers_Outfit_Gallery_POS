@@ -1,18 +1,20 @@
 export type QueuedSale = {
+  expectedTotal?: number;
   requestId: string;
-  lines: { productId: string; sku: string; quantity: number; price?: number }[];
-  billNumber?: string;
-  billingDate?: string;
+  lines: { productId: string; sku: string; quantity: number; price?: number; name?: string; discount?: number; tax?: number; taxPercent?: number }[];
   customerName?: string;
   customerPhone?: string;
   customerEmail?: string;
+  customerAddress?: string;
   customerDateOfBirth?: string;
   birthdayOffersOptIn?: boolean;
   creditDueDate?: string;
   creditWhatsAppOptIn?: boolean;
   whatsappOptIn?: boolean;
   discount: number;
-  paymentMethod: 'cash' | 'upi' | 'card' | 'credit';
+  tax?: number;
+  paymentMethod: 'cash' | 'upi' | 'card' | 'credit' | 'split';
+  payments?: import('../shared/payments').PaymentPart[]; cashTendered?: number;
   queuedAt: string;
   state: 'pending' | 'review';
   error?: string;
@@ -82,4 +84,8 @@ export async function syncQueuedSales(send: (sale: QueuedSale) => Promise<void>)
     }
   }
   return results;
+}
+
+export async function recoverToHeld(sale:QueuedSale){
+ const database=await db();await new Promise<void>((resolve,reject)=>{const tx=database.transaction(['sales','heldBills'],'readwrite');tx.objectStore('heldBills').put({...sale,state:'pending',error:undefined});tx.objectStore('sales').delete(sale.requestId);tx.oncomplete=()=>{database.close();resolve();};tx.onerror=()=>{database.close();reject(tx.error);};});
 }

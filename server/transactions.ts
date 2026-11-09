@@ -8,6 +8,7 @@ export async function idempotent<T>(db: Firestore, scope: string, requestId: str
   return db.runTransaction(async tx => {
     const old = await tx.get(commandRef);
     if (old.exists) {
+      if (old.data()?.cancelled) throw Object.assign(new Error('This provisional bill was moved back to held bills.'), {status:409});
       if (old.data()?.fingerprint !== fingerprint) throw Object.assign(new Error('Idempotency key reused with different data.'), { status: 409 });
       return old.data()?.result as T;
     }

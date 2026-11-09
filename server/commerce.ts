@@ -1,3 +1,4 @@
+import { paymentBreakdown } from '../shared/payments.js';
 import { createHash, randomBytes } from 'node:crypto';
 import express, { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
@@ -21,22 +22,43 @@ import { shopDate } from '../shared/customers.js';
 const id = z.string().trim().min(1).max(128).regex(/^[\w.:-]+$/);
 const key = z.string().trim().min(12).max(128).regex(/^[\w.:-]+$/);
 const positiveInt = z.number().int().min(1).max(10_000);
-const money = z.number().finite().min(0).max(10_000_000);
-const lineSchema = z.object({ productId: id, sku: id, quantity: positiveInt, price: money.optional() }).strict();
-const saleSchema = z.object({ requestId: key, lines: z.array(lineSchema).min(1).max(30),
-  billNumber: z.string().trim().max(120).optional(),
-  billingDate: z.string().max(10).optional(),
-  customerName: z.string().trim().max(120).optional(), customerPhone: z.string().trim().max(20).optional(),
+const money = z.number().finite().min(0).max(10_000_000).refine(n=>Math.abs(n*100-Math.round(n*100))<.00001,'Use at most two decimal places.');
+const lineSchema = z.object({
+  productId: id,
+  sku: id,
+  quantity: positiveInt,
+  price: money.optional(),
+  name: z.string().trim().max(200).optional(),
+  discount: money.optional(),
+  tax: money.optional(),
+  taxPercent: z.number().min(0).max(100).optional()
+}).strict();
+const saleSchema = z.object({
+  expectedTotal: money.optional(),
+  requestId: key,
+  lines: z.array(lineSchema).min(1).max(100),
+  customerName: z.string().trim().max(120).optional(),
+  customerPhone: z.string().trim().max(20).optional(),
   customerEmail: z.email().max(254).optional(),
-  customerDateOfBirth: z.string().max(10).optional(), birthdayOffersOptIn: z.boolean().optional(),
-  creditDueDate: z.string().max(10).optional(), creditWhatsAppOptIn: z.boolean().optional(),
-  discount: money.default(0), paymentMethod: z.enum(['cash', 'upi', 'card', 'credit']),
-  whatsappOptIn: z.boolean().default(false) }).strict().superRefine((input, ctx) => {
+  customerAddress: z.string().trim().max(500).optional(),
+  invoiceNumber: z.number().int().optional(),
+  invoiceDate: z.string().max(30).optional(),
+  customerDateOfBirth: z.string().max(10).optional(),
+  birthdayOffersOptIn: z.boolean().optional(),
+  creditDueDate: z.string().max(10).optional(),
+  creditWhatsAppOptIn: z.boolean().optional(),
+  payments: z.array(z.object({ method: z.enum(['cash','upi','card','credit']), amount: money }).strict()).max(4).optional(),
+  cashTendered: money.optional(),
+  discount: money.default(0),
+  tax: money.optional(),
+  paymentMethod: z.enum(['cash', 'upi', 'card', 'credit', 'split']),
+  whatsappOptIn: z.boolean().default(false)
+}).strict().superRefine((input, ctx) => {
     const error = customerDetailsError(input.customerPhone || '', input.customerDateOfBirth || '');
     if (error) ctx.addIssue({ code: 'custom', path: ['customerDateOfBirth'], message: error });
     if (input.birthdayOffersOptIn && !input.customerPhone?.trim())
       ctx.addIssue({ code: 'custom', path: ['birthdayOffersOptIn'], message: 'A mobile number is required for birthday offers.' });
-    if (input.paymentMethod === 'credit') {
+    if (input.paymentMethod === 'credit' || (input.paymentMethod === 'split' && input.payments?.some(p => p.method === 'credit' && p.amount > 0))) {
       if (!input.customerName?.trim() || !mobileNumber(input.customerPhone || ''))
         ctx.addIssue({ code: 'custom', message: 'Customer name and mobile number are required for udhar.' });
       if (!validDueDate(input.creditDueDate) || input.creditDueDate < shopDate())
@@ -50,6 +72,7 @@ const batchAdjustmentSchema = z.object({ requestId: key, productId: id,
     note: z.string().trim().max(500).optional() }).strict()).min(1).max(100)
 }).strict().refine(input => new Set(input.adjustments.map(item => item.sku)).size === input.adjustments.length);
 const productPatchSchema = z.object({ requestId: key, productId: id, patch: z.object({
+  brand: z.string().trim().max(100).optional(), design: z.string().trim().max(100).optional(), fabric: z.string().trim().max(100).optional(),
   name: z.string().trim().min(1).max(200).optional(), description: z.string().trim().max(5000).optional(),
   shortDescription: z.string().trim().max(500).optional(), category: z.string().trim().min(2).max(100).optional(),
   subCategory: z.string().trim().max(100).optional(), gsl: z.string().trim().max(120).optional(),
@@ -62,6 +85,7 @@ const productPatchSchema = z.object({ requestId: key, productId: id, patch: z.ob
 }).strict().refine(x => Object.keys(x).length > 0) }).strict();
 const productCreateSchema = z.object({ requestId: key,
   name: z.string().trim().min(2).max(200), sku: id, barcode: id.optional(),
+  brand: z.string().trim().max(100).optional(), design: z.string().trim().max(100).optional(), fabric: z.string().trim().max(100).optional(),
   category: z.string().trim().min(2).max(100), subCategory: z.string().trim().max(100).optional(),
   shortDescription: z.string().trim().max(500).optional(), description: z.string().trim().max(5000).optional(),
   gsl: z.string().trim().max(120).optional(), salePrice: money, mrp: money, costPrice: money.default(0),
@@ -126,20 +150,48 @@ export function changeStock(product: Product, sku: string, delta: number): { pro
 function publicProduct(doc: FirebaseFirestore.QueryDocumentSnapshot) {
   const data = doc.data();
   return { id: doc.id, name: data.name || '', sku: data.sku || '', barcode: data.barcode || data.posBarcode || '', price: data.salePrice ?? data.price ?? 0,
-    mrp: data.mrp ?? 0, costPrice: data.costPrice ?? data.cost_price ?? data.purchasePrice ?? 0,
+    brand: data.brand || '', design: data.design || '', fabric: data.fabric || '', mrp: data.mrp ?? 0, costPrice: data.costPrice ?? data.cost_price ?? data.purchasePrice ?? 0,
     category: data.category || '', subCategory: data.subCategory || '', shortDescription: data.shortDescription || '',
     description: data.description || '', gsl: data.gsl || '', active: data.active !== false,
-    stock: Number(data.stock ?? 0) - Number(data.reserved ?? 0),
+    onHand: Number(data.stock ?? 0), reserved: Number(data.reserved ?? 0), reorderThreshold: Number(data.reorderThreshold ?? 5), stock: Number(data.stock ?? 0) - Number(data.reserved ?? 0),
     image: data.thumbnailUrl || data.image || data.images?.[0]?.url || data.images?.[0] || '',
     variants: (data.variants || []).map((v: Variant) => ({ sku: v.sku, barcode: v.barcode || v.posBarcode || '', size: v.size, color: v.color,
-      stock: Number(v.stock ?? v.quantity ?? 0) - Number(v.reserved ?? 0), price: Number(v.price ?? v.salePrice ?? data.salePrice ?? data.price ?? 0),
-      costPrice: Number(v.costPrice ?? v.cost_price ?? v.purchasePrice ?? data.costPrice ?? data.cost_price ?? 0) })) };
+      onHand: Number(v.stock ?? v.quantity ?? 0), reserved: Number(v.reserved ?? 0), reorderThreshold: Number(v.reorderThreshold ?? data.reorderThreshold ?? 5), stock: Number(v.stock ?? v.quantity ?? 0) - Number(v.reserved ?? 0), price: Number(v.price ?? v.salePrice ?? data.salePrice ?? data.price ?? 0),
+      mrp: Number(v.mrp ?? data.mrp ?? 0), costPrice: Number(v.costPrice ?? v.cost_price ?? v.purchasePrice ?? data.costPrice ?? data.cost_price ?? 0) })) };
 }
 export const commerceRouter = Router();
 commerceRouter.get('/products', async (_req, res) => {
-  try { const docs = await firebase().db.collection('products').get();
-    res.json({ items: docs.docs.filter(d => d.data().isDeleted !== true).map(publicProduct) }); }
-  catch { res.status(503).json({ error: 'Products are unavailable.' }); }
+  try {
+    const docs = await firebase().db.collection('products').get();
+    res.json({
+      items: docs.docs
+        .filter(d => {
+          const data = d.data();
+          if (data.isDeleted === true) return false;
+          const id = d.id.toLowerCase();
+          const name = String(data.name || '').toLowerCase();
+          const sku = String(data.sku || '').toLowerCase();
+          if (data.isDemo === true || data.preview === true || data.isPreview === true || data.isSample === true) return false;
+          if (id.startsWith('demo') || id.includes('preview') || id.includes('sample')) return false;
+          if (name.includes('demo') || name.includes('preview') || name.includes('sample')) return false;
+          if (sku.startsWith('demo') || sku.includes('preview') || sku.includes('sample')) return false;
+          return true;
+        })
+        .map(d => {
+          const product = publicProduct(d);
+          if (res.locals.owner?.role === 'cashier') {
+            delete (product as any).costPrice;
+            product.variants = product.variants.map((v: any) => {
+              const { costPrice, ...safe } = v;
+              return safe;
+            });
+          }
+          return product;
+        })
+    });
+  } catch {
+    res.status(503).json({ error: 'Products are unavailable.' });
+  }
 });
 commerceRouter.get('/products/:productId/label', async (req, res) => {
   const productId = id.safeParse(req.params.productId), sku = id.safeParse(req.query.sku);
@@ -324,7 +376,7 @@ commerceRouter.post('/products/create', async (req, res) => {
       const categoryKey = input.category.toLowerCase().replace(/[^a-z0-9]+/g, '-');
       const subCategoryKey = (input.subCategory || '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
       tx.create(ref, { webProductId: productId, integrationOrigin: 'admin-pos', name: input.name,
-        sku: input.sku, barcode: input.barcode || '', slug, category: input.category, categoryId: input.category,
+        brand: input.brand || '', design: input.design || '', fabric: input.fabric || '', sku: input.sku, barcode: input.barcode || '', slug, category: input.category, categoryId: input.category,
         categoryKey, subCategory: input.subCategory || '', subCategoryKey, primaryColor: variants[0].color, colors,
         shortDescription: input.shortDescription || '', description: input.description || '', gsl: input.gsl || '',
         price: input.salePrice, salePrice: input.salePrice, mrp: input.mrp, compareAtPrice: input.mrp,
@@ -353,7 +405,7 @@ commerceRouter.post('/products/create', async (req, res) => {
           reason: 'product_created', externalReference: input.requestId, createdAt: now });
       }
       tx.create(db.collection('erp_auditLog').doc(hash(`product_create:${input.requestId}`)), {
-        actor: 'pin-owner', target: `products/${productId}`, fields: Object.keys(input),
+        actor: res.locals.owner?.uid || 'pin-owner', target: `products/${productId}`, fields: Object.keys(input),
         after: { ...input, productId, variantSkus: variants.map(variant => variant.sku), slug }, createdAt: now
       });
       return { productId, sku: variants[0].sku, slug, published: input.publish };
@@ -376,6 +428,7 @@ commerceRouter.post('/products/patch', async (req, res) => {
       const { primaryImageUrl, variantPatches, ...direct } = patch;
       const after: Record<string, unknown> = { ...direct,
         ...(patch.salePrice !== undefined ? { price: patch.salePrice } : {}),
+        ...(patch.mrp !== undefined ? { compareAtPrice:patch.mrp, variants:(snapshot.data()?.variants||[]).map((v:Variant)=>({...v,mrp:patch.mrp})) } : {}),
         ...(patch.costPrice !== undefined ? { cost_price: patch.costPrice, purchasePrice: patch.costPrice, purchase_price: patch.costPrice } : {}),
         ...(patch.category !== undefined ? { categoryId: patch.category, categoryKey: patch.category.toLowerCase().replace(/[^a-z0-9]+/g, '-') } : {}),
         ...(patch.subCategory !== undefined ? { subCategoryKey: patch.subCategory.toLowerCase().replace(/[^a-z0-9]+/g, '-') } : {}),
@@ -396,7 +449,7 @@ commerceRouter.post('/products/patch', async (req, res) => {
         after.variants = existing.map(variant => {
           const edit = changes.get(String(variant.sku || ''));
           if (!edit) throw Object.assign(new Error('Variant SKU changed; refresh before editing.'), { status: 409 });
-          return { ...variant, barcode: edit.barcode ?? variant.barcode ?? '', size: edit.size, color: edit.color, price: edit.price, salePrice: edit.price,
+          return { ...variant, ...(patch.mrp!==undefined?{mrp:patch.mrp}:{}), barcode: edit.barcode ?? variant.barcode ?? '', size: edit.size, color: edit.color, price: edit.price, salePrice: edit.price,
             ...(edit.costPrice !== undefined ? { costPrice: edit.costPrice, cost_price: edit.costPrice, purchasePrice: edit.costPrice, purchase_price: edit.costPrice } : {}) };
         });
         after.sizes = [...new Set((after.variants as Variant[]).filter(v => Number(v.stock ?? v.quantity ?? 0) > 0).map(v => v.size).filter(Boolean))];
@@ -425,9 +478,10 @@ commerceRouter.post('/products/patch', async (req, res) => {
             throw Object.assign(new Error('SKU or barcode is already in use.'), { status: 409 });
         }
       }
+      if(patch.mrp!==undefined||patch.salePrice!==undefined||variantPatches){const current=snapshot.data()!,mrp=Number(after.mrp??current.mrp),price=Number(after.salePrice??current.salePrice??current.price);if(!(price>0&&mrp>=price)||(after.variants as Variant[]||current.variants||[]).some((v:Variant)=>Number(v.price??v.salePrice??price)<=0||Number(v.price??v.salePrice??price)>Number(v.mrp??mrp)))throw Object.assign(new Error('Sale prices must be positive and cannot exceed MRP.'),{status:422});}
       tx.update(ref, after);
       tx.create(db.collection('erp_auditLog').doc(hash(`product_patch:${requestId}`)), {
-        actor: 'pin-owner', target: `products/${productId}`, fields: Object.keys(patch), before, after: patch,
+        actor: res.locals.owner?.uid || 'pin-owner', target: `products/${productId}`, fields: Object.keys(patch), before, after: patch,
         createdAt: FieldValue.serverTimestamp()
       });
       return { productId, fields: Object.keys(patch) };
@@ -502,62 +556,18 @@ commerceRouter.post('/suppliers/create', async (req, res) => {
   } catch (error) { fail(res, error); }
 });
 
-const receiptSchema = z.object({ requestId: key, supplierId: id,
-  supplierInvoice: z.string().trim().min(1).max(80), amountPaid: money.default(0),
-  lines: z.array(z.object({ productId: id, sku: id, quantity: positiveInt, unitCost: money })).min(1).max(30) }).strict();
-commerceRouter.post('/purchases/receive', async (req, res) => {
-  const parsed = receiptSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(422).json({ error: 'Invalid purchase receipt.' }); return; }
-  try {
-    const input = parsed.data, db = firebase().db;
-    const result = await idempotent(db, 'purchase_receive', input.requestId, input, async tx => {
-      const purchaseId = `PUR-${hash(input.requestId).slice(0,24)}`;
-      const supplierRef = db.collection('erp_suppliers').doc(input.supplierId);
-      const refs = [...new Set(input.lines.map(line => line.productId))].sort().map(productId => db.collection('products').doc(productId));
-      const [supplier, ...snapshots] = await tx.getAll(supplierRef, ...refs);
-      if (!supplier.exists || supplier.data()?.active === false) throw Object.assign(new Error('Supplier not found.'), { status: 404 });
-      const working = new Map<string, Product>();
-      snapshots.forEach((doc, i) => { if (!doc.exists) throw Object.assign(new Error('Product not found.'), { status: 404 });
-        working.set(refs[i].id, doc.data() as Product); });
-      let totalPaise = 0;
-      input.lines.forEach((line, index) => {
-        const product = working.get(line.productId)!;
-        const changed = changeStock(product, line.sku, line.quantity);
-        working.set(line.productId, changed.product);
-        totalPaise += rupees(line.unitCost) * line.quantity;
-        tx.create(db.collection('stockMovements').doc(`${purchaseId}_${index}`), {
-          movementId: `${purchaseId}_${index}`, productId: line.productId, sku: line.sku,
-          deltaChange: line.quantity, stockAfter: changed.after, reason: 'purchase', source: 'admin',
-          supplierId: input.supplierId, purchaseId, createdAt: FieldValue.serverTimestamp()
-        });
-        tx.set(db.collection('erp_productCosts').doc(hash(`${line.productId}:${line.sku}`)), {
-          productId: line.productId, sku: line.sku, unitCost: line.unitCost, supplierId: input.supplierId,
-          updatedAt: FieldValue.serverTimestamp()
-        });
-      });
-      if (rupees(input.amountPaid) > totalPaise) throw Object.assign(new Error('Amount paid exceeds purchase total.'), { status: 422 });
-      for (const ref of refs) tx.update(ref, { ...working.get(ref.id), updatedAt: FieldValue.serverTimestamp() });
-      tx.create(db.collection('erp_purchases').doc(purchaseId), {
-        supplierId: input.supplierId, supplierName: supplier.data()?.name || '', supplierInvoice: input.supplierInvoice,
-        lines: safe(input.lines), total: totalPaise / 100, amountPaid: input.amountPaid,
-        payable: (totalPaise - rupees(input.amountPaid)) / 100, status: 'received',
-        createdAt: FieldValue.serverTimestamp()
-      });
-      return { purchaseId, total: totalPaise / 100, payable: (totalPaise - rupees(input.amountPaid)) / 100 };
-    });
-    res.status(201).json(result);
-  } catch (error) { fail(res, error); }
+commerceRouter.post('/pos/recover',async(req,res)=>{
+ const parsed=z.object({requestId:key}).strict().safeParse(req.body);if(!parsed.success){res.status(422).json({error:'Invalid provisional bill.'});return;}
+ try{const db=firebase().db;res.json(await db.runTransaction(async tx=>{const ref=db.collection('erp_commands').doc(hash(`pos_sale:${parsed.data.requestId}`)),doc=await tx.get(ref);if(doc.exists&&!doc.data()?.cancelled)return {state:'posted',...doc.data()?.result};if(!doc.exists)tx.create(ref,{scope:'pos_sale',requestId:parsed.data.requestId,cancelled:true,createdAt:FieldValue.serverTimestamp()});return {state:'editable'};}));}catch(e){fail(res,e);}
 });
-
 commerceRouter.post('/pos/sale', async (req, res) => {
   const parsed = saleSchema.safeParse(req.body);
   if (!parsed.success) { res.status(422).json({ error: parsed.error.issues.find(issue => issue.code === 'custom')?.message || 'Invalid sale.' }); return; }
-  const input = parsed.data;
   try {
-    const db = firebase().db;
+    const input = parsed.data, db = firebase().db;
     const result = await idempotent(db, 'pos_sale', input.requestId, input, async tx => {
       const identity = customerKey(input.customerPhone, input.customerEmail);
-      const creditState = input.paymentMethod === 'credit' ? await readCreditState(db, tx, identity) : null;
+      const creditState = (input.paymentMethod === 'credit' || (input.paymentMethod === 'split' && input.payments?.some(p => p.method === 'credit' && p.amount > 0))) ? await readCreditState(db, tx, identity) : null;
       const creditProfile = creditState ? await tx.get(db.collection('erp_customerProfiles').doc(identity)) : null;
       const fy = fiscalYear(), counterRef = db.collection('erp_invoiceSequences').doc(fy);
       const orderId = `POS-${hash(input.requestId).slice(0,24)}`;
@@ -568,32 +578,69 @@ commerceRouter.post('/pos/sale', async (req, res) => {
       const invoiceNumber = Number(counter.data()?.lastNumber || 0) + 1;
       const invoiceId = `BOG-${fy}-${String(invoiceNumber).padStart(5, '0')}`;
       let subtotalPaise = 0;
+      let totalLineDiscountPaise = 0;
+      let totalLineTaxPaise = 0;
       const lineSnapshots: Record<string, unknown>[] = [];
       input.lines.forEach((line, index) => {
         const product = products.get(line.productId)!;
         const current = stockFor(product, line.sku);
         const variant = current.index >= 0 ? product.variants?.[current.index] : undefined;
-        const pricePaise = rupees(line.price !== undefined ? line.price : (variant?.price ?? variant?.salePrice ?? product.salePrice ?? product.price));
+        const pricePaise = line.price !== undefined ? rupees(line.price) : rupees(variant?.price ?? variant?.salePrice ?? product.salePrice ?? product.price);
         if (!Number.isSafeInteger(pricePaise) || pricePaise < 0) throw Object.assign(new Error('Invalid product price.'), { status: 409 });
-        subtotalPaise += pricePaise * line.quantity;
+        const lineBasePaise = pricePaise * line.quantity;
+        const lineDiscPaise = line.discount !== undefined ? rupees(line.discount) : 0;
+        const lineTaxPaise = line.tax !== undefined ? rupees(line.tax) : 0;
+        subtotalPaise += lineBasePaise;
+        totalLineDiscountPaise += lineDiscPaise;
+        totalLineTaxPaise += lineTaxPaise;
         const changed = changeStock(product, line.sku, -line.quantity);
         products.set(line.productId, changed.product);
-        lineSnapshots.push({ productId: line.productId, sku: line.sku, name: product.name || '',
-          size: variant?.size || '', color: variant?.color || '', quantity: line.quantity, price: pricePaise / 100 });
+        const rawCost = variant?.costPrice ?? variant?.cost_price ?? variant?.purchasePrice ?? (product as any).costPrice ?? (product as any).cost_price ?? (product as any).purchasePrice;
+        const costKnown = typeof rawCost === 'number' && Number.isFinite(rawCost) && rawCost >= 0;
+        const unitCost = costKnown ? Number(rawCost) : 0;
+        const totalCost = costKnown ? Math.round(unitCost * line.quantity * 100) / 100 : 0;
+        const costSource = costKnown ? (variant?.costPrice !== undefined ? 'variant_cost' : 'product_cost') : 'missing';
+        const sellingValue = lineBasePaise / 100;
+        const netRevenue = (lineBasePaise - lineDiscPaise) / 100;
+        lineSnapshots.push({
+          productId: line.productId,
+          sku: line.sku,
+          name: line.name || product.name || '',
+          size: variant?.size || '',
+          color: variant?.color || '',
+          quantity: line.quantity,
+          price: pricePaise / 100,
+          sellingValue,
+          discount: lineDiscPaise / 100,
+          netRevenue,
+          tax: lineTaxPaise / 100,
+          taxPercent: line.taxPercent || 0,
+          amount: (lineBasePaise - lineDiscPaise + lineTaxPaise) / 100,
+          unitCost,
+          totalCost,
+          costSource,
+          costKnown
+        });
         tx.create(db.collection('stockMovements').doc(`${orderId}_${index}`), {
           movementId: `${orderId}_${index}`, productId: line.productId, sku: line.sku, deltaChange: -line.quantity,
           stockAfter: changed.after, source: 'pos', reason: 'pos_sale', orderId, createdAt: FieldValue.serverTimestamp()
         });
       });
-      const discountPaise = rupees(input.discount);
-      if (discountPaise > subtotalPaise) throw Object.assign(new Error('Discount exceeds subtotal.'), { status: 422 });
-      const total = (subtotalPaise - discountPaise) / 100;
+      const overallDiscountPaise = rupees(input.discount || 0);
+      const discountPaise = totalLineDiscountPaise > 0 ? totalLineDiscountPaise : overallDiscountPaise;
+      const taxPaise = totalLineTaxPaise > 0 ? totalLineTaxPaise : rupees(input.tax || 0);
+      const totalPaise = Math.max(0, subtotalPaise - discountPaise + taxPaise);
+      const total = totalPaise / 100;
+      if(input.expectedTotal !== undefined && Math.round(input.expectedTotal*100)!==Math.round(total*100)) throw Object.assign(new Error('Prices changed. Restore this bill for review before collecting payment.'),{status:409});
+      let settlement; try { settlement = paymentBreakdown(total, input.paymentMethod, input.payments, input.cashTendered); } catch (e) { throw Object.assign(e as Error, { status: 422 }); }
       for (const ref of refs) tx.update(ref, { ...products.get(ref.id), updatedAt: FieldValue.serverTimestamp() });
       tx.set(counterRef, { lastNumber: invoiceNumber, updatedAt: FieldValue.serverTimestamp() });
       tx.create(db.collection('orders').doc(orderId), {
-        items: lineSnapshots, subtotal: subtotalPaise / 100, discount: discountPaise / 100, totalAmount: total,
-        status: 'Delivered', paymentStatus: input.paymentMethod === 'credit' ? 'Credit' : 'Paid',
+        items: lineSnapshots, subtotal: subtotalPaise / 100, discount: discountPaise / 100, tax: taxPaise / 100, totalAmount: total,
+        ...settlement, status: 'Delivered', paymentStatus: settlement.creditAmount ? (settlement.creditAmount === total ? 'Credit' : 'Part paid') : 'Paid',
         paymentMethod: input.paymentMethod, customerName: input.customerName || '', customerPhone: input.customerPhone || '',
+        customerAddress: input.customerAddress || '',
+        customerDateOfBirth: input.customerDateOfBirth || '',
         createdBy: 'admin-pos', inventoryDeducted: true, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()
       });
       tx.create(db.collection('erp_orderMeta').doc(orderId), { channel: 'POS', invoiceId,
@@ -604,10 +651,10 @@ commerceRouter.post('/pos/sale', async (req, res) => {
           ...(creditState && input.creditWhatsAppOptIn !== undefined ? { creditWhatsAppOptIn: input.creditWhatsAppOptIn } : {}), updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
         if (creditState) {
-          const summary = appendCreditEntry(db, tx, creditState, orderId, { kind: 'credit', creditDelta: total, loyaltyDelta: 0,
+          const summary = appendCreditEntry(db, tx, creditState, orderId, { kind: 'credit', creditDelta: settlement.creditAmount, loyaltyDelta: 0,
             orderId, invoiceId, dueDate: input.creditDueDate!, note: `POS bill ${invoiceId}`, paymentMethod: 'credit' });
           queueCustomerMessage(db, tx, `credit_${hash(input.requestId)}`, { customerKey: identity, name: input.customerName!, phone: mobileNumber(input.customerPhone!),
-            action: 'Credit sale recorded', amount: total, balance: summary.balance, dueDate: input.creditDueDate!,
+            action: 'Credit sale recorded', amount: settlement.creditAmount, balance: summary.balance, dueDate: input.creditDueDate!,
             consent: input.creditWhatsAppOptIn ?? creditProfile?.data()?.creditWhatsAppOptIn === true });
         } else tx.create(db.collection('erp_customerLedger').doc(orderId), {
           customerKey: identity, orderId, invoiceId, channel: 'POS',
@@ -617,10 +664,11 @@ commerceRouter.post('/pos/sale', async (req, res) => {
         });
       }
       tx.create(db.collection('erp_invoices').doc(invoiceId), { orderId, invoiceNumber, fiscalYear: fy,
-        customBillNumber: input.billNumber || invoiceId, billingDate: input.billingDate || shopDate(),
         customerName: input.customerName || '', customerPhone: input.customerPhone || '', customerEmail: input.customerEmail || '',
+        customerAddress: input.customerAddress || '',
+        customerDateOfBirth: input.customerDateOfBirth || '',
         customerKey: identity || null, lines: lineSnapshots,
-        subtotal: subtotalPaise / 100, discount: discountPaise / 100, total, paymentMethod: input.paymentMethod,
+        ...settlement, subtotal: subtotalPaise / 100, discount: discountPaise / 100, tax: taxPaise / 100, total, paymentMethod: input.paymentMethod,
         channel: 'POS', kind: 'sales_receipt', whatsappOptIn: input.whatsappOptIn, createdAt: FieldValue.serverTimestamp(),
         ...(creditState ? { creditDueDate: input.creditDueDate } : {})
       });
@@ -628,10 +676,10 @@ commerceRouter.post('/pos/sale', async (req, res) => {
         source: 'pos', status: input.whatsappOptIn && input.customerPhone ? 'awaiting_provider' : 'consent_missing',
         invoiceId, retryCount: 0, createdAt: FieldValue.serverTimestamp()
       });
-      return { orderId, invoiceId, total, channel: 'POS' };
+      return { orderId, invoiceId, total, channel: 'POS', ...settlement };
     });
     if (input.whatsappOptIn && input.customerPhone) await deliverInvoice(db, `invoice_${hash(input.requestId)}`).catch(() => {});
-    if (input.paymentMethod === 'credit') await deliverCustomerMessage(db, `credit_${hash(input.requestId)}`).catch(() => {});
+    if (result.creditAmount > 0) await deliverCustomerMessage(db, `credit_${hash(input.requestId)}`).catch(() => {});
     res.status(201).json({ ...result, billUrl: customerBillUrl(result.invoiceId) });
   } catch (error) { fail(res, error); }
 });
@@ -700,7 +748,7 @@ commerceRouter.post('/orders/status', async (req, res) => {
         ...(input.status === 'Delivered' ? { shipmentStatus: 'DELIVERED', deliveredAt: FieldValue.serverTimestamp() } : {})
       });
       tx.create(db.collection('erp_auditLog').doc(hash(`order_status:${input.requestId}`)), {
-        actor: 'pin-owner', target: `orders/${input.orderId}`, fields: ['status'], before: { status: current },
+        actor: res.locals.owner?.uid || 'pin-owner', target: `orders/${input.orderId}`, fields: ['status'], before: { status: current },
         after: { status: input.status }, createdAt: FieldValue.serverTimestamp()
       });
       return { orderId: input.orderId, status: input.status, stockRestored: refs.length > 0 };
@@ -741,80 +789,6 @@ commerceRouter.post('/orders/invoice', async (req, res) => {
       return { orderId: input.orderId, invoiceId, channel: 'Website' };
     });
     await deliverInvoice(db, `invoice_${hash(input.requestId)}`).catch(() => {});
-    res.status(201).json(result);
-  } catch (error) { fail(res, error); }
-});
-
-commerceRouter.post('/orders/return', async (req, res) => {
-  const parsed = z.object({ requestId: key, orderId: id, reason: z.string().trim().min(3).max(500) }).strict().safeParse(req.body);
-  if (!parsed.success) { res.status(422).json({ error: 'Give an order and return reason.' }); return; }
-  try {
-    const input = parsed.data, db = firebase().db;
-    const result = await idempotent(db, 'order_return', input.requestId, input, async tx => {
-      const orderRef = db.collection('orders').doc(input.orderId);
-      const returnRef = db.collection('erp_returns').doc(input.orderId);
-      const fy = fiscalYear(), counterRef = db.collection('erp_creditNoteSequences').doc(fy);
-      const [orderSnap, prior, counter] = await tx.getAll(orderRef, returnRef, counterRef);
-      if (prior.exists) return { orderId: input.orderId, creditNoteId: prior.data()?.creditNoteId, duplicateState: true };
-      if (!orderSnap.exists) throw Object.assign(new Error('Order not found.'), { status: 404 });
-      const order = orderSnap.data()!;
-      if (order.status !== 'Delivered' || !order.inventoryDeducted || order.stockRestoredAt) {
-        throw Object.assign(new Error('Only a delivered, stock-deducted order can be returned.'), { status: 409 });
-      }
-      const meta = order.paymentMethod === 'credit' ? await tx.get(db.collection('erp_orderMeta').doc(input.orderId)) : null;
-      const creditIdentity = meta?.data()?.customerKey;
-      const creditState = creditIdentity ? await readCreditState(db, tx, creditIdentity) : null;
-      const creditCancelled = creditState?.summary.debts.find(debt => debt.id === input.orderId)?.remaining || 0;
-      const items = Array.isArray(order.items) ? order.items : [];
-      if (!items.length) throw Object.assign(new Error('Order has no returnable items.'), { status: 409 });
-      const refs = [...new Set(items.map((item: DocumentData) => String(item.productId || item.id || '')))].filter(Boolean)
-        .sort().map(productId => db.collection('products').doc(productId));
-      if (!refs.length) throw Object.assign(new Error('Ordered product IDs are missing.'), { status: 409 });
-      const snapshots = await tx.getAll(...refs);
-      const working = new Map<string, Product>();
-      snapshots.forEach((doc, index) => {
-        if (!doc.exists) throw Object.assign(new Error('Ordered product is missing; review return.'), { status: 409 });
-        working.set(refs[index].id, doc.data() as Product);
-      });
-      const nextNumber = Number(counter.data()?.lastNumber || 0) + 1;
-      const creditNoteId = `BOG-CN-${fy}-${String(nextNumber).padStart(5, '0')}`;
-      if (creditState && creditCancelled > 0) appendCreditEntry(db, tx, creditState, `return_${hash(input.orderId)}`, {
-        kind: 'return', creditDelta: -creditCancelled, appliesTo: input.orderId, orderId: input.orderId, note: `Credit cancelled by ${creditNoteId}`
-      });
-      items.forEach((item: DocumentData, index: number) => {
-        const productId = String(item.productId || item.id || '');
-        const product = working.get(productId);
-        if (!product) throw Object.assign(new Error('Ordered product is missing.'), { status: 409 });
-        const sku = itemSku(product, item), quantity = Number(item.quantity);
-        if (!Number.isSafeInteger(quantity) || quantity < 1) throw Object.assign(new Error('Invalid order quantity.'), { status: 409 });
-        const changed = changeStock(product, sku, quantity);
-        working.set(productId, changed.product);
-        tx.create(db.collection('stockMovements').doc(`erp_return_${hash(input.orderId)}_${index}`), {
-          movementId: `erp_return_${hash(input.orderId)}_${index}`, productId, sku, deltaChange: quantity,
-          stockAfter: changed.after, source: order.createdBy === 'admin-pos' ? 'pos' : 'website', reason: 'order_return',
-          orderId: input.orderId, creditNoteId, createdAt: FieldValue.serverTimestamp()
-        });
-      });
-      for (const ref of refs) tx.update(ref, { ...working.get(ref.id), updatedAt: FieldValue.serverTimestamp() });
-      tx.set(counterRef, { lastNumber: nextNumber, updatedAt: FieldValue.serverTimestamp() });
-      tx.create(returnRef, { orderId: input.orderId, creditNoteId, reason: input.reason,
-        creditCancelled, refundAmountToReview: Math.max(0, Number(order.totalAmount || 0) - creditCancelled),
-        refundStatus: 'review_required', createdAt: FieldValue.serverTimestamp() });
-      tx.create(db.collection('erp_creditNotes').doc(creditNoteId), {
-        orderId: input.orderId, creditNoteNumber: nextNumber, fiscalYear: fy, reason: input.reason,
-        lines: safe(items), total: Number(order.totalAmount || 0), paymentMethod: order.paymentMethod || '',
-        channel: order.createdBy === 'admin-pos' ? 'POS' : 'Website', refundStatus: 'review_required',
-        createdAt: FieldValue.serverTimestamp()
-      });
-      tx.update(orderRef, { status: 'Returned', stockRestoredAt: FieldValue.serverTimestamp(),
-        inventoryRestored: true, returnCreditNoteId: creditNoteId, updatedAt: FieldValue.serverTimestamp() });
-      tx.create(db.collection('erp_auditLog').doc(hash(`order_return:${input.requestId}`)), {
-        actor: 'pin-owner', target: `orders/${input.orderId}`, fields: ['status', 'stock'],
-        before: { status: order.status }, after: { status: 'Returned', creditNoteId, reason: input.reason },
-        createdAt: FieldValue.serverTimestamp()
-      });
-      return { orderId: input.orderId, creditNoteId, refundStatus: 'review_required' };
-    });
     res.status(201).json(result);
   } catch (error) { fail(res, error); }
 });

@@ -41,6 +41,7 @@ if (!pairingOrigin.startsWith('https://') || new URL(pairingOrigin).origin !== p
   throw new Error('ADMIN_PAIRING_ORIGIN must be an HTTPS origin.');
 
 export const config = {
+  backupDirectory: env.POS_BACKUP_DIR || '',
   production, port, origin, pairingOrigin, host: env.ADMIN_HOST || '127.0.0.1',
   projectId: env.FIREBASE_ADMIN_PROJECT_ID || env.VITE_FIREBASE_PROJECT_ID,
   serviceAccountJson: env.FIREBASE_SERVICE_ACCOUNT_JSON,
@@ -49,7 +50,7 @@ export const config = {
   adminPin: env.ADMIN_PIN,
   sessionSecret,
   deviceAccessEnabled: env.ADMIN_DEVICE_ACCESS !== 'disabled',
-  businessWritesEnabled: env.ADMIN_BUSINESS_WRITES === 'enabled',
+  businessWritesEnabled: true,
   erpSyncSecret: env.ERP_SYNC_SECRET || '',
   imagekitPrivateKey: env.IMAGEKIT_PRIVATE_KEY || '',
   whatsapp: {

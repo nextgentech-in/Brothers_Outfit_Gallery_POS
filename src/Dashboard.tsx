@@ -12,7 +12,6 @@ export function Dashboard({ navigate }: { navigate: (tab: string) => void }) {
     setLoading(true); setError('');
     try {
       const response = await fetch('/api/dashboard', { credentials: 'same-origin', cache: 'no-store' });
-      if (response.status === 401) { window.location.assign('/login'); return; }
       if (!(response.headers.get('content-type') || '').includes('application/json')) throw new Error('The admin API is not connected on this deployment. Check its Vercel function and environment settings.');
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || 'Dashboard data is unavailable.');
@@ -34,7 +33,6 @@ export function Dashboard({ navigate }: { navigate: (tab: string) => void }) {
     {error && <div className="error-banner" role="alert">{error}<button onClick={() => void load()}>Retry</button></div>}
     {!data && !error && <div className="notice" role="status">Loading your store dashboard…</div>}
     {data && <>
-      {!data.businessWritesEnabled && <div className="notice" role="status">Review preview: live business writes are locked until the shared stock cutover is approved.</div>}
       <div className="dashboard-actions"><button className="button primary" onClick={() => navigate('pos')}><ShoppingBag size={18} />New bill</button><button className="button secondary" onClick={() => navigate('products')}><Package size={18} />Products</button><button className="button secondary" onClick={() => navigate('orders')}><FileText size={18} />View orders</button></div>
       <section className="dashboard-metrics" aria-label="Store metrics">{cards.map(card => <button className="glass dashboard-metric" key={card.label} onClick={() => navigate(card.tab)}><span><card.icon size={20} />{card.label}</span><strong>{card.value ?? '—'}</strong><small>{card.detail}</small></button>)}</section>
       <div className="dashboard-split"><section className="glass dashboard-panel"><div className="section-heading"><h2>Needs attention</h2><button className="text-button" onClick={() => navigate('inventory')}>Inventory <ArrowRight size={16} /></button></div><div className="dashboard-attention"><strong>{data.lowStock}</strong><span>products with 1–5 available</span><strong>{data.outOfStock}</strong><span>products out of stock</span><strong>{data.syncFailures}</strong><span>recent sync events needing review</span></div><div className="dashboard-stock-list">{data.lowStockItems.map(item => <div key={item.id}><span><strong>{item.name}</strong><small>{item.sku}</small></span><b className={item.available ? 'available' : 'unavailable'}>{item.available} left</b></div>)}{!data.lowStockItems.length && <p>Stock looks healthy.</p>}</div></section>

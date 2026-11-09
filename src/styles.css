@@ -139,70 +139,120 @@
 @media(max-width:1150px){.credit-layout{grid-template-columns:1fr}.whatsapp-facts{grid-template-columns:1fr 1fr}}
 @media(max-width:700px){.credit-totals{grid-template-columns:1fr;gap:10px}.credit-totals>div{padding:16px;display:flex;justify-content:space-between;align-items:center;gap:12px}.credit-totals span{margin:0}.credit-totals strong{font-size:24px}.credit-due-fields{grid-template-columns:1fr;gap:0}.whatsapp-panels{grid-template-columns:1fr}.whatsapp-state{align-items:flex-start}.credit-dialog form{padding:20px}.credit-entry-actions .button{flex:1}.credit-detail-heading>strong{font-size:22px}.whatsapp-facts{gap:16px}.credit-page .page-title{align-items:flex-start;flex-wrap:wrap}}
 
+/* Customer drafts open in the shopkeeper's WhatsApp for manual sending. */
+.whatsapp-compose-dialog{width:min(640px,calc(100% - 32px));max-height:calc(100dvh - 32px);overflow:auto;margin:auto;padding:0;border:1px solid var(--line);border-radius:18px;background:var(--solid);color:var(--text)}
+.whatsapp-compose-dialog::backdrop{background:#0e181ca8}.whatsapp-compose-dialog form{padding:26px}.whatsapp-compose-dialog header{display:flex;justify-content:space-between;align-items:flex-start;gap:18px}.whatsapp-compose-dialog h2{font-size:24px;margin:8px 0 20px}.whatsapp-compose-dialog p{font-size:14px;line-height:1.6;color:var(--muted)}.whatsapp-compose-dialog label{display:block;font-size:14px;font-weight:600;margin:18px 0}.whatsapp-compose-dialog input,.whatsapp-compose-dialog select,.whatsapp-compose-dialog textarea{display:block;width:100%;min-width:0;min-height:45px;margin-top:8px;padding:11px 12px;border:1px solid var(--line);border-radius:9px;background:var(--solid);color:var(--text);font:inherit;font-size:14px}.whatsapp-compose-dialog textarea{resize:vertical;line-height:1.6}.whatsapp-compose-dialog .whatsapp-message-preview{background:var(--bg);font-weight:400;min-height:180px}.whatsapp-compose-dialog .whatsapp-message-label{margin-top:8px}.whatsapp-compose-dialog footer{display:flex;justify-content:flex-end;gap:10px;margin-top:22px}.whatsapp-recipient{display:flex;align-items:center;gap:12px;padding:15px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}.whatsapp-recipient>svg{color:#218353;flex:none}.whatsapp-recipient>div{min-width:0;flex:1}.whatsapp-recipient strong,.whatsapp-recipient span{display:block;overflow-wrap:anywhere}.whatsapp-recipient strong{font-size:16px}.whatsapp-recipient div span{font-size:13px;color:var(--muted);margin-top:5px}.whatsapp-compose-fields{display:grid;grid-template-columns:1fr 1fr;gap:14px}.whatsapp-preview-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:24px;font-size:14px;font-weight:600}.whatsapp-preview-heading .text-button{display:inline-flex;align-items:center;gap:5px;font:inherit;font-size:12px}.whatsapp-character-count{display:block;text-align:right;color:var(--muted);font-size:12px}.whatsapp-send{background:#167447;color:#fff;border:1px solid #167447}.whatsapp-send:hover{background:#105e39;color:#fff}.whatsapp-send:disabled{opacity:.5;cursor:not-allowed}.customer-whatsapp-action{white-space:nowrap}.whatsapp-compose-dialog .notice{display:block}.whatsapp-compose-dialog .notice a{color:inherit;text-decoration:underline}
+.whatsapp-manual-panel{padding:26px;margin-bottom:28px}.whatsapp-manual-panel h2{font-size:25px;margin:10px 0}.whatsapp-manual-panel p{font-size:14px;color:var(--muted);line-height:1.7}.whatsapp-manual-actions{display:flex;flex-wrap:wrap;gap:12px;margin:20px 0}.whatsapp-api-heading{font-size:18px;margin-bottom:8px}.whatsapp-api-description{margin:0 0 18px}
+.billing-customer-section{border:1px solid var(--line);border-radius:12px;padding:16px;margin:0 0 20px}.billing-customer-heading{display:flex;align-items:center;justify-content:space-between;gap:14px}.billing-customer-heading>div{min-width:0}.billing-customer-heading strong,.billing-customer-heading small{display:block;overflow-wrap:anywhere}.billing-customer-heading strong{font-size:14px}.billing-customer-heading small{font-size:12px;color:var(--muted);margin-top:6px}.billing-customer-heading .button{font-size:12px;padding:10px 12px;flex:none}.billing-customer-section .checkout-fields{margin-top:20px}.billing-customer-section .whatsapp-note{margin:0 0 14px}.billing-customer-section .checkout-customer-phone{margin-bottom:14px}.billing-customer-section .check-row{grid-column:1/-1}
+[data-theme=dark] .whatsapp-compose-dialog input[type=date]{color-scheme:dark}
+@media(max-width:560px){.whatsapp-compose-dialog form{padding:20px}.whatsapp-compose-dialog h2{font-size:22px}.whatsapp-compose-dialog footer{flex-wrap:wrap}.whatsapp-compose-dialog footer .whatsapp-send{flex:1}.whatsapp-compose-fields{grid-template-columns:1fr;gap:0}.whatsapp-compose-fields label{margin-bottom:0}.whatsapp-manual-panel{padding:20px}.billing-customer-heading{align-items:flex-start;flex-wrap:wrap}.billing-customer-section{padding:14px}.whatsapp-recipient .source-tag{font-size:10px}.whatsapp-preview-heading{flex-wrap:wrap}}
+.purchase-fieldset{border:0;margin:0;padding:0;min-width:0}.purchase-item-card{border:1px solid var(--line);border-radius:12px;padding:18px;margin:16px 0}.purchase-item-card header{display:flex;align-items:center;justify-content:space-between}.purchase-item-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.purchase-item-fields label{display:block;font-size:13px;margin-top:14px}.purchase-item-fields input,.purchase-receive td input{display:block;width:100%;min-width:0;border:1px solid var(--line);border-radius:8px;background:var(--solid);color:var(--text);padding:11px;margin-top:6px}.purchase-item-card p{font-size:15px}.purchase-receive h3{margin-top:24px}.clothing-label-details{width:100%;text-align:left}.clothing-label-details dl{margin:0}.clothing-label-details dl>div{display:grid;grid-template-columns:27% 1fr;gap:5px;margin:4px 0}.clothing-label-details dt{font-size:9px;font-weight:800}.clothing-label-details dd{margin:0;font-size:10px;font-weight:700;overflow-wrap:anywhere}.barcode-label{height:auto!important;min-height:65mm;justify-content:flex-start!important;padding:4mm!important;break-inside:avoid;background:#fff!important;color:#000!important}.barcode-label img{width:100%!important;height:15mm!important;object-fit:contain;margin-top:auto;padding:2mm;background:#fff}.barcode-size-compact .barcode-label{min-height:58mm}.barcode-size-large .barcode-label{min-height:80mm}.barcode-size-large .clothing-label-details dd{font-size:12px}.barcode-size-large .clothing-label-details dt{font-size:10px}@media(max-width:650px){.purchase-item-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.purchase-top{grid-template-columns:1fr!important}}@media print{.barcode-label{box-shadow:none;border:1px solid #bbb!important}.clothing-label-details dt,.clothing-label-details dd{color:#000!important}}
+.split-payment-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px;grid-column:1/-1;padding:14px;border:1px solid var(--line);border-radius:10px;margin-bottom:15px}.split-payment-fields p{grid-column:1/-1;font-size:14px}.cash-change{grid-column:1/-1}.cash-change p{font-size:15px;margin:0 0 20px}
+.return-dialog{width:min(720px,calc(100% - 30px))}.return-line{padding:12px;border:1px solid var(--line);border-radius:10px;margin:12px 0}.return-line small{display:block;margin:6px 0;color:var(--muted)}.invoice-actions{flex-wrap:wrap}.invoice-actions select{padding:8px;border-radius:6px}
+@media print{@page thermal80{size:80mm 297mm;margin:2mm}@page thermal58{size:58mm 297mm;margin:2mm}.invoice-sheet.receipt-80{page:thermal80;width:76mm!important;padding:2mm!important}.invoice-sheet.receipt-58{page:thermal58;width:54mm!important;padding:1mm!important}.invoice-sheet.receipt-80,.invoice-sheet.receipt-58{font-size:9px!important;max-height:none!important;overflow:visible!important}.receipt-80 .invoice-header,.receipt-58 .invoice-header{display:block!important}.receipt-80 .invoice-meta,.receipt-58 .invoice-meta{display:block!important}.receipt-80 h1,.receipt-58 h1,.receipt-80 h2,.receipt-58 h2{font-size:13px!important}.receipt-80 th,.receipt-80 td,.receipt-58 th,.receipt-58 td{font-size:8px!important;padding:4px 1px!important;overflow-wrap:anywhere}.receipt-80 .invoice-summary,.receipt-58 .invoice-summary{display:block!important}.receipt-80 .invoice-footer,.receipt-58 .invoice-footer{font-size:8px!important}.invoice-sheet thead{display:table-header-group}.invoice-sheet tr{break-inside:avoid}}
 
-/* WhatsApp message dialog for customer table. */
-.whatsapp-msg-dialog{width:min(500px,calc(100% - 32px));max-height:calc(100dvh - 40px);overflow:auto;margin:auto;padding:0;border:1px solid var(--line);border-radius:18px;background:var(--solid);color:var(--text)}.whatsapp-msg-dialog::backdrop{background:#0e181ca8}.whatsapp-msg-dialog form{padding:26px}.whatsapp-msg-dialog header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.whatsapp-msg-dialog h2{font-size:20px;margin:0 0 20px;display:flex;align-items:center;gap:8px}.whatsapp-msg-dialog h2 svg{color:#25d366;flex:none}.whatsapp-msg-dialog p{font-size:14px;line-height:1.6}.whatsapp-msg-dialog label{display:block;font-size:14px;margin-bottom:18px;color:var(--muted)}.whatsapp-msg-dialog select,.whatsapp-msg-dialog textarea{display:block;width:100%;padding:12px;margin-top:8px;border:1px solid var(--line);border-radius:9px;background:var(--solid);color:var(--text);font:inherit;font-size:13px}.whatsapp-msg-dialog textarea{resize:vertical;min-height:100px;line-height:1.6}.whatsapp-msg-dialog footer{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
-.wa-action-btn{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-size:11px!important;padding:7px 12px!important}.wa-action-btn svg{color:#25d366}
-.wa-send-btn{display:inline-flex;align-items:center;gap:6px;background:#25d366!important;border-color:#25d366!important;color:#fff!important}.wa-send-btn:disabled{opacity:.5;cursor:not-allowed}
-[data-theme=dark] .whatsapp-msg-dialog select,[data-theme=dark] .whatsapp-msg-dialog textarea{color-scheme:dark}
-@media(max-width:560px){.whatsapp-msg-dialog form{padding:20px}.whatsapp-msg-dialog footer{flex-wrap:wrap}}
+@media print{.barcode-label{width:auto!important;min-width:0!important;min-height:65mm!important}.barcode-size-compact .barcode-label{min-height:58mm!important}.barcode-size-large .barcode-label{min-height:80mm!important}}
 
+@media print{body:has(>.print-backdrop)>*:not(.print-backdrop){display:none!important}body>.print-backdrop{display:block!important;position:static!important;padding:0!important;background:#fff!important;visibility:visible!important}.print-backdrop .invoice-sheet,.print-backdrop .barcode-editor{position:static!important;inset:auto!important;overflow:visible!important;max-height:none!important;margin:0!important}.receipt-80 .invoice-title,.receipt-58 .invoice-title{display:block!important}.receipt-80 .invoice-title>span,.receipt-58 .invoice-title>span{display:inline-block;margin-top:4px}.receipt-80 .invoice-meta,.receipt-58 .invoice-meta{padding:4px!important}.receipt-80 .invoice-meta strong,.receipt-58 .invoice-meta strong,.receipt-80 .invoice-header p,.receipt-58 .invoice-header p,.receipt-80 .invoice-footer span,.receipt-58 .invoice-footer span{font-size:9px!important}.receipt-80 .invoice-meta small,.receipt-58 .invoice-meta small{font-size:8px!important}.receipt-80 .invoice-summary,.receipt-58 .invoice-summary{font-size:10px!important}.receipt-80 .invoice-footer strong,.receipt-58 .invoice-footer strong{font-size:11px!important}}
 
-/* Billing top header & metadata */
-.pos-bill-top{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:14px}
-.pos-bill-title h2{font-size:20px;margin:5px 0 0}
-.pos-bill-meta-fields{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.pos-meta-item{display:flex;flex-direction:column;gap:4px;font-size:10px;color:var(--muted);font-weight:550}
-.pos-meta-item input{border:1px solid var(--line);border-radius:8px;padding:6px 10px;background:var(--solid);color:var(--text);font-size:11px;font-weight:600}
-.pos-meta-item input[type=date]{padding:5px 8px}
-.checkout-full-span{grid-column:1/-1}
+/* Vyapar-style Billing Layout */
+.vyapar-billing-container{padding:24px;border-radius:18px;margin-bottom:24px}
+.vyapar-top-section{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(280px,1fr);gap:24px;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid var(--line)}
+.vyapar-customer-box{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:12px;align-content:start}
+.vyapar-input-group.full-width{grid-column:1/-1}
+.vyapar-customer-dropdown{position:absolute;top:calc(100% + 4px);left:0;right:0;min-width:320px;max-height:240px;overflow-y:auto;z-index:90;border:1px solid var(--accent);border-radius:10px;background:var(--solid);box-shadow:0 12px 32px rgba(0,0,0,.25)}
+.vyapar-customer-dropdown-item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--line);cursor:pointer;transition:background .1s}
+.vyapar-customer-dropdown-item:hover{background:var(--accent-bg)}
+.vyapar-customer-dropdown-item:last-child{border-bottom:0}
+.vyapar-cust-main strong{font-size:13px;display:block;color:var(--text)}
+.vyapar-cust-main small{font-size:11px;color:var(--muted);display:flex;align-items:center;margin-top:2px}
+.vyapar-cust-meta{text-align:right;flex:none}
+.vyapar-dob-pill{display:inline-block;font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;background:var(--accent-bg);color:var(--accent);margin-bottom:2px}
+.vyapar-addr-text{display:block;font-size:10px;color:var(--muted);max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vyapar-label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px}
+.vyapar-field{width:100%;min-height:38px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--solid);color:var(--text);font:inherit;font-size:13px;transition:border-color .15s}
+.vyapar-field:focus{outline:0;border-color:var(--accent)}
+.vyapar-textarea{min-height:60px;resize:vertical}
+.vyapar-invoice-meta-box{display:flex;flex-direction:column;gap:10px;justify-content:center;padding:14px 18px;border:1px solid var(--line);border-radius:12px;background:var(--solid)}
+.vyapar-meta-row{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:13px}
+.vyapar-meta-title{color:var(--muted);font-weight:600}
+.vyapar-meta-value{font-weight:700;color:var(--text);padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:var(--solid);font:inherit;font-size:13px;text-align:right}
+.vyapar-meta-static{font-weight:700;color:var(--text)}
 
-/* Payment In Dialog */
-.payment-in-dialog{width:min(550px,calc(100% - 32px))}
-.payment-in-fieldset{border:0;margin:0;padding:0}
-.payment-in-search-label{display:block;margin-bottom:14px}
-.payment-in-search-label>span{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
-.payment-in-search-bar{display:flex;align-items:center;gap:10px;background:var(--solid);border:1px solid var(--line);border-radius:9px;padding:8px 12px;color:var(--muted)}
-.payment-in-search-bar input{border:0!important;background:transparent!important;padding:4px 0!important;margin:0!important;color:var(--text);outline:none;font-size:13px;width:100%}
-.payment-in-customer-card{display:flex;justify-content:space-between;align-items:center;gap:15px;padding:14px 16px;border-radius:12px;border:1px solid var(--line);margin:14px 0}
-.payment-in-customer-card .customer-info strong{display:flex;align-items:center;gap:6px;font-size:16px}
-.payment-in-customer-card .customer-info small{display:block;color:var(--muted);margin-top:4px}
-.payment-in-customer-card .balance-info{text-align:right}
-.payment-in-customer-card .balance-info span{display:block;font-size:11px;color:var(--muted)}
-.payment-in-customer-card .balance-info strong{display:block;font-size:18px;margin-top:2px}
-.payment-in-customer-card .balance-info small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
-.payment-amount-row{display:flex;align-items:flex-end;gap:12px;margin-bottom:16px}
-.pay-full-btn{white-space:nowrap;padding:11px 14px!important;margin-bottom:1px;font-size:12px!important}
+.vyapar-table-wrapper{overflow-x:auto;margin-bottom:24px}
+.vyapar-items-table{width:100%;border-collapse:collapse;border:1px solid var(--line);border-radius:10px;background:var(--solid);overflow:visible}
+.vyapar-items-table th{background:var(--accent-bg);color:var(--accent);font-weight:700;font-size:12px;padding:12px 10px;border-bottom:2px solid var(--line);letter-spacing:.5px}
+.vyapar-items-table td{padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
+.vyapar-cell-input{width:100%;min-height:36px;padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:var(--solid);color:var(--text);font:inherit;font-size:13px}
+.vyapar-cell-input:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-bg)}
+.vyapar-cell-input.text-center{text-align:center}
+.vyapar-cell-input.text-right{text-align:right}
+.vyapar-cell-input.font-bold{font-weight:700}
 
-/* Remaining Balance Calculator Card */
-.remaining-balance-card{border-radius:12px;padding:16px;margin:16px 0;background:var(--bg);border:1px solid var(--line)}
-.remaining-balance-card.card-standard{border-color:var(--line)}
-.remaining-balance-card.card-success{border-color:#188049;background:#e5f4e922}
-.remaining-balance-card.card-danger{border-color:#af5353;background:#ffebee22}
-.calc-row{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:8px}
-.calc-row span{color:var(--muted)}
-.calc-divider{height:1px;background:var(--line);margin:10px 0}
-.calc-result{font-size:16px;margin-bottom:0}
-.calc-result strong{font-size:20px}
-.settlement-badge{display:flex;align-items:center;gap:6px;color:#188049;font-weight:600;font-size:12px;margin:10px 0 0}
-.overpay-error{color:#c63737;font-weight:600;font-size:12px;margin:10px 0 0}
+.vyapar-item-input-container{position:relative;display:flex;align-items:center}
+.item-name-input{padding-right:75px}
+.vyapar-stock-badge{position:absolute;right:8px;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;pointer-events:none}
+.vyapar-stock-badge.available{background:#18804922;color:#188049}
+.vyapar-stock-badge.unavailable{background:#d9534f22;color:#d9534f}
 
-/* Cart rate & editable price input */
-.cart-price-input{display:flex;flex-direction:column;gap:4px;color:var(--text);font-size:13px;font-weight:700}
-.cart-price-input span{font-size:11px;color:var(--muted);font-weight:600}
-.cart-price-input input{width:88px;min-height:40px;border:1px solid var(--line);border-radius:8px;padding:7px;color:var(--text);background:var(--solid);font-size:15px;font-weight:700}
+.vyapar-search-dropdown{position:absolute;top:calc(100% + 4px);left:0;right:0;min-width:320px;max-height:280px;overflow-y:auto;z-index:90;border:1px solid var(--accent);border-radius:10px;background:var(--solid);box-shadow:0 12px 32px rgba(0,0,0,.25)}
+.vyapar-dropdown-header{display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:11px;font-weight:600;color:var(--muted);background:var(--accent-bg)}
+.vyapar-dropdown-list{display:flex;flex-direction:column}
+.vyapar-dropdown-item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer;transition:background .1s}
+.vyapar-dropdown-item:hover{background:var(--accent-bg)}
+.vyapar-dropdown-item:last-child{border-bottom:0}
+.vyapar-dropdown-item-title strong{font-size:13px;display:block}
+.vyapar-dropdown-item-title .variant-tag{font-size:11px;color:var(--accent);font-weight:600;display:inline-block;margin-right:8px}
+.vyapar-dropdown-item-title small{font-size:10px;color:var(--muted)}
+.vyapar-dropdown-item-meta{text-align:right;flex:none}
+.stock-pill{display:block;font-size:11px;font-weight:700;margin-bottom:2px}
+.stock-pill.in-stock{color:#188049}
+.stock-pill.no-stock{color:#d9534f}
+.rate-pill{font-size:13px;color:var(--text)}
+.vyapar-dropdown-empty{padding:14px;text-align:center;color:var(--muted);font-size:12px}
 
-/* Editable bill total */
-.editable-bill-total{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:16px 0;border-top:1px solid var(--line)}
-.total-label-col{display:flex;flex-direction:column;gap:3px}
-.total-label-col span{font-size:15px;font-weight:600;color:var(--text)}
-.total-label-col small{font-size:11px;color:var(--accent);font-weight:550}
-.total-input-wrapper{display:flex;align-items:center;gap:6px;background:var(--solid);border:2px solid var(--accent);border-radius:10px;padding:4px 10px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
-.total-input-wrapper .currency-prefix{font-size:22px;font-weight:700;color:var(--accent)}
-.total-input-wrapper input{border:0!important;background:transparent!important;padding:4px 0!important;margin:0!important;font-size:24px;font-weight:750;color:var(--text);width:130px;outline:none;text-align:right}
+.vyapar-row-delete{border:0;background:none;color:var(--muted);cursor:pointer;padding:6px;border-radius:6px;transition:color .15s}
+.vyapar-row-delete:hover{color:#d9534f;background:#d9534f18}
 
-/* Save & Share WhatsApp button */
-.pos-save-share-btn{display:inline-flex;align-items:center;gap:7px;background:#25d366!important;border:1px solid #20ba5a!important;color:#fff!important;font-weight:650;font-size:13px!important;padding:12px 18px!important;box-shadow:0 4px 12px rgba(37,211,102,0.25);transition:all .15s}
-.pos-save-share-btn:hover{background:#20ba5a!important;transform:translateY(-1px);box-shadow:0 6px 16px rgba(37,211,102,0.35)}
-.pos-save-share-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
-.pos-save-share-btn svg{color:#fff}
+.vyapar-totals-row td{background:var(--accent-bg);padding:12px 10px;border-top:2px solid var(--line);font-size:13px}
+.vyapar-add-row-btn{font-size:13px;font-weight:700;padding:8px 16px}
+
+.vyapar-bottom-section{display:grid;grid-template-columns:1fr 1.1fr;gap:24px;align-items:start;margin-top:16px}
+.vyapar-bottom-left{display:flex;flex-direction:column;gap:14px}
+.vyapar-notes-box{padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--solid)}
+.vyapar-subhead{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px}
+.vyapar-terms-text{font-size:12px;line-height:1.5;color:var(--text);margin:0}
+
+.vyapar-payment-panel{padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--solid);display:flex;flex-direction:column;gap:12px}
+.vyapar-payment-header{display:flex;justify-content:space-between;align-items:center}
+.vyapar-payment-selected-tag{font-size:11px;color:var(--muted)}
+.vyapar-payment-selected-tag strong{color:var(--accent);font-weight:700}
+.vyapar-payment-modes-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.vyapar-mode-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:10px 6px;border:1px solid var(--line);border-radius:8px;background:var(--solid);color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s}
+.vyapar-mode-btn:hover{background:var(--accent-bg);color:var(--text);border-color:var(--accent)}
+.vyapar-mode-btn.active{background:var(--accent-bg);color:var(--accent);border-color:var(--accent);font-weight:700;box-shadow:0 0 0 1px var(--accent)}
+.vyapar-mode-btn.active.credit-mode{background:#d9534f18;color:#d9534f;border-color:#d9534f;box-shadow:0 0 0 1px #d9534f}
+.vyapar-mode-detail-box{padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.vyapar-mode-detail-box.credit-box{border-color:#d9534f66;background:#d9534f0a}
+
+.vyapar-resume-held{font-size:13px}
+
+.vyapar-bottom-right{display:flex;flex-direction:column;gap:16px}
+.vyapar-grand-total-panel{padding:18px 22px;border:1px solid var(--line);border-radius:12px;background:var(--solid);display:flex;flex-direction:column;gap:8px}
+.vyapar-summary-line{display:flex;justify-content:space-between;align-items:center;font-size:14px;color:var(--text)}
+.vyapar-summary-line.discount{color:#188049;font-weight:600}
+.vyapar-summary-line.tax{color:var(--muted);font-weight:600}
+.vyapar-summary-line.total-highlight{border-top:2px solid var(--line);padding-top:12px;margin-top:4px;font-size:16px;font-weight:700}
+.vyapar-summary-line .big-amount{font-size:24px;font-weight:800;color:var(--accent)}
+
+.vyapar-actions-bar{display:flex;gap:12px;justify-content:flex-end}
+.vyapar-btn-save-new{flex:1;min-height:48px;font-size:14px;font-weight:700}
+.vyapar-btn-save-share{flex:1.2;min-height:48px;font-size:15px;font-weight:700}
+
+@media(max-width:900px){
+  .vyapar-top-section{grid-template-columns:1fr}
+  .vyapar-customer-box{grid-template-columns:1fr}
+  .vyapar-payment-modes-grid{grid-template-columns:repeat(2,1fr)}
+  .vyapar-bottom-section{grid-template-columns:1fr}
+}
+

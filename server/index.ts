@@ -1,3 +1,4 @@
+import { startBackupWorker } from './backup.js';
 import express from 'express';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -13,6 +14,7 @@ const server = createServer(app);
 if (config.production) {
   app.use('/assets', express.static(path.join(root, 'dist/assets'), { index: false }));
   app.get('/favicon.svg', (_req, res) => res.sendFile(path.join(root, 'dist/favicon.svg')));
+  app.get('/purchase-template.csv', (_req,res)=>res.sendFile(path.join(root,'dist/purchase-template.csv')));
   app.get('/manifest.webmanifest', (_req, res) => res.sendFile(path.join(root, 'dist/manifest.webmanifest')));
   app.use((_req, res) => res.sendFile(path.join(root, 'dist/index.html')));
 } else {
@@ -41,3 +43,5 @@ const deliveryWorker = setInterval(async () => {
   finally { deliveryWorkerBusy = false; }
 }, 45_000);
 deliveryWorker.unref();
+
+startBackupWorker();

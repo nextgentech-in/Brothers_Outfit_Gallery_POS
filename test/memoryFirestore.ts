@@ -28,7 +28,7 @@ export function memoryFirestore(db: Firestore) {
     limit(count: number) { return new Query(this.path, this.filters, this.order, count); }
     async get() {
       let docs = [...records].filter(([path, data]) => path.startsWith(`${this.path}/`) && path.split('/').length === this.path.split('/').length + 1 &&
-        this.filters.every(([field, op, value]) => op === 'in' ? (value as unknown[]).includes(data[field]) : data[field] === value))
+        this.filters.every(([field, op, value]) => { const a=data[field]?.toMillis?.() ?? data[field], b=(value as any)?.toMillis?.() ?? (value instanceof Date ? value.getTime() : value); return op === 'in' ? (value as unknown[]).includes(data[field]) : op === '>=' ? a>=b : op === '<' ? a<b : a===b; }))
         .map(([path]) => snapshot(new Ref(path)));
       if (this.order) {
         const [field, direction] = this.order;
