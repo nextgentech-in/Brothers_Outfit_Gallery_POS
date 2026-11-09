@@ -15,6 +15,7 @@ import { creditRouter } from './credit.js';
 import { purchasesRouter } from './purchases.js';
 import { operationsRouter } from './operations.js';
 import { returnsRouter } from './returns.js';
+import { reportsRouter } from './reports.js';
 import { deliverInvoice } from './whatsapp.js';
 import { validBillLink } from './billLink.js';
 import { invoicePdf } from './invoicePdf.js';
@@ -214,6 +215,7 @@ export function createApp(options: AppOptions = {}) {
   app.use('/api', purchasesRouter);
   app.use('/api', operationsRouter);
   app.use('/api', returnsRouter);
+  app.use('/api', reportsRouter);
   app.use('/api', staffRouter);
   app.use('/api', backupRouter);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Operation not found.' }));

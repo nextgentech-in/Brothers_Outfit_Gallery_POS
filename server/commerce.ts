@@ -595,10 +595,32 @@ commerceRouter.post('/pos/sale', async (req, res) => {
         totalLineTaxPaise += lineTaxPaise;
         const changed = changeStock(product, line.sku, -line.quantity);
         products.set(line.productId, changed.product);
-        lineSnapshots.push({ productId: line.productId, sku: line.sku, name: line.name || product.name || '',
-          size: variant?.size || '', color: variant?.color || '', quantity: line.quantity, price: pricePaise / 100,
-          discount: lineDiscPaise / 100, tax: lineTaxPaise / 100, taxPercent: line.taxPercent || 0,
-          amount: (lineBasePaise - lineDiscPaise + lineTaxPaise) / 100 });
+        const rawCost = variant?.costPrice ?? variant?.cost_price ?? variant?.purchasePrice ?? (product as any).costPrice ?? (product as any).cost_price ?? (product as any).purchasePrice;
+        const costKnown = typeof rawCost === 'number' && Number.isFinite(rawCost) && rawCost >= 0;
+        const unitCost = costKnown ? Number(rawCost) : 0;
+        const totalCost = costKnown ? Math.round(unitCost * line.quantity * 100) / 100 : 0;
+        const costSource = costKnown ? (variant?.costPrice !== undefined ? 'variant_cost' : 'product_cost') : 'missing';
+        const sellingValue = lineBasePaise / 100;
+        const netRevenue = (lineBasePaise - lineDiscPaise) / 100;
+        lineSnapshots.push({
+          productId: line.productId,
+          sku: line.sku,
+          name: line.name || product.name || '',
+          size: variant?.size || '',
+          color: variant?.color || '',
+          quantity: line.quantity,
+          price: pricePaise / 100,
+          sellingValue,
+          discount: lineDiscPaise / 100,
+          netRevenue,
+          tax: lineTaxPaise / 100,
+          taxPercent: line.taxPercent || 0,
+          amount: (lineBasePaise - lineDiscPaise + lineTaxPaise) / 100,
+          unitCost,
+          totalCost,
+          costSource,
+          costKnown
+        });
         tx.create(db.collection('stockMovements').doc(`${orderId}_${index}`), {
           movementId: `${orderId}_${index}`, productId: line.productId, sku: line.sku, deltaChange: -line.quantity,
           stockAfter: changed.after, source: 'pos', reason: 'pos_sale', orderId, createdAt: FieldValue.serverTimestamp()

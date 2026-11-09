@@ -284,12 +284,7 @@ export function VyaparBilling({
       prev.map(r => {
         if (r.id !== rowId) return r;
         const fullName = `${item.productName}${item.variantText}`;
-        const { taxAmount, amount } = calculateRowAmount(
-          r.quantity || 1,
-          item.price,
-          r.discount || 0,
-          r.taxPercent || 0
-        );
+        // Default price to 0 so user manually enters the selling price
         return {
           ...r,
           productId: item.productId,
@@ -297,9 +292,9 @@ export function VyaparBilling({
           name: fullName,
           variantDetail: item.variantText,
           stock: item.stock,
-          price: item.price,
-          taxAmount,
-          amount
+          price: 0,
+          taxAmount: 0,
+          amount: 0
         };
       })
     );
@@ -709,9 +704,9 @@ export function VyaparBilling({
                     min="0"
                     step="0.01"
                     className="vyapar-cell-input text-right"
-                    value={row.price || ''}
+                    value={row.price === 0 ? 0 : (row.price || '')}
                     placeholder="0.00"
-                    onChange={e => updateRowField(row.id, 'price', Number(e.target.value))}
+                    onChange={e => updateRowField(row.id, 'price', e.target.value === '' ? 0 : Number(e.target.value))}
                   />
                 </td>
 
@@ -722,9 +717,9 @@ export function VyaparBilling({
                     min="0"
                     step="0.01"
                     className="vyapar-cell-input text-right"
-                    value={row.discount || ''}
+                    value={row.discount === 0 ? 0 : (row.discount || '')}
                     placeholder="0"
-                    onChange={e => updateRowField(row.id, 'discount', Number(e.target.value))}
+                    onChange={e => updateRowField(row.id, 'discount', e.target.value === '' ? 0 : Number(e.target.value))}
                   />
                 </td>
 
@@ -750,8 +745,8 @@ export function VyaparBilling({
                     min="0"
                     step="0.01"
                     className="vyapar-cell-input text-right font-bold"
-                    value={row.amount || ''}
-                    onChange={e => updateRowField(row.id, 'amount', Number(e.target.value))}
+                    value={row.amount === 0 ? 0 : (row.amount || '')}
+                    onChange={e => updateRowField(row.id, 'amount', e.target.value === '' ? 0 : Number(e.target.value))}
                   />
                 </td>
 

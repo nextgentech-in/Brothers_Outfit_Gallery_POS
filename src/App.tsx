@@ -1,7 +1,7 @@
 import { StaffSettings } from './StaffSettings';
 import { DailyOperations } from './DailyOperations';
 import { useEffect, useState, type FormEvent } from 'react';
-import { ArrowDownUp, ArrowRight, ChevronRight, FileText,
+import { ArrowDownUp, ArrowRight, BarChart3, ChevronRight, FileText,
   LayoutDashboard, LockKeyhole, MessageCircle, Moon, Package, RefreshCw, ShieldCheck,
   ShoppingBag, Sun, Truck, Users, type LucideIcon } from 'lucide-react';
 import type { Owner } from '../shared/contracts';
@@ -10,6 +10,7 @@ import { BrandLogo } from './BrandLogo';
 import { Dashboard } from './Dashboard';
 import { CreditView } from './CreditView';
 import { WhatsAppView } from './WhatsAppView';
+import { ReportsWorkspace } from './reports/ReportsWorkspace';
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'same-origin', ...options });
@@ -61,11 +62,11 @@ const primaryTabs: { id: string; label: string; icon: LucideIcon }[] = [
   { id: 'suppliers', label: 'Suppliers', icon: Truck },
   { id: 'credit', label: 'Credit / Udhar', icon: ArrowDownUp },
   { id: 'inventory', label: 'Inventory', icon: ArrowDownUp },
-  { id: 'orders', label: 'Orders', icon: FileText }
+  { id: 'orders', label: 'Orders', icon: FileText },
+  { id: 'reports', label: 'Reports', icon: BarChart3 }
 ];
 const moreTabs: { id: string; label: string; icon: LucideIcon }[] = [
   { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
-  { id: 'reports', label: 'Reports', icon: LayoutDashboard },
   { id: 'sync', label: 'Sync health', icon: RefreshCw },
   { id: 'security', label: 'Trusted devices', icon: ShieldCheck }
 ];
@@ -114,7 +115,7 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
     <main className="content" id="main-content">{error && <div className="error-banner" role="alert">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
       {tab === 'dashboard' && <Dashboard navigate={navigate} />}
       {tab === 'security' && owner?.role === 'owner' && <><StaffSettings /><TrustedDevices /></>}
-      {tab === 'reports' && <DailyOperations />}
+      {tab === 'reports' && <ReportsWorkspace role={owner?.role} />}
       {tab === 'credit' && <CreditView />}
       {tab === 'whatsapp' && <WhatsAppView onCustomers={() => navigate('customers')} />}
       {['products', 'pos', 'inventory', 'orders', 'customers', 'suppliers', 'sync'].includes(tab) && <CommerceView tab={tab} role={owner?.role} />}
