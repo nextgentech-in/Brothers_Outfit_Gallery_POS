@@ -6,6 +6,7 @@ import { firebase } from './firebase.js';
 import { idempotent } from './transactions.js';
 import { changeStock } from './commerce.js';
 import { purchaseSchema, type PurchaseInput } from '../shared/purchases.js';
+import { readProductNumberCounter, writeProductNumberCounter, formatBarcode } from './productNumbering.js';
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 const cash = (n: number) => Math.round(n * 100);
 const failure = (res: any, e: any) => res.status(e.status || 503).json({ error: e.status ? e.message : 'Purchase result is unconfirmed. Retry with the same reference.' });
@@ -21,19 +22,26 @@ async function receive(db: Firestore, tx: Transaction, input: PurchaseInput) {
   const products = new Map<string, DocumentData>(catalog.docs.map(doc => [doc.id, doc.data()]));
   const codes = new Set<string>();
   for (const product of products.values()) for (const code of [product.sku, product.barcode, product.posBarcode, ...(product.variants || []).flatMap((v: any) => [v.sku,v.barcode,v.posBarcode])]) if (code) codes.add(String(code).toLowerCase());
+  const hasNewItems = input.lines.some(l => l.newItem);
+  const currentCounter = hasNewItems ? await readProductNumberCounter(db, tx) : 0;
+  let nextProductNumber = currentCounter;
+
   const created = new Set<string>(), touched = new Set<string>(), mappings: { sku: string; productId: string }[] = [];
   const lines: DocumentData[] = [], movements: DocumentData[] = [];
   let total = 0;
   for (const [index, line] of input.lines.entries()) {
     let productId = line.productId || `BOG-PUR-${hash(`${input.requestId}:${index}`).slice(0,24)}`, sku = line.sku;
     if (line.newItem) {
+      nextProductNumber += 1;
+      const productNumber = nextProductNumber;
+      const barcode = formatBarcode(productNumber, 1);
       const variantSku = `${sku}-V1`;
       if (codes.has(sku.toLowerCase()) || codes.has(variantSku.toLowerCase())) reject('New item SKU already exists. Select the existing item.', 409);
-      codes.add(sku.toLowerCase()); codes.add(variantSku.toLowerCase());
+      codes.add(sku.toLowerCase()); codes.add(variantSku.toLowerCase()); codes.add(barcode.toLowerCase());
       const slug = `purchase-${hash(`${input.requestId}:${index}`).slice(0,24)}`;
-      products.set(productId, { ...line.newItem, sku, slug, barcode: '', price: line.salePrice, salePrice: line.salePrice, mrp: line.mrp,
+      products.set(productId, { ...line.newItem, productNumber, nextVariantSequence: 2, sku, slug, barcode, price: line.salePrice, salePrice: line.salePrice, mrp: line.mrp,
         costPrice: line.unitCost, cost_price:line.unitCost, purchasePrice:line.unitCost, purchase_price:line.unitCost, webProductId:productId, categoryId:line.newItem.category, categoryKey:line.newItem.category.toLowerCase().replace(/[^a-z0-9]+/g,'-'), primaryColor:line.newItem.color, colors:[{name:line.newItem.color,hex:'#b88a2e'}], allSizes:[line.newItem.size], sizes:[line.newItem.size], compareAtPrice:line.mrp, stock: 0, quantity: 0, reserved: 0, active: false, isDeleted: false, images: [], integrationOrigin: 'admin-pos',
-        variants: [{ id:`${productId}-v1`, sku: variantSku, size: line.newItem.size, color: line.newItem.color, barcode: '', stock: 0, quantity: 0, reserved: 0, price: line.salePrice, salePrice: line.salePrice, mrp: line.mrp, costPrice: line.unitCost }],
+        variants: [{ id:`${productId}-v1`, variantSequence: 1, sku: variantSku, size: line.newItem.size, color: line.newItem.color, barcode, stock: 0, quantity: 0, reserved: 0, price: line.salePrice, salePrice: line.salePrice, mrp: line.mrp, costPrice: line.unitCost }],
         createdAt: FieldValue.serverTimestamp() });
       created.add(productId); mappings.push({ sku, productId }, { sku: variantSku, productId }); sku = variantSku;
     }
@@ -52,12 +60,16 @@ async function receive(db: Firestore, tx: Transaction, input: PurchaseInput) {
     if (changed.variants?.length === 1) Object.assign(changed, { costPrice, cost_price:costPrice, purchasePrice:costPrice, purchase_price:costPrice, price: selling, salePrice: selling, mrp, compareAtPrice:mrp });
     products.set(productId, changed); touched.add(productId);
     const lineTotal = cash(line.unitCost) * line.quantity; total += lineTotal;
-    lines.push({ productId, sku, name: product!.name, quantity: line.quantity, unitCost: line.unitCost, salePrice: selling, mrp, stockValue: lineTotal / 100 });
+    lines.push({ productId, productNumber: product!.productNumber, barcode: variant?.barcode || product!.barcode || '', sku, name: product!.name, quantity: line.quantity, unitCost: line.unitCost, salePrice: selling, mrp, stockValue: lineTotal / 100 });
     movements.push({ movementId: `${purchaseId}_${index}`, productId, sku, deltaChange: line.quantity, stockAfter: oldStock + line.quantity, reason: 'purchase', source: 'admin', supplierId: input.supplierId, purchaseId, createdAt: FieldValue.serverTimestamp() });
   }
   if (cash(input.amountPaid) > total) reject('Amount paid exceeds purchase total.');
   for (const mapping of mappings) if ((await tx.get(db.collection('productSkuMappings').doc(hash(mapping.sku.toLowerCase())))).exists) reject('SKU is already registered.', 409);
   for (const productId of created) if ((await tx.get(db.collection('productSlugMappings').doc(hash(products.get(productId)!.slug)))).exists) reject('Product identity already exists.', 409);
+
+  if (nextProductNumber > currentCounter) {
+    writeProductNumberCounter(db, tx, nextProductNumber);
+  }
   for (const productId of touched) {
     const data: DocumentData = { ...products.get(productId), updatedAt: FieldValue.serverTimestamp() };
     if (created.has(productId)) {

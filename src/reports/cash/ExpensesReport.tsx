@@ -213,7 +213,7 @@ export function ExpensesReport() {
   );
 }
 
-function RecordExpenseModal({
+export function RecordExpenseModal({
   onClose,
   onSuccess
 }: {

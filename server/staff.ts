@@ -17,7 +17,7 @@ staffRouter.post('/staff/save',async(req,res)=>{
  if(res.locals.owner?.role!=='owner'){res.status(403).json({error:'Owner access required.'});return;}
  const parsed=z.object({requestId:z.string().min(12).max(128).regex(/^[\w.:-]+$/),id:z.string().regex(/^[\w-]+$/).optional(),name:z.string().trim().min(2).max(80),role:z.enum(['cashier','manager']),pin:z.string().regex(/^\d{4}$/).optional(),active:z.boolean()}).strict().safeParse(req.body);
  if(!parsed.success){res.status(422).json({error:'Enter staff name, role and a four-digit PIN for a new account.'});return;}
- const input=parsed.data;if((!input.id&&!input.pin)||input.pin===config.adminPin){res.status(422).json({error:'Use a unique staff PIN, different from the owner PIN.'});return;}
+ const input=parsed.data;if((!input.id&&!input.pin)||(input.pin&&input.pin===config.adminPin)){res.status(422).json({error:'Use a unique staff PIN, different from the owner PIN.'});return;}
  try{if(config.sessionSecret.length<32)throw new Error('Configure a session secret for staff access.');const db=firebase().db;const salt=randomBytes(16).toString('hex'),pinHash=input.pin?scryptSync(input.pin,salt,32).toString('hex'):'';
  // idempotent stores only a SHA-256 payload fingerprint, never this input.
  const safeInput={id:input.id||'',name:input.name,role:input.role,active:input.active,pinFingerprint:input.pin?createHmac('sha256',config.sessionSecret).update(input.requestId+':'+input.pin).digest('hex'):null};

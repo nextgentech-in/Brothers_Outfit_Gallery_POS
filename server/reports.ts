@@ -25,6 +25,360 @@ function range(from: unknown, to: unknown) {
 }
 
 // -------------------------------------------------------------------------
+// DASHBOARD UNIFIED SUMMARY & TODAY'S TASKS
+// -------------------------------------------------------------------------
+reportsRouter.get('/reports/dashboard-summary', async (req, res) => {
+  try {
+    const db = firebase().db;
+    const { start, end, from, to } = range(req.query.from, req.query.to);
+    const channel = String(req.query.channel || '').toLowerCase(); // 'pos', 'website', or ''
+    const today = shopDate();
+
+    // Concurrently fetch period transactions and standing balances
+    const [
+      ordersSnap,
+      returnsSnap,
+      expensesSnap,
+      purchasesSnap,
+      customerLedgerSnap,
+      supplierRefundsSnap,
+      customerRefundsSnap,
+      creditAccountsSnap,
+      allPurchasesSnap,
+      productsSnap,
+      pendingRefundsSnap,
+      customerProfilesSnap
+    ] = await Promise.all([
+      db.collection('orders').where('createdAt', '>=', start).where('createdAt', '<', end).get(),
+      db.collection('erp_returns').where('createdAt', '>=', start).where('createdAt', '<', end).get(),
+      db.collection('erp_expenses').where('createdAt', '>=', start).where('createdAt', '<', end).get(),
+      db.collection('erp_purchases').where('createdAt', '>=', start).where('createdAt', '<', end).get(),
+      db.collection('erp_customerLedger').where('createdAt', '>=', start).where('createdAt', '<', end).where('kind', '==', 'payment').get(),
+      db.collection('erp_supplierRefunds').where('createdAt', '>=', start).where('createdAt', '<', end).get(),
+      db.collection('erp_refunds').where('createdAt', '>=', start).where('createdAt', '<', end).get(),
+      db.collection('erp_creditAccounts').get(),
+      db.collection('erp_purchases').where('payable', '>', 0).get(),
+      db.collection('products').get(),
+      db.collection('erp_returns').where('refundStatus', '==', 'review_required').get(),
+      db.collection('erp_customerProfiles').get()
+    ]);
+
+    // 1. Process Orders in period
+    let grossSalesPaise = 0;
+    let discountsPaise = 0;
+    let taxesPaise = 0;
+    let orderCogsPaise = 0;
+    let hasIncompleteCost = false;
+    let salesCollectionsPaise = 0;
+    let posSalesPaise = 0;
+    let posCount = 0;
+    let webSalesPaise = 0;
+    let webCount = 0;
+    const pendingOrdersList: any[] = [];
+
+    for (const doc of ordersSnap.docs) {
+      const o = doc.data();
+      const status = String(o.status || '').toLowerCase();
+      if (status === 'cancelled') continue;
+
+      if (['pending', 'processing', 'unconfirmed'].includes(status)) {
+        pendingOrdersList.push({
+          id: doc.id,
+          customer: o.customerName || 'Walk-in',
+          total: Number(o.totalAmount || o.total || 0),
+          status: o.status || 'Pending',
+          date: o.createdAt?.toDate ? o.createdAt.toDate().toISOString() : null
+        });
+      }
+
+      const isPos = o.createdBy === 'admin-pos' || o.channel === 'POS';
+      const orderChannel = isPos ? 'pos' : 'website';
+      if (channel && orderChannel !== channel) continue;
+
+      const subtotal = paise(o.subtotal ?? o.totalAmount ?? 0);
+      const discount = paise(o.discount ?? 0);
+      const total = paise(o.totalAmount ?? o.total ?? 0);
+      const tax = paise(o.tax ?? 0);
+
+      grossSalesPaise += subtotal > 0 ? subtotal : total;
+      discountsPaise += discount;
+      taxesPaise += tax;
+
+      if (isPos) {
+        posSalesPaise += total;
+        posCount++;
+      } else {
+        webSalesPaise += total;
+        webCount++;
+      }
+
+      // Calculate COGS
+      const items = Array.isArray(o.items) ? o.items : [];
+      for (const item of items) {
+        const qty = Number(item.quantity || 1);
+        if (item.costKnown === true && typeof item.unitCost === 'number') {
+          orderCogsPaise += paise(item.unitCost) * qty;
+        } else if (item.costPrice !== undefined && typeof item.costPrice === 'number' && item.costPrice > 0) {
+          orderCogsPaise += paise(item.costPrice) * qty;
+        } else {
+          hasIncompleteCost = true;
+        }
+      }
+
+      // Payments collected on orders
+      if (Array.isArray(o.payments) && o.payments.length > 0) {
+        for (const p of o.payments) {
+          if (['cash', 'upi', 'card'].includes(String(p.method).toLowerCase())) {
+            salesCollectionsPaise += paise(p.amount || 0);
+          }
+        }
+      } else if (o.paymentMethod !== 'credit') {
+        const creditAmt = paise(o.creditAmount || 0);
+        salesCollectionsPaise += Math.max(0, total - creditAmt);
+      }
+    }
+
+    // 2. Returns in period
+    let customerReturnsPaise = 0;
+    let returnCostReversedPaise = 0;
+    for (const doc of returnsSnap.docs) {
+      const r = doc.data();
+      customerReturnsPaise += paise(r.total || 0);
+      const lines = Array.isArray(r.lines) ? r.lines : [];
+      for (const l of lines) {
+        if (l.restock !== false) {
+          const cost = paise(l.unitCost || l.costPrice || 0);
+          returnCostReversedPaise += cost * Number(l.quantity || 1);
+        }
+      }
+    }
+
+    const netSalesPaise = Math.max(0, grossSalesPaise - discountsPaise - customerReturnsPaise);
+    const netCogsPaise = Math.max(0, orderCogsPaise - returnCostReversedPaise);
+    const grossProfitPaise = netSalesPaise - netCogsPaise;
+    const grossMarginPercent = netSalesPaise > 0 ? (grossProfitPaise / netSalesPaise) * 100 : 0;
+
+    // 3. Money Received
+    let udharRepaidPaise = 0;
+    for (const doc of customerLedgerSnap.docs) {
+      const l = doc.data();
+      udharRepaidPaise += -paise(l.creditDelta || 0);
+    }
+
+    let supplierRefundsPaise = 0;
+    for (const doc of supplierRefundsSnap.docs) {
+      supplierRefundsPaise += paise(doc.data().amount || 0);
+    }
+
+    let customerRefundsPaise = 0;
+    for (const doc of customerRefundsSnap.docs) {
+      customerRefundsPaise += paise(doc.data().amount || 0);
+    }
+
+    const totalMoneyReceivedPaise = salesCollectionsPaise + udharRepaidPaise + supplierRefundsPaise - customerRefundsPaise;
+
+    // 4. Purchases received in period
+    let purchasesReceivedPaise = 0;
+    for (const doc of purchasesSnap.docs) {
+      purchasesReceivedPaise += paise(doc.data().total || 0);
+    }
+
+    // 5. Expenses in period
+    let operatingExpensesPaise = 0;
+    let ownerWithdrawalsPaise = 0;
+    for (const doc of expensesSnap.docs) {
+      const e = doc.data();
+      if (e.category === 'withdrawal') ownerWithdrawalsPaise += paise(e.amount || 0);
+      else operatingExpensesPaise += paise(e.amount || 0);
+    }
+
+    // 6. Current Balances
+    let customerOutstandingPaise = 0;
+    const overdueUdharTasks: any[] = [];
+    const dueTodayUdharTasks: any[] = [];
+
+    for (const doc of creditAccountsSnap.docs) {
+      const acc = doc.data();
+      const bal = paise(acc.balance || 0);
+      if (bal > 0) customerOutstandingPaise += bal;
+
+      const debts = Array.isArray(acc.debts) ? acc.debts : [];
+      let custOverdue = 0;
+      let custDueToday = 0;
+
+      for (const d of debts) {
+        const rem = paise(d.remaining || 0);
+        if (rem <= 0) continue;
+        if (d.dueDate && d.dueDate < today) custOverdue += rem;
+        else if (d.dueDate && d.dueDate === today) custDueToday += rem;
+      }
+
+      if (custOverdue > 0) {
+        overdueUdharTasks.push({
+          customerKey: doc.id,
+          name: acc.name || 'Customer',
+          phone: acc.phone || '',
+          amount: rupees(custOverdue),
+          totalBalance: rupees(bal)
+        });
+      }
+      if (custDueToday > 0) {
+        dueTodayUdharTasks.push({
+          customerKey: doc.id,
+          name: acc.name || 'Customer',
+          phone: acc.phone || '',
+          amount: rupees(custDueToday),
+          totalBalance: rupees(bal)
+        });
+      }
+    }
+
+    let supplierPayablePaise = 0;
+    const supplierPaymentTasks: any[] = [];
+    for (const doc of allPurchasesSnap.docs) {
+      const p = doc.data();
+      const pay = paise(p.payable || 0);
+      if (pay > 0) {
+        supplierPayablePaise += pay;
+        supplierPaymentTasks.push({
+          purchaseId: doc.id,
+          supplierName: p.supplierName || 'Supplier',
+          supplierInvoice: p.supplierInvoice || doc.id,
+          payable: rupees(pay),
+          date: p.createdAt?.toDate ? p.createdAt.toDate().toISOString() : null
+        });
+      }
+    }
+
+    // 7. Inventory Summary
+    let totalStockUnits = 0;
+    let stockCostTotalPaise = 0;
+    let stockRetailTotalPaise = 0;
+    let lowStockCount = 0;
+    let outOfStockCount = 0;
+    const lowStockItems: any[] = [];
+
+    for (const doc of productsSnap.docs) {
+      const p = doc.data();
+      if (p.isDeleted === true) continue;
+      const pName = p.name || 'Product';
+      const pSku = p.sku || doc.id;
+      const lower = `${doc.id} ${pName} ${pSku}`.toLowerCase();
+      if (lower.includes('demo') || lower.includes('sample')) continue;
+
+      if (Array.isArray(p.variants) && p.variants.length > 0) {
+        for (const v of p.variants) {
+          const stk = Number(v.stock ?? v.onHand ?? 0);
+          const cost = Number(v.costPrice ?? p.costPrice ?? 0);
+          const price = Number(v.price ?? p.price ?? 0);
+          totalStockUnits += stk;
+          stockCostTotalPaise += Math.round(stk * cost * 100);
+          stockRetailTotalPaise += Math.round(stk * price * 100);
+          if (stk <= 0) {
+            outOfStockCount++;
+            if (lowStockItems.length < 15) {
+              lowStockItems.push({ id: doc.id, name: pName, sku: v.sku, available: stk, status: 'Out of stock' });
+            }
+          } else if (stk <= 5) {
+            lowStockCount++;
+            if (lowStockItems.length < 15) {
+              lowStockItems.push({ id: doc.id, name: pName, sku: v.sku, available: stk, status: 'Low stock' });
+            }
+          }
+        }
+      } else {
+        const stk = Number(p.stock ?? p.onHand ?? 0);
+        const cost = Number(p.costPrice || 0);
+        const price = Number(p.price || 0);
+        totalStockUnits += stk;
+        stockCostTotalPaise += Math.round(stk * cost * 100);
+        stockRetailTotalPaise += Math.round(stk * price * 100);
+        if (stk <= 0) {
+          outOfStockCount++;
+          if (lowStockItems.length < 15) {
+            lowStockItems.push({ id: doc.id, name: pName, sku: pSku, available: stk, status: 'Out of stock' });
+          }
+        } else if (stk <= 5) {
+          lowStockCount++;
+          if (lowStockItems.length < 15) {
+            lowStockItems.push({ id: doc.id, name: pName, sku: pSku, available: stk, status: 'Low stock' });
+          }
+        }
+      }
+    }
+
+    // 8. Birthdays Today
+    const birthdaysToday: any[] = [];
+    const todayMMDD = today.slice(5);
+    for (const doc of customerProfilesSnap.docs) {
+      const c = doc.data();
+      if (c.dateOfBirth && String(c.dateOfBirth).slice(5) === todayMMDD) {
+        birthdaysToday.push({
+          name: c.name || 'Customer',
+          phone: c.phone || '',
+          dateOfBirth: c.dateOfBirth
+        });
+      }
+    }
+
+    // 9. Pending refunds
+    const pendingRefunds = pendingRefundsSnap.docs.map(d => {
+      const r = d.data();
+      return {
+        returnId: d.id,
+        orderId: r.orderId,
+        amount: rupees(paise(r.refundAmountToReview || 0) - paise(r.refundedAmount || 0))
+      };
+    });
+
+    res.json({
+      period: { from, to, channel },
+      checkedAt: new Date().toISOString(),
+      summary: {
+        grossSales: rupees(grossSalesPaise),
+        discounts: rupees(discountsPaise),
+        customerReturns: rupees(customerReturnsPaise),
+        netSales: rupees(netSalesPaise),
+        taxCollected: rupees(taxesPaise),
+        cogs: rupees(netCogsPaise),
+        grossProfit: rupees(grossProfitPaise),
+        grossMarginPercent: Math.round(grossMarginPercent * 10) / 10,
+        hasIncompleteCost,
+        moneyReceived: rupees(totalMoneyReceivedPaise),
+        customerOutstanding: rupees(customerOutstandingPaise),
+        purchasesReceived: rupees(purchasesReceivedPaise),
+        supplierPayable: rupees(supplierPayablePaise),
+        operatingExpenses: rupees(operatingExpensesPaise),
+        ownerWithdrawals: rupees(ownerWithdrawalsPaise)
+      },
+      inventory: {
+        availableUnits: totalStockUnits,
+        stockCostValue: rupees(stockCostTotalPaise),
+        stockRetailValue: rupees(stockRetailTotalPaise),
+        lowStockCount,
+        outOfStockCount,
+        lowStockItems
+      },
+      channelBreakdown: {
+        pos: { sales: rupees(posSalesPaise), count: posCount },
+        website: { sales: rupees(webSalesPaise), count: webCount }
+      },
+      tasks: {
+        overdueUdhar: overdueUdharTasks,
+        dueTodayUdhar: dueTodayUdharTasks,
+        supplierPaymentsDue: supplierPaymentTasks.slice(0, 10),
+        pendingOrders: pendingOrdersList.slice(0, 10),
+        pendingRefunds: pendingRefunds.slice(0, 10),
+        birthdaysToday: birthdaysToday.slice(0, 10),
+        lowStock: lowStockItems.slice(0, 10)
+      }
+    });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// -------------------------------------------------------------------------
 // 1. SALES REPORT
 // -------------------------------------------------------------------------
 reportsRouter.get('/reports/sales', async (req, res) => {

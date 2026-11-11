@@ -18,6 +18,7 @@ import { appendCreditEntry, readCreditState } from './creditLedger.js';
 import { deliverCustomerMessage, queueCustomerMessage } from './customerMessages.js';
 import { validDueDate } from '../shared/credit.js';
 import { shopDate } from '../shared/customers.js';
+import { getNextProductNumber, formatBarcode, formatProductNumber, readProductNumberCounter, writeProductNumberCounter } from './productNumbering.js';
 
 const id = z.string().trim().min(1).max(128).regex(/^[\w.:-]+$/);
 const key = z.string().trim().min(12).max(128).regex(/^[\w.:-]+$/);
@@ -210,6 +211,133 @@ commerceRouter.get('/products/:productId/label', async (req, res) => {
       'Cache-Control': 'private, no-store' }).send(svg);
   } catch (error) { fail(res, error); }
 });
+commerceRouter.get('/barcode/render', (req, res) => {
+  const code = z.string().trim().min(1).max(64).safeParse(req.query.code);
+  const format = z.enum(['code128', 'qrcode']).safeParse(req.query.format || 'code128');
+  if (!code.success || !format.success) { res.status(400).json({ error: 'Invalid barcode query.' }); return; }
+  try {
+    const svg = toSVG({
+      bcid: format.data,
+      text: code.data,
+      scale: 3,
+      height: 12,
+      includetext: format.data === 'code128',
+      textxalign: 'center',
+      backgroundcolor: 'FFFFFF'
+    });
+    res.set({
+      'Content-Type': 'image/svg+xml',
+      'Content-Disposition': `inline; filename="${code.data}.svg"`,
+      'Cache-Control': 'public, max-age=86400'
+    }).send(svg);
+  } catch (error) {
+    res.status(400).json({ error: 'Barcode rendering failed.' });
+  }
+});
+commerceRouter.get('/search', async (req, res) => {
+  const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  if (!query) {
+    res.json({ products: [], customers: [], suppliers: [], orders: [] });
+    return;
+  }
+  try {
+    const db = firebase().db;
+    const lower = query.toLowerCase();
+    const cleanNum = query.replace(/^#/, '').trim();
+    const isNum = /^\d+$/.test(cleanNum);
+    const parsedNum = isNum ? parseInt(cleanNum, 10) : null;
+
+    const [productsSnap, usersSnap, profilesSnap, suppliersSnap, ordersSnap] = await Promise.all([
+      db.collection('products').get(),
+      db.collection('users').get(),
+      db.collection('erp_customerProfiles').get(),
+      db.collection('erp_suppliers').get(),
+      db.collection('orders').orderBy('createdAt', 'desc').limit(150).get()
+    ]);
+
+    const products: any[] = [];
+    for (const doc of productsSnap.docs) {
+      const data = doc.data();
+      if (data.isDeleted) continue;
+      const pNum = Number(data.productNumber || 0);
+      const isProductNumMatch = parsedNum !== null && pNum === parsedNum;
+      const barcodeMatch = (data.barcode && String(data.barcode).toLowerCase().includes(lower)) ||
+        (Array.isArray(data.variants) && data.variants.some((v: any) => v.barcode && String(v.barcode).toLowerCase().includes(lower)));
+      const textMatch = [data.name, data.sku, data.brand, data.category, data.subCategory, data.design, data.fabric]
+        .filter(Boolean)
+        .some((val: any) => String(val).toLowerCase().includes(lower));
+
+      if (isProductNumMatch || barcodeMatch || textMatch) {
+        products.push({
+          id: doc.id,
+          productNumber: pNum || undefined,
+          name: data.name,
+          sku: data.sku,
+          barcode: data.barcode || '',
+          brand: data.brand || '',
+          design: data.design || '',
+          category: data.category || '',
+          subCategory: data.subCategory || '',
+          price: data.price || data.salePrice || 0,
+          mrp: data.mrp || 0,
+          stock: data.stock || data.quantity || 0,
+          variants: (data.variants || []).map((v: any) => ({
+            sku: v.sku,
+            barcode: v.barcode || '',
+            size: v.size || '',
+            color: v.color || '',
+            price: v.price || v.salePrice || 0,
+            mrp: v.mrp || 0,
+            stock: v.stock || v.quantity || 0
+          }))
+        });
+      }
+    }
+
+    products.sort((a, b) => {
+      if (parsedNum !== null) {
+        if (a.productNumber === parsedNum && b.productNumber !== parsedNum) return -1;
+        if (b.productNumber === parsedNum && a.productNumber !== parsedNum) return 1;
+      }
+      return (a.productNumber || 999999) - (b.productNumber || 999999);
+    });
+
+    const directory = customerDirectory(
+      usersSnap.docs.map(d => ({ id: d.id, data: d.data() })),
+      profilesSnap.docs.map(d => ({ id: d.id, data: d.data() }))
+    );
+    const customers = directory.filter(c =>
+      (c.fullName && c.fullName.toLowerCase().includes(lower)) ||
+      (c.phone && c.phone.includes(query))
+    ).slice(0, 15);
+
+    const suppliers = suppliersSnap.docs
+      .map(d => ({ id: d.id, ...d.data() as any }))
+      .filter(s => s.active !== false && (
+        (s.name && String(s.name).toLowerCase().includes(lower)) ||
+        (s.phone && String(s.phone).includes(query)) ||
+        (s.gstin && String(s.gstin).toLowerCase().includes(lower))
+      )).slice(0, 15);
+
+    const orders = ordersSnap.docs
+      .map(d => ({ id: d.id, ...d.data() as any }))
+      .filter(o =>
+        (o.id && String(o.id).toLowerCase().includes(lower)) ||
+        (o.orderId && String(o.orderId).toLowerCase().includes(lower)) ||
+        (o.customerPhone && String(o.customerPhone).includes(query)) ||
+        (o.customerName && String(o.customerName).toLowerCase().includes(lower))
+      ).slice(0, 15);
+
+    res.json({
+      products: products.slice(0, 25),
+      customers,
+      suppliers,
+      orders
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
 commerceRouter.post('/products/images/upload', rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false }),
   express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '3mb' }), async (req, res) => {
   const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
@@ -335,36 +463,56 @@ commerceRouter.post('/products/create', async (req, res) => {
     const result = await idempotent(db, 'product_create', input.requestId, input, async tx => {
       const productId = `BOG-POS-${hash(input.requestId).slice(0, 24)}`;
       const skuPart = (value: string) => value.toUpperCase().normalize('NFKD').replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '') || 'STANDARD';
-      const variants = input.variants.map((variant, index) => ({ ...variant, index,
-        sku: `${input.sku}-${skuPart(variant.color)}-${skuPart(variant.size)}` }));
-      const skus = [input.sku, ...variants.map(variant => variant.sku)];
+      const skus = [input.sku, ...input.variants.map(v => `${input.sku}-${skuPart(v.color)}-${skuPart(v.size)}`)];
       const normalizedSkus = skus.map(sku => sku.toLowerCase());
       if (skus.some(sku => sku.length > 128) || new Set(normalizedSkus).size !== skus.length)
         throw Object.assign(new Error('Variant SKUs must be unique and at most 128 characters.'), { status: 422 });
-      const variantCodes = variants.flatMap(variant => [variant.sku, variant.barcode || '']).filter(Boolean).map(code => code.toLowerCase());
-      if (new Set(variantCodes).size !== variantCodes.length)
-        throw Object.assign(new Error('Two variants cannot share a SKU or barcode.'), { status: 422 });
       const slugBase = input.name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 65) || 'product';
       const slug = `${slugBase}-${hash(input.requestId).slice(0, 10)}`;
       const ref = db.collection('products').doc(productId);
       const skuRefs = normalizedSkus.map(sku => db.collection('productSkuMappings').doc(hash(sku)));
       const slugRef = db.collection('productSlugMappings').doc(hash(slug));
+
+      // 1. ALL READS MUST PRECEDE WRITES:
       const catalog = await tx.get(db.collection('products'));
-      const candidateCodes = [input.sku, input.barcode || '', ...variantCodes].filter(Boolean).map(code => code.toLowerCase());
+      const [existingProduct, ...existingMappings] = await tx.getAll(ref, ...skuRefs, slugRef);
+      const currentCounter = await readProductNumberCounter(db, tx);
+
+      if (existingProduct.exists || existingMappings.some(snapshot => snapshot.exists))
+        throw Object.assign(new Error('Product identity is already in use.'), { status: 409 });
+
+      const candidateCodes = [input.sku, ...input.variants.map(v => `${input.sku}-${skuPart(v.color)}-${skuPart(v.size)}`)].filter(Boolean).map(code => code.toLowerCase());
       for (const entry of catalog.docs) {
         const data = entry.data();
-        const existing = [data.sku, data.barcode, data.posBarcode,
-          ...(Array.isArray(data.variants) ? data.variants.flatMap((v: Variant | null) => [v?.sku, v?.barcode, v?.posBarcode]) : [])]
+        const existing = [data.sku,
+          ...(Array.isArray(data.variants) ? data.variants.flatMap((v: Variant | null) => [v?.sku]) : [])]
           .filter(Boolean).map((code: unknown) => String(code).trim().toLowerCase());
         if (candidateCodes.some(code => existing.includes(code)))
           throw Object.assign(new Error('SKU or barcode is already in use.'), { status: 409 });
       }
-      const [existingProduct, ...existingMappings] = await tx.getAll(ref, ...skuRefs, slugRef);
-      if (existingProduct.exists || existingMappings.some(snapshot => snapshot.exists))
-        throw Object.assign(new Error('Product identity is already in use.'), { status: 409 });
+
+      // 2. COMPUTE VALUES:
+      const productNumber = currentCounter + 1;
+      const rootBarcode = formatBarcode(productNumber, 1);
+      const variants = input.variants.map((variant, index) => {
+        const variantSequence = index + 1;
+        const barcode = formatBarcode(productNumber, variantSequence);
+        return {
+          ...variant,
+          index,
+          variantSequence,
+          barcode,
+          sku: `${input.sku}-${skuPart(variant.color)}-${skuPart(variant.size)}`
+        };
+      });
+
+      // 3. ALL WRITES:
+      writeProductNumberCounter(db, tx, productNumber);
       const now = FieldValue.serverTimestamp();
-      const variantDocs = variants.map(variant => ({ id: `${productId}-v${variant.index + 1}`, sku: variant.sku,
-        barcode: variant.barcode || '', size: variant.size, color: variant.color,
+      const variantDocs = variants.map(variant => ({ id: `${productId}-v${variant.index + 1}`,
+        variantSequence: variant.variantSequence,
+        sku: variant.sku,
+        barcode: variant.barcode, size: variant.size, color: variant.color,
         stock: variant.stock, quantity: variant.stock, reserved: 0, price: variant.price, salePrice: variant.price,
         costPrice: variant.costPrice, cost_price: variant.costPrice, purchasePrice: variant.costPrice,
         purchase_price: variant.costPrice, isDefaultPrice: variant.index === 0 }));
@@ -375,8 +523,11 @@ commerceRouter.post('/products/create', async (req, res) => {
       const primaryImage = input.imageUrls?.[0] || '';
       const categoryKey = input.category.toLowerCase().replace(/[^a-z0-9]+/g, '-');
       const subCategoryKey = (input.subCategory || '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
-      tx.create(ref, { webProductId: productId, integrationOrigin: 'admin-pos', name: input.name,
-        brand: input.brand || '', design: input.design || '', fabric: input.fabric || '', sku: input.sku, barcode: input.barcode || '', slug, category: input.category, categoryId: input.category,
+      tx.create(ref, { webProductId: productId, integrationOrigin: 'admin-pos',
+        productNumber, nextVariantSequence: variants.length + 1,
+        name: input.name,
+        brand: input.brand || '', design: input.design || '', fabric: input.fabric || '',
+        sku: input.sku, barcode: rootBarcode, slug, category: input.category, categoryId: input.category,
         categoryKey, subCategory: input.subCategory || '', subCategoryKey, primaryColor: variants[0].color, colors,
         shortDescription: input.shortDescription || '', description: input.description || '', gsl: input.gsl || '',
         price: input.salePrice, salePrice: input.salePrice, mrp: input.mrp, compareAtPrice: input.mrp,
@@ -408,7 +559,7 @@ commerceRouter.post('/products/create', async (req, res) => {
         actor: res.locals.owner?.uid || 'pin-owner', target: `products/${productId}`, fields: Object.keys(input),
         after: { ...input, productId, variantSkus: variants.map(variant => variant.sku), slug }, createdAt: now
       });
-      return { productId, sku: variants[0].sku, slug, published: input.publish };
+      return { productId, productNumber, barcode: rootBarcode, sku: variants[0].sku, slug, published: input.publish };
     });
     res.status(201).json(result);
   } catch (error) { fail(res, error); }
@@ -426,6 +577,7 @@ commerceRouter.post('/products/patch', async (req, res) => {
       if (!snapshot.exists) throw Object.assign(new Error('Product not found.'), { status: 404 });
       const before = Object.fromEntries(Object.keys(patch).map(field => [field, snapshot.data()?.[field] ?? null]));
       const { primaryImageUrl, variantPatches, ...direct } = patch;
+      delete (direct as any).productNumber;
       const after: Record<string, unknown> = { ...direct,
         ...(patch.salePrice !== undefined ? { price: patch.salePrice } : {}),
         ...(patch.mrp !== undefined ? { compareAtPrice:patch.mrp, variants:(snapshot.data()?.variants||[]).map((v:Variant)=>({...v,mrp:patch.mrp})) } : {}),

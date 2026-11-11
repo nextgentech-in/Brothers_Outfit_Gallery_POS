@@ -385,7 +385,7 @@ export function SupplierReturnsReport() {
 // -------------------------------------------------------------------------
 // WORKFLOW COMPONENT: Create Purchase Return Modal
 // -------------------------------------------------------------------------
-function CreatePurchaseReturnModal({
+export function CreatePurchaseReturnModal({
   onClose,
   onSuccess
 }: {

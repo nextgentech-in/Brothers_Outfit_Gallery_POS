@@ -20,9 +20,9 @@ import { dueDateAfter, validDueDate } from '../shared/credit';
 import { customerDetailsError, displayBirthDate, mobileNumber, shopDate, type Customer } from '../shared/customers';
 import { recoverToHeld, cacheCatalog, cachedCatalog, queueSale, queuedSales, removeSale, syncQueuedSales, holdBill, heldBills, removeHeldBill, type QueuedSale } from './offlineQueue';
 
-type Product = { id: string; name: string; sku: string; barcode?: string; price: number; mrp: number; costPrice?: number; onHand?: number;
+type Product = { id: string; name: string; sku: string; productNumber?: number; barcode?: string; price: number; mrp: number; costPrice?: number; onHand?: number;
   brand?: string; design?: string; fabric?: string; category: string; subCategory?: string; shortDescription?: string; description?: string; gsl?: string; active: boolean; stock: number;
-  variants: { sku: string; barcode?: string; size?: string; color?: string; stock: number; onHand?: number; reorderThreshold?: number; price: number; costPrice?: number }[] };
+  variants: { sku: string; barcode?: string; variantSequence?: number; size?: string; color?: string; stock: number; onHand?: number; reorderThreshold?: number; price: number; costPrice?: number }[] };
 type Order = { id: string; status?: string; totalAmount?: number; paymentMethod?: string; createdBy?: string; createdAt?: { _seconds?: number; seconds?: number };
   customerName?: string; shippingAddress?: { fullName?: string }; items?: { name?: string; quantity?: number }[] };
 type Supplier = { id: string; name: string; phone: string; email: string; gstin: string };
@@ -61,7 +61,7 @@ const isPreviewProduct = (p: Product) => {
   );
 };
 
-function ReceiptDialog({ invoice, shop, preview = false, onClose }: { invoice: Invoice; shop: Shop | null; preview?: boolean; onClose: () => void }) {
+export function ReceiptDialog({ invoice, shop, preview = false, onClose }: { invoice: Invoice; shop: Shop | null; preview?: boolean; onClose: () => void }) {
   const [paper, setPaper] = useState(() => localStorage.getItem('receipt-paper') || 'a4');
   const subtotal = invoice.subtotal ?? invoice.lines.reduce((sum, line) => sum + Number(line.price || 0) * Number(line.quantity || 0), 0);
   const discount = invoice.discount ?? Math.max(0, subtotal - invoice.total);
@@ -109,7 +109,7 @@ const salePayload = (sale: QueuedSale) => ({ expectedTotal:sale.expectedTotal, r
   ...((sale.paymentMethod === 'credit' || sale.payments?.some(p => p.method === 'credit' && p.amount > 0)) ? { creditDueDate: sale.creditDueDate, creditWhatsAppOptIn: sale.creditWhatsAppOptIn } : {}),
   whatsappOptIn: sale.whatsappOptIn === true, discount: sale.discount, tax: sale.tax, paymentMethod: sale.paymentMethod });
 
-function AddSupplierDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+export function AddSupplierDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -199,7 +199,7 @@ function AddSupplierDialog({ onClose, onCreated }: { onClose: () => void; onCrea
   );
 }
 
-function SupplierPaymentDialog({ initialSupplierId, suppliers, balances, onClose, onPaid }: { initialSupplierId?: string; suppliers: Supplier[]; balances: Record<string, number>; onClose: () => void; onPaid: () => void }) {
+export function SupplierPaymentDialog({ initialSupplierId, suppliers, balances, onClose, onPaid }: { initialSupplierId?: string; suppliers: Supplier[]; balances: Record<string, number>; onClose: () => void; onPaid: () => void }) {
   const [supplierId, setSupplierId] = useState(initialSupplierId || (suppliers[0]?.id || ''));
   const [amount, setAmount] = useState(() => {
     const initBal = initialSupplierId ? balances[initialSupplierId] : balances[suppliers[0]?.id || ''];
@@ -384,6 +384,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
   const [productView, setProductView] = useState<'grid' | 'list'>('list');
   const [batchLabels, setBatchLabels] = useState(false);
   const [labelProduct, setLabelProduct] = useState<LabelProduct | null>(null);
+  const [productCreatedSuccess, setProductCreatedSuccess] = useState<{ product: Product; productNumber?: number } | null>(null);
   const [cart, setCart] = useState<{ product: Product; sku: string; quantity: number; price: number }[]>([]);
   const [payment, setPayment] = useState<'cash' | 'upi' | 'card' | 'credit' | 'split'>('cash');
   const [splitAmounts, setSplitAmounts] = useState<Record<string,string>>({});
@@ -566,7 +567,21 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
     });
     return () => stream.close();
   }, [tab, soundEnabled]);
-  const shownProducts = useMemo(() => products.filter(p => !isPreviewProduct(p) && `${p.name} ${p.sku} ${p.barcode || ''} ${p.category} ${p.variants.map(v => `${v.sku} ${v.barcode || ''}`).join(' ')}`.toLowerCase().includes(query.toLowerCase())), [products, query]);
+  const shownProducts = useMemo(() => {
+    const raw = query.trim();
+    const q = raw.toLowerCase();
+    const cleanNum = raw.replace(/^#/, '').trim();
+    const isNum = /^\d+$/.test(cleanNum);
+    const parsedNum = isNum ? parseInt(cleanNum, 10) : null;
+
+    return products.filter(p => {
+      if (isPreviewProduct(p)) return false;
+      if (parsedNum !== null && p.productNumber === parsedNum) return true;
+      return `${p.productNumber ? `#${p.productNumber}` : ''} ${p.name} ${p.sku} ${p.barcode || ''} ${p.category} ${p.variants.map(v => `${v.sku} ${v.barcode || ''}`).join(' ')}`
+        .toLowerCase()
+        .includes(q);
+    });
+  }, [products, query]);
   const stockUnits = products.reduce((sum, product) => sum + product.stock, 0);
   const stockCostTotal = products.reduce((sum,p) => sum + stockCostValue(p),0);
   const stockRetailTotal = products.reduce((sum, product) => sum + retailStockValue(product), 0);
@@ -609,6 +624,9 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
       const clean = catalog.items.filter(p => !isPreviewProduct(p));
       setProducts(clean);
       const product = clean.find(item => item.id === created.productId);
+      if (product) {
+        setProductCreatedSuccess({ product, productNumber: (created as any).productNumber || product.productNumber });
+      }
       if (tab === 'pos' && product && product.stock > 0 && product.variants[0]) addToCart(product, product.variants[0].sku);
     } catch { setNotice('Product saved. Refresh the catalog to add it to the bill.'); }
   }
@@ -754,7 +772,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
     {error && <div className="error-banner" role="alert">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
     {notice && <div className="success-banner" role="status"><Check size={16} />{notice}<button onClick={() => setNotice('')}>Dismiss</button></div>}
     {tab === 'products' && <><div className="product-add-toolbar"><button className="button secondary" onClick={() => setBatchLabels(true)}><Printer size={18} />Print multiple product barcodes</button><button className="button primary" onClick={() => setCreating(true)}><Plus size={18} />Add product to website catalog</button></div><div className="commerce-toolbar"><label className="field-search"><Search size={17} /><input placeholder="Search name, SKU or category" value={query} onChange={e => setQuery(e.target.value)} /></label><div className="product-view-tools"><span>{shownProducts.length} products</span><div className="view-toggle" role="group" aria-label="Product view"><button type="button" className={productView === 'grid' ? 'active' : ''} onClick={() => setProductView('grid')} aria-pressed={productView === 'grid'}><LayoutGrid size={17} />Grid</button><button type="button" className={productView === 'list' ? 'active' : ''} onClick={() => setProductView('list')} aria-pressed={productView === 'list'}><List size={18} />List</button></div></div></div>
-      <div className="stock-summary glass"><div><span>All product stock</span><strong>{stockUnits.toLocaleString('en-IN')} units</strong></div><div><span>Available stock retail value</span><strong>{money(stockRetailTotal)}</strong></div></div><div className={`commerce-grid product-view-${productView}`}>{shownProducts.map(product => <article className="glass product-tile" key={product.id}><div className="product-body"><div className="product-identity"><span className="eyebrow">{product.category || 'PRODUCT'}</span><h2>{product.name}</h2><p>SKU {product.sku} · {product.variants.length || 1} variants</p></div><div className="product-bottom"><strong>{money(product.price)}</strong><span className={product.stock > 0 ? 'available' : 'unavailable'}>{product.stock > 0 ? `${product.stock} available` : 'Out of stock'}</span></div><p className="stock-value">Available stock value: {money(retailStockValue(product))}</p><details className="variant-stock"><summary>View stock by variant</summary><div className="variant-stock-list">{(product.variants.length ? product.variants : [{ sku: product.sku, stock: product.stock, price: product.price, size: 'Standard', color: '' }]).map(variant => <div key={variant.sku}><span><strong>{variant.size || 'Standard'} {variant.color || ''}</strong><small>{variant.sku} · {money(variant.price)}</small></span><b className={variant.stock > 0 ? 'available' : 'unavailable'}>{variant.stock} in stock</b></div>)}</div></details><button className="button secondary" onClick={() => setSelected(product)}>Edit product <ArrowRight size={15} /></button></div></article>)}</div>
+      <div className="stock-summary glass"><div><span>All product stock</span><strong>{stockUnits.toLocaleString('en-IN')} units</strong></div><div><span>Available stock retail value</span><strong>{money(stockRetailTotal)}</strong></div></div><div className={`commerce-grid product-view-${productView}`}>{shownProducts.map(product => <article className="glass product-tile" key={product.id}><div className="product-body"><div className="product-identity"><span className="eyebrow">{product.category || 'PRODUCT'}</span><h2>{product.productNumber ? <span className="product-no-badge">#{product.productNumber}</span> : null}{product.name}</h2><p>SKU {product.sku} · {product.variants.length || 1} variants</p></div><div className="product-bottom"><strong>{money(product.price)}</strong><span className={product.stock > 0 ? 'available' : 'unavailable'}>{product.stock > 0 ? `${product.stock} available` : 'Out of stock'}</span></div><p className="stock-value">Available stock value: {money(retailStockValue(product))}</p><details className="variant-stock"><summary>View stock by variant</summary><div className="variant-stock-list">{(product.variants.length ? product.variants : [{ sku: product.sku, stock: product.stock, price: product.price, size: 'Standard', color: '' }]).map(variant => <div key={variant.sku}><span><strong>{variant.size || 'Standard'} {variant.color || ''}</strong><small>{variant.sku} · {money(variant.price)}</small></span><b className={variant.stock > 0 ? 'available' : 'unavailable'}>{variant.stock} in stock</b></div>)}</div></details><div style={{ display: 'flex', gap: 8, marginTop: 12 }}><button className="button secondary" style={{ flex: 1 }} onClick={() => setSelected(product)}>Edit product <ArrowRight size={15} /></button><button type="button" className="button secondary icon-button" title="Print Barcodes" onClick={() => setLabelProduct(product)}><Printer size={16} /></button></div></div></article>)}</div>
       {selected && <ProductEditor product={selected} onClose={() => setSelected(null)} onPrint={() => setLabelProduct(selected)} onSave={input => saveProductEdit(selected, input)} />}
     </>}
     {tab === 'pos' && (
@@ -825,7 +843,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
         }}
       />
     )}
-    {tab === 'inventory' && <><StockCount products={products} onSaved={() => void load()} /><div className="stock-summary glass inventory-summary"><div><span>Available stock, all products</span><strong>{stockUnits.toLocaleString('en-IN')} units</strong></div><div><span>Stock at recorded cost</span><strong>{money(stockCostTotal)}</strong></div><div><span>Total stock retail value</span><strong>{money(stockRetailTotal)}</strong></div></div><div className="glass table-panel"><div className="commerce-toolbar"><h2>Stock value by product</h2><label className="field-search"><Search size={17} /><input placeholder="Search product or SKU" value={query} onChange={e => setQuery(e.target.value)} /></label></div><div className="table-wrap valuation-table"><table><thead><tr><th>Product</th><th>SKU</th><th>Available quantity</th><th>Selling price</th><th>Stock cost value</th><th>Stock retail value</th></tr></thead><tbody>{shownProducts.map(product => <tr key={product.id}><td><strong>{product.name}</strong></td><td>{product.sku}</td><td>{product.stock.toLocaleString('en-IN')}</td><td>{money(product.price)}</td><td><strong>{money(stockCostValue(product))}</strong></td><td><strong>{money(retailStockValue(product))}</strong></td></tr>)}</tbody></table></div></div><div className="glass table-panel"><h2>Adjust stock</h2><form className="stock-form" onSubmit={async event => { event.preventDefault(); const target = event.currentTarget; const form = new FormData(target); const result = await act('inventory/adjust', { requestId: requestId(), productId: String(form.get('productId')), sku: String(form.get('sku')), delta: Number(form.get('delta')), reason: String(form.get('reason')), note: String(form.get('note') || '') }, 'Stock movement recorded.'); if (result) { target.reset(); setSelected(null); } }}>
+    {tab === 'inventory' && <><StockCount products={products} onSaved={() => void load()} /><div className="stock-summary glass inventory-summary"><div><span>Available stock, all products</span><strong>{stockUnits.toLocaleString('en-IN')} units</strong></div><div><span>Stock at recorded cost</span><strong>{money(stockCostTotal)}</strong></div><div><span>Total stock retail value</span><strong>{money(stockRetailTotal)}</strong></div></div><div className="glass table-panel"><div className="commerce-toolbar"><h2>Stock value by product</h2><label className="field-search"><Search size={17} /><input placeholder="Search product, Product #, or SKU" value={query} onChange={e => setQuery(e.target.value)} /></label></div><div className="table-wrap valuation-table"><table><thead><tr><th>Product</th><th>Product #</th><th>Barcode / SKU</th><th>Available quantity</th><th>Selling price</th><th>Stock cost value</th><th>Stock retail value</th><th>Action</th></tr></thead><tbody>{shownProducts.map(product => <tr key={product.id}><td><strong>{product.name}</strong></td><td><span className="product-no-badge">{product.productNumber ? `#${product.productNumber}` : '—'}</span></td><td><code>{product.barcode || product.sku}</code></td><td>{product.stock.toLocaleString('en-IN')}</td><td>{money(product.price)}</td><td><strong>{money(stockCostValue(product))}</strong></td><td><strong>{money(retailStockValue(product))}</strong></td><td><button type="button" className="button secondary sm" title="Print Barcode" onClick={() => setLabelProduct(product)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Printer size={14} /> Print</button></td></tr>)}</tbody></table></div></div><div className="glass table-panel"><h2>Adjust stock</h2><form className="stock-form" onSubmit={async event => { event.preventDefault(); const target = event.currentTarget; const form = new FormData(target); const result = await act('inventory/adjust', { requestId: requestId(), productId: String(form.get('productId')), sku: String(form.get('sku')), delta: Number(form.get('delta')), reason: String(form.get('reason')), note: String(form.get('note') || '') }, 'Stock movement recorded.'); if (result) { target.reset(); setSelected(null); } }}>
       <label>Product<select name="productId" required value={selected?.id || ''} onChange={e => setSelected(products.find(p => p.id === e.target.value) || null)}><option value="">Select product</option>{products.map(p => <option value={p.id} key={p.id}>{p.name}</option>)}</select></label>
       <label>Variant<select name="sku" required><option value="">Select SKU</option>{(selected?.variants.length ? selected.variants : selected ? [{ sku: selected.sku, stock: selected.stock }] : []).map(v => <option value={v.sku} key={v.sku}>{v.sku} · {v.stock} available</option>)}</select></label>
       <label>Quantity change<input name="delta" type="number" step="1" required placeholder="+5 or -2" /></label>
@@ -1090,6 +1108,49 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
     {creating && <ProductFormDialog onClose={() => setCreating(false)} onCreate={createPosProduct} />}
     {batchLabels && <BarcodeBatch products={products} onClose={() => setBatchLabels(false)} />}
     {labelProduct && <BarcodeLabel product={labelProduct} onClose={() => setLabelProduct(null)} />}
+    {productCreatedSuccess && (
+      <div className="editor-backdrop" onClick={() => setProductCreatedSuccess(null)}>
+        <div className="editor glass" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()} style={{ maxWidth: 460, textAlign: 'center', padding: '24px 20px' }}>
+          <button className="editor-close" type="button" onClick={() => setProductCreatedSuccess(null)}>×</button>
+          <div style={{ display: 'inline-flex', padding: 12, background: 'rgba(46, 204, 113, 0.15)', borderRadius: '50%', color: '#2ecc71', marginBottom: 12 }}>
+            <Check size={28} />
+          </div>
+          <h2 style={{ margin: '0 0 6px', fontSize: 20 }}>Product Created Successfully!</h2>
+          <p style={{ margin: '0 0 16px', color: 'var(--muted)', fontSize: 13 }}>
+            Assigned permanent sequential product number:
+          </p>
+          <div style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid var(--line)', borderRadius: 10, padding: 16, marginBottom: 20 }}>
+            <div style={{ fontSize: 26, fontWeight: 900, color: 'var(--gold)', marginBottom: 4 }}>
+              #{productCreatedSuccess.productNumber || productCreatedSuccess.product.productNumber || '—'}
+            </div>
+            <strong style={{ fontSize: 16, display: 'block' }}>{productCreatedSuccess.product.name}</strong>
+            <small style={{ color: 'var(--muted)', display: 'block', marginTop: 4 }}>
+              Barcode: {productCreatedSuccess.product.barcode || productCreatedSuccess.product.variants[0]?.barcode || '—'}
+            </small>
+          </div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+            <button
+              type="button"
+              className="button primary"
+              onClick={() => {
+                const prod = productCreatedSuccess.product;
+                setProductCreatedSuccess(null);
+                setLabelProduct(prod);
+              }}
+            >
+              <Printer size={16} /> Print Barcode Labels
+            </button>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => setProductCreatedSuccess(null)}
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     {tab === 'pos' && customerDialogOpen && <CustomerPhoneDialog value={{ phone: customerPhone, dateOfBirth: customerDateOfBirth, birthdayOffersOptIn }}
       onClose={() => setCustomerDialogOpen(false)} onSave={details => {
         if (mobileNumber(details.phone) !== mobileNumber(customerPhone)) { setCreditWhatsAppOptIn(false); setWhatsAppOptIn(false); }

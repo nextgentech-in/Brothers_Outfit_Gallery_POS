@@ -17,7 +17,7 @@ export function CreditDueFields({ value, onChange }: { value: string; onChange: 
     <label>Repayment due date<input type="date" required min={shopDate()} value={value} onChange={event => { setDays('custom'); onChange(event.target.value); }} /></label></div>;
 }
 
-function CreditForm({ mode, customer, onClose, onSaved }: { mode: FormMode; customer: CreditCustomer | null; onClose: () => void; onSaved: (key: string) => void }) {
+export function CreditForm({ mode, customer, onClose, onSaved }: { mode: FormMode; customer: CreditCustomer | null; onClose: () => void; onSaved: (key: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null), command = useRef<Record<string, unknown> | null>(null);
   const [date, setDate] = useState(dueDateAfter(7));
   const [amount, setAmount] = useState('');

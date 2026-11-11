@@ -19,6 +19,7 @@
     "auth:rollback": "tsx scripts/auth-rollback.ts",
     "device:rollback": "tsx scripts/device-rollback.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
+    "migrate:product-numbers": "tsx scripts/migrate-product-numbers.ts",
     "backup:restore": "tsx scripts/restore-backup.ts"
   },
   "dependencies": {

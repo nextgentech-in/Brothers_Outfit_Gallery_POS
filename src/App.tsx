@@ -3,7 +3,7 @@ import { DailyOperations } from './DailyOperations';
 import { useEffect, useState, type FormEvent } from 'react';
 import { ArrowDownUp, ArrowRight, BarChart3, ChevronRight, FileText,
   LayoutDashboard, LockKeyhole, MessageCircle, Moon, Package, RefreshCw, ShieldCheck,
-  ShoppingBag, Sun, Truck, Users, type LucideIcon } from 'lucide-react';
+  ShoppingBag, Sun, Truck, Users, Search, type LucideIcon } from 'lucide-react';
 import type { Owner } from '../shared/contracts';
 import { CommerceView } from './Commerce';
 import { BrandLogo } from './BrandLogo';
@@ -11,6 +11,7 @@ import { Dashboard } from './Dashboard';
 import { CreditView } from './CreditView';
 import { WhatsAppView } from './WhatsAppView';
 import { ReportsWorkspace } from './reports/ReportsWorkspace';
+import { CommandPalette } from './CommandPalette';
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'same-origin', ...options });
@@ -76,6 +77,7 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
   const [tab, setTab] = useState(tabs.some(t => t.id === initial && t.id !== 'login') ? initial : 'dashboard');
   const [owner, setOwner] = useState<Owner | null>({ uid: 'pin-owner', email: null, role: 'owner', name: 'Store owner' });
   const [error, setError] = useState('');
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const allowed=(id:string)=>owner?.role!=='cashier'||['pos','customers','credit','sync'].includes(id);
   useEffect(()=>{if(owner?.role==='cashier'&&!allowed(tab))navigate('pos');},[owner,tab]);
   function navigate(id: string) { setTab(id); history.pushState(null, '', id === 'dashboard' ? '/' : `/${id}`); }
@@ -100,6 +102,18 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
     window.addEventListener('popstate', pop);
     return () => window.removeEventListener('popstate', pop);
   }, []);
+
+  useEffect(() => {
+    const handleGlobalKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setPaletteOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKey);
+    return () => window.removeEventListener('keydown', handleGlobalKey);
+  }, []);
+
   async function logout() {
     try { await post('/api/auth/logout', {}); } catch {}
     localStorage.removeItem('pos-offline-session');
@@ -111,9 +125,33 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
       <div className="sidebar-bottom"><div className="sidebar-connection">Shared website catalog · Live store</div>
       <div className="owner"><span className="avatar">BO</span><div><strong>{owner?.name || (owner?.role === 'cashier' ? 'Cashier' : owner?.role === 'manager' ? 'Manager' : 'Store owner')}</strong><small>{owner ? 'Active session' : 'Ready'}</small></div><button className="icon-button" onClick={logout} aria-label="Go to dashboard" title="Reset to Dashboard"><LayoutDashboard size={17} /></button></div></div>
     </aside>
-    <div className="main-area"><header className="topbar"><div className="breadcrumbs">Workspace <ChevronRight size={14} /><strong>{tabs.find(t => t.id === tab)?.label || 'Dashboard'}</strong></div><div className="top-actions"><button onClick={toggleTheme} className="icon-button theme-button" aria-label={dark ? 'Use light theme' : 'Use dark theme'}>{dark ? <Sun size={19} /> : <Moon size={19} />}</button></div></header>
+    <div className="main-area"><header className="topbar">
+      <div className="breadcrumbs">Workspace <ChevronRight size={14} /><strong>{tabs.find(t => t.id === tab)?.label || 'Dashboard'}</strong></div>
+      <div
+        className="topbar-search-trigger"
+        onClick={() => setPaletteOpen(true)}
+        title="Global Search (Ctrl+K)"
+        role="button"
+        tabIndex={0}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setPaletteOpen(true); }}
+      >
+        <Search size={15} style={{ color: 'var(--gold)' }} />
+        <span>Search actions, products, bills...</span>
+        <kbd>Ctrl+K</kbd>
+      </div>
+      <div className="top-actions">
+        <button
+          onClick={() => setPaletteOpen(true)}
+          className="icon-button topbar-search-icon-btn"
+          aria-label="Search actions, products, bills"
+        >
+          <Search size={18} />
+        </button>
+        <button onClick={toggleTheme} className="icon-button theme-button" aria-label={dark ? 'Use light theme' : 'Use dark theme'}>{dark ? <Sun size={19} /> : <Moon size={19} />}</button>
+      </div>
+    </header>
     <main className="content" id="main-content">{error && <div className="error-banner" role="alert">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
-      {tab === 'dashboard' && <Dashboard navigate={navigate} />}
+      {tab === 'dashboard' && <Dashboard navigate={navigate} role={owner?.role} />}
       {tab === 'security' && owner?.role === 'owner' && <><StaffSettings /><TrustedDevices /></>}
       {tab === 'reports' && <ReportsWorkspace role={owner?.role} />}
       {tab === 'credit' && <CreditView />}
@@ -121,6 +159,12 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
       {['products', 'pos', 'inventory', 'orders', 'customers', 'suppliers', 'sync'].includes(tab) && <CommerceView tab={tab} role={owner?.role} />}
       <footer className="page-footer"><span>BROTHERS OUTFIT GALLERY <span className="footer-separator">/</span> STUDIO</span><span>A little more clarity. Every day.</span></footer>
     </main></div>
+    <CommandPalette
+      isOpen={paletteOpen}
+      onClose={() => setPaletteOpen(false)}
+      navigate={navigate}
+      role={owner?.role}
+    />
   </div>;
 }
 type DeviceInfo = { id: string; label: string; createdAt: number; expiresAt: number; lastUsedAt: number | null };

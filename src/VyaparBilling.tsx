@@ -7,6 +7,7 @@ import type { QueuedSale } from './offlineQueue';
 export type ProductVariant = {
   sku: string;
   barcode?: string;
+  variantSequence?: number;
   size?: string;
   color?: string;
   stock: number;
@@ -17,6 +18,7 @@ export type ProductItem = {
   id: string;
   name: string;
   sku: string;
+  productNumber?: number;
   barcode?: string;
   price: number;
   mrp: number;
@@ -133,6 +135,7 @@ export function VyaparBilling({
   const searchableItems = useMemo(() => {
     const list: {
       productId: string;
+      productNumber?: number;
       productName: string;
       sku: string;
       barcode?: string;
@@ -148,6 +151,7 @@ export function VyaparBilling({
           const detail = [v.size, v.color].filter(Boolean).join(' / ');
           list.push({
             productId: p.id,
+            productNumber: p.productNumber,
             productName: p.name,
             sku: v.sku,
             barcode: v.barcode || p.barcode,
@@ -160,6 +164,7 @@ export function VyaparBilling({
       } else {
         list.push({
           productId: p.id,
+          productNumber: p.productNumber,
           productName: p.name,
           sku: p.sku,
           barcode: p.barcode,
@@ -173,17 +178,35 @@ export function VyaparBilling({
     return list;
   }, [products]);
 
-  // Filtered search results
+  // Filtered search results with Product No (#12) and Barcode prioritization
   const searchResults = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const raw = searchQuery.trim();
+    const q = raw.toLowerCase();
     if (!q) return searchableItems.slice(0, 30);
-    return searchableItems
-      .filter(item =>
-        `${item.productName} ${item.sku} ${item.barcode || ''} ${item.variantText} ${item.category || ''}`
-          .toLowerCase()
-          .includes(q)
-      )
-      .slice(0, 30);
+
+    const cleanNum = raw.replace(/^#/, '').trim();
+    const isNum = /^\d+$/.test(cleanNum);
+    const parsedNum = isNum ? parseInt(cleanNum, 10) : null;
+
+    const matches = searchableItems.filter(item => {
+      if (parsedNum !== null && item.productNumber === parsedNum) return true;
+      if (item.barcode && item.barcode.toLowerCase().includes(q)) return true;
+      return `${item.productNumber ? `#${item.productNumber}` : ''} ${item.productName} ${item.sku} ${item.variantText} ${item.category || ''}`
+        .toLowerCase()
+        .includes(q);
+    });
+
+    matches.sort((a, b) => {
+      if (parsedNum !== null) {
+        if (a.productNumber === parsedNum && b.productNumber !== parsedNum) return -1;
+        if (b.productNumber === parsedNum && a.productNumber !== parsedNum) return 1;
+      }
+      if (a.barcode?.toLowerCase() === q && b.barcode?.toLowerCase() !== q) return -1;
+      if (b.barcode?.toLowerCase() === q && a.barcode?.toLowerCase() !== q) return 1;
+      return 0;
+    });
+
+    return matches.slice(0, 30);
   }, [searchableItems, searchQuery]);
 
   // Filtered customer auto-suggest results
@@ -300,6 +323,53 @@ export function VyaparBilling({
     );
     setActiveSearchRowId(null);
     setSearchQuery('');
+  }
+
+  function handleBarcodeScan(rawCode: string) {
+    const code = rawCode.trim();
+    if (!code) return;
+    const cleanNum = code.replace(/^#/, '').trim();
+    const isNum = /^\d+$/.test(cleanNum);
+    const parsedNum = isNum ? parseInt(cleanNum, 10) : null;
+
+    let match = searchableItems.find(item => item.barcode && item.barcode.toLowerCase() === code.toLowerCase());
+    if (!match && parsedNum !== null) {
+      match = searchableItems.find(item => item.productNumber === parsedNum);
+    }
+    if (!match) {
+      match = searchableItems.find(item => item.sku.toLowerCase() === code.toLowerCase());
+    }
+
+    if (!match) {
+      setError(`No product found with barcode or Product #${code}.`);
+      return;
+    }
+
+    setError('');
+    const emptyRow = rows.find(r => !r.productId && !r.name.trim());
+    if (emptyRow) {
+      handleSelectItem(emptyRow.id, match);
+    } else {
+      const newRowId = crypto.randomUUID();
+      const fullName = `${match.productName}${match.variantText}`;
+      setRows(prev => [
+        ...prev,
+        {
+          id: newRowId,
+          productId: match!.productId,
+          sku: match!.sku,
+          name: fullName,
+          variantDetail: match!.variantText,
+          stock: match!.stock,
+          quantity: 1,
+          price: 0,
+          discount: 0,
+          taxPercent: 0,
+          taxAmount: 0,
+          amount: 0
+        }
+      ]);
+    }
   }
 
   function addRow() {
@@ -595,6 +665,24 @@ export function VyaparBilling({
         </div>
       </div>
 
+      {/* QUICK BARCODE SCANNER / PRODUCT NO LOOKUP */}
+      <div className="vyapar-barcode-quick-bar" style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '10px 0 14px', background: 'rgba(0,0,0,0.2)', padding: '8px 14px', borderRadius: 8, border: '1px solid var(--line)' }}>
+        <QrCode size={18} style={{ color: 'var(--gold)' }} />
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Scan Barcode / Product #:</span>
+        <input
+          type="text"
+          placeholder="Scan barcode (e.g. BOG-000001-001) or enter Product # / SKU and press Enter..."
+          style={{ flex: 1, minHeight: 36, background: 'var(--solid)', border: '1px solid var(--line)', borderRadius: 6, padding: '6px 12px', color: 'var(--text)', fontSize: 13 }}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleBarcodeScan((e.target as HTMLInputElement).value);
+              (e.target as HTMLInputElement).value = '';
+            }
+          }}
+        />
+      </div>
+
       {/* ITEMS TABLE SECTION (Exact Columns requested: item, quentity, price/piece, discount, tax, amount) */}
       <div className="vyapar-table-wrapper" ref={dropdownRef}>
         <table className="vyapar-items-table">
@@ -635,6 +723,21 @@ export function VyaparBilling({
                         setSearchQuery(e.target.value);
                         setActiveSearchRowId(row.id);
                       }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const exact = searchableItems.find(
+                            item => item.barcode && item.barcode.toLowerCase() === searchQuery.trim().toLowerCase()
+                          );
+                          if (exact) {
+                            handleSelectItem(row.id, exact);
+                            return;
+                          }
+                          if (searchResults.length > 0) {
+                            handleSelectItem(row.id, searchResults[0]);
+                          }
+                        }
+                      }}
                     />
                     {row.stock > 0 && (
                       <span className="vyapar-stock-badge available">
@@ -663,9 +766,12 @@ export function VyaparBilling({
                             onMouseDown={() => handleSelectItem(row.id, item)}
                           >
                             <div className="vyapar-dropdown-item-title">
+                              {item.productNumber && (
+                                <span className="product-no-badge">#{item.productNumber}</span>
+                              )}
                               <strong>{item.productName}</strong>
                               <span className="variant-tag">{item.variantText || 'Standard'}</span>
-                              <small>SKU: {item.sku}</small>
+                              <small>{item.barcode ? `Barcode: ${item.barcode}` : `SKU: ${item.sku}`}</small>
                             </div>
                             <div className="vyapar-dropdown-item-meta">
                               <span className={`stock-pill ${item.stock > 0 ? 'in-stock' : 'no-stock'}`}>
