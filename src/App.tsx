@@ -29,10 +29,10 @@ function Brand({ compact = false }: { compact?: boolean }) {
   return <div className="brand"><BrandLogo /><span className="sr-only">{compact ? 'Store' : 'Admin studio'}</span></div>;
 }
 export function App() {
-  const [dark, setDark] = useState(() => localStorage.getItem('bo-theme-v2') !== 'light');
+  const [dark, setDark] = useState(() => localStorage.getItem('bo-theme-v2') === 'dark');
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#111111' : '#f4f5f7');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#08090b' : '#ffffff');
     localStorage.setItem('bo-theme-v2', dark ? 'dark' : 'light');
   }, [dark]);
   return <><div className="ambient ambient-one" /><div className="ambient ambient-two" />{window.location.pathname === '/login' ? <Login /> : window.location.pathname === '/enroll' ? <EnrollDevice /> : <Workspace dark={dark} toggleTheme={() => setDark(!dark)} />}</>;
