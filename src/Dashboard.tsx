@@ -39,6 +39,7 @@ import {
 
 import { shopDate } from '../shared/customers';
 import { readAdmin, writeAdmin } from './adminApi';
+import { StockOverview } from './StockOverview';
 import { computeDatePreset, type DatePreset } from './reports/shared/ReportFilters';
 import { queuedSales, syncQueuedSales, type QueuedSale } from './offlineQueue';
 
@@ -512,6 +513,14 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
         </div>
       )}
 
+      <StockOverview
+        productCount={data?.inventory.productCount || 0}
+        units={data?.inventory.availableUnits || 0}
+        beforeGst={data?.inventory.stockRetailValue || 0}
+        gst={data?.inventory.stockGstValue || 0}
+        includingGst={data?.inventory.stockTotalWithGst || 0}
+      />
+
       {/* 2. SHARED DATE & CHANNEL FILTERS */}
       <section className="dashboard-filters-card" aria-label="Shared Date & Channel Filters">
         <div className="dashboard-filters-top">
@@ -786,57 +795,6 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
           </div>
         </div>
 
-        {/* 4 Secondary Inventory Cards */}
-        <div style={{ marginTop: 14 }}>
-          <div className="dashboard-inventory-grid">
-            <div className="dashboard-inv-card" onClick={() => navigate('inventory')}>
-              <div className="dashboard-inv-info">
-                <strong>{data ? data.inventory.availableUnits.toLocaleString('en-IN') : '—'} units</strong>
-                <small>{data ? `${data.inventory.productCount} products · ` : ''}Available stock units</small>
-              </div>
-              <Boxes size={22} style={{ color: 'var(--accent)' }} />
-            </div>
-
-            {canViewFinancials && (
-              <div className="dashboard-inv-card" onClick={() => navigate('inventory')}>
-                <div className="dashboard-inv-info">
-                  <strong>{data ? money(data.inventory.stockCostValue) : '—'}</strong>
-                  <small>Stock Value at Purchase Cost</small>
-                </div>
-                <Truck size={22} style={{ color: '#10B981' }} />
-              </div>
-            )}
-
-            <div className="dashboard-inv-card" onClick={() => navigate('inventory')}>
-              <div className="dashboard-inv-info">
-                <strong>{data ? money(data.inventory.stockRetailValue) : '—'}</strong>
-                <small>Stock selling value · excluding GST</small>
-              </div>
-              <ShoppingBag size={22} style={{ color: 'var(--accent)' }} />
-            </div>
-
-            <div className="dashboard-inv-card" onClick={() => navigate('inventory')}>
-              <div className="dashboard-inv-info"><strong>{data ? money(data.inventory.stockGstValue) : '—'}</strong><small>GST on stock at selling price</small></div>
-              <ShoppingBag size={22} style={{ color: 'var(--accent)' }} />
-            </div>
-            <div className="dashboard-inv-card" onClick={() => navigate('inventory')}>
-              <div className="dashboard-inv-info"><strong>{data ? money(data.inventory.stockTotalWithGst) : '—'}</strong><small>Stock selling value · including GST</small></div>
-              <ShoppingBag size={22} style={{ color: 'var(--accent)' }} />
-            </div>
-
-            <div className="dashboard-inv-card" onClick={() => navigate('inventory')}>
-              <div className="dashboard-inv-info">
-                <strong style={{ color: (data?.inventory.outOfStockCount || 0) > 0 ? '#EF4444' : 'var(--text)' }}>
-                  {data ? (data.inventory.lowStockCount + data.inventory.outOfStockCount) : '—'} items
-                </strong>
-                <small>
-                  {data ? `${data.inventory.outOfStockCount} out of stock · ${data.inventory.lowStockCount} low stock` : 'Low / Out of stock'}
-                </small>
-              </div>
-              <AlertTriangle size={22} style={{ color: '#EF4444' }} />
-            </div>
-          </div>
-        </div>
       </section>
 
       {/* 4. NEEDS ATTENTION / TODAY'S TASKS */}
