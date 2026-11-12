@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Search, ArrowRight, Share2, Printer, Check, RefreshCw, AlertCircle, ShoppingBag, Calendar, Clock, MapPin, Phone, User, Banknote, QrCode, CreditCard } from 'lucide-react';
+import { Plus, Trash2, Search, Share2, Check, Calendar, Clock, Phone, User, Banknote, QrCode, CreditCard } from 'lucide-react';
 import { mobileNumber, shopDate } from '../shared/customers';
 import { validDueDate, dueDateAfter } from '../shared/credit';
 import type { QueuedSale } from './offlineQueue';
@@ -97,7 +97,6 @@ export function VyaparBilling({
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerDateOfBirth, setCustomerDateOfBirth] = useState('');
-  const [customerAddress, setCustomerAddress] = useState('');
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
 
@@ -107,12 +106,13 @@ export function VyaparBilling({
   const [currentTime] = useState(() =>
     new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
   );
-  const [stateOfSupply] = useState('Gujarat');
 
   // Payment mode options (down side of terms & conditions)
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'upi' | 'card' | 'credit' | 'split'>('cash');
   const [splitCash, setSplitCash] = useState('');
+  const [splitUpi, setSplitUpi] = useState('');
   const [splitCard, setSplitCard] = useState('');
+  const [splitCredit, setSplitCredit] = useState('');
   const [creditDueDate, setCreditDueDate] = useState(() => dueDateAfter(7));
   const [creditWhatsAppOptIn, setCreditWhatsAppOptIn] = useState(true);
   const [whatsappOptIn, setWhatsAppOptIn] = useState(false);
@@ -120,16 +120,14 @@ export function VyaparBilling({
   const [terms] = useState('Goods once sold can be exchanged within 7 days with bill tag intact.');
 
   // Table rows
-  const [rows, setRows] = useState<BillRow[]>([
-    createEmptyRow('row-1'),
-    createEmptyRow('row-2')
-  ]);
+  const [rows, setRows] = useState<BillRow[]>([createEmptyRow('row-1')]);
 
   // Active search dropdown tracking: rowId
   const [activeSearchRowId, setActiveSearchRowId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const scanInputRef = useRef<HTMLInputElement>(null);
 
   // Flat variants list for searching
   const searchableItems = useMemo(() => {
@@ -230,7 +228,6 @@ export function VyaparBilling({
     const cleanPhone = rawPhone.length === 12 && rawPhone.startsWith('91') ? rawPhone.slice(2) : (cust.phone || '');
     setCustomerPhone(cleanPhone);
     setCustomerDateOfBirth(cust.dateOfBirth || '');
-    setCustomerAddress(cust.address || '');
     setCustomerDropdownOpen(false);
   }
 
@@ -249,9 +246,6 @@ export function VyaparBilling({
       if (!customerDateOfBirth && match.dateOfBirth) {
         setCustomerDateOfBirth(match.dateOfBirth);
       }
-      if (!customerAddress && match.address) {
-        setCustomerAddress(match.address);
-      }
     }
   }
 
@@ -269,9 +263,6 @@ export function VyaparBilling({
         }
         if (!customerDateOfBirth && match.dateOfBirth) {
           setCustomerDateOfBirth(match.dateOfBirth);
-        }
-        if (!customerAddress && match.address) {
-          setCustomerAddress(match.address);
         }
       }
     }
@@ -429,6 +420,25 @@ export function VyaparBilling({
     };
   }, [rows]);
 
+  const splitAmounts = {
+    cash: Number(splitCash || 0),
+    upi: Number(splitUpi || 0),
+    card: Number(splitCard || 0),
+    credit: Number(splitCredit || 0)
+  };
+  const splitAllocated = Math.round(Object.values(splitAmounts).reduce((sum, amount) => sum + amount, 0) * 100) / 100;
+  const splitRemaining = Math.round((totals.totalAmount - splitAllocated) * 100) / 100;
+  const hasCreditPayment = paymentMethod === 'credit' || (paymentMethod === 'split' && splitAmounts.credit > 0);
+
+  function fillSplitBalance(method: keyof typeof splitAmounts) {
+    const otherTotal = Object.entries(splitAmounts).reduce((sum, [key, amount]) => key === method ? sum : sum + amount, 0);
+    const balance = Math.max(0, Math.round((totals.totalAmount - otherTotal) * 100) / 100).toFixed(2);
+    if (method === 'cash') setSplitCash(balance);
+    if (method === 'upi') setSplitUpi(balance);
+    if (method === 'card') setSplitCard(balance);
+    if (method === 'credit') setSplitCredit(balance);
+  }
+
   // Validation & Submit
   async function handleSubmit(action: 'share' | 'new') {
     setError('');
@@ -443,16 +453,16 @@ export function VyaparBilling({
       setError('Choose an in-stock product for each row and check its quantity and MRP.');
       return;
     }
-    const upiRemainder = Math.round((totals.totalAmount - Number(splitCash || 0) - Number(splitCard || 0)) * 100) / 100;
     const payments = paymentMethod === 'split' ? [
-      { method: 'cash' as const, amount: Number(splitCash || 0) },
-      { method: 'upi' as const, amount: upiRemainder },
-      { method: 'card' as const, amount: Number(splitCard || 0) }
+      { method: 'cash' as const, amount: splitAmounts.cash },
+      { method: 'upi' as const, amount: splitAmounts.upi },
+      { method: 'card' as const, amount: splitAmounts.card },
+      { method: 'credit' as const, amount: splitAmounts.credit }
     ].filter(part => part.amount > 0) : undefined;
     try { paymentBreakdown(totals.totalAmount, paymentMethod, payments, cashTendered ? Number(cashTendered) : undefined); }
     catch (cause) { setError((cause as Error).message); return; }
 
-    if (paymentMethod === 'credit') {
+    if (hasCreditPayment) {
       if (!customerName.trim()) {
         setError('Billing Name is required for Credit / Udhar.');
         return;
@@ -481,10 +491,9 @@ export function VyaparBilling({
       customerName: customerName.trim() || undefined,
       customerPhone: customerPhone.trim() || undefined,
       customerDateOfBirth: customerDateOfBirth || undefined,
-      customerAddress: customerAddress.trim() || undefined,
-      creditDueDate: paymentMethod === 'credit' ? creditDueDate : undefined,
-      creditWhatsAppOptIn: paymentMethod === 'credit' ? creditWhatsAppOptIn : undefined,
-      whatsappOptIn: Boolean(customerPhone.trim()) && (whatsappOptIn || creditWhatsAppOptIn),
+      creditDueDate: hasCreditPayment ? creditDueDate : undefined,
+      creditWhatsAppOptIn: hasCreditPayment ? creditWhatsAppOptIn : undefined,
+      whatsappOptIn: Boolean(customerPhone.trim()) && (whatsappOptIn || (hasCreditPayment && creditWhatsAppOptIn)),
       discount: totals.totalDiscount,
       paymentMethod,
       payments,
@@ -497,15 +506,17 @@ export function VyaparBilling({
       await onSaveBill(payload, action);
       if (action === 'new') {
         setSuccess(`Invoice #${invoiceNumber} saved successfully! New bill ready.`);
-        setRows([createEmptyRow('new-1'), createEmptyRow('new-2')]);
+        setRows([createEmptyRow('new-1')]);
         setCustomerName('');
         setCustomerPhone('');
         setCustomerDateOfBirth('');
-        setCustomerAddress('');
         setCashTendered('');
         setSplitCash('');
+        setSplitUpi('');
         setSplitCard('');
+        setSplitCredit('');
         setInvoiceNumber(n => n + 1);
+        requestAnimationFrame(() => scanInputRef.current?.focus());
       }
     } catch (err) {
       setError((err as Error).message || 'Failed to record bill.');
@@ -531,6 +542,17 @@ export function VyaparBilling({
 
   return (
     <div className="vyapar-billing-container glass" onKeyDown={event => {
+      if (event.key === 'F2') {
+        event.preventDefault();
+        scanInputRef.current?.focus();
+        scanInputRef.current?.select();
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        event.preventDefault();
+        void handleSubmit('new');
+        return;
+      }
       if (event.key !== 'Enter' || event.defaultPrevented || !(event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement)) return;
       event.preventDefault();
       const fields = [...event.currentTarget.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input:not([type="hidden"]):not(:disabled):not([readonly]), select:not(:disabled)')].filter(field => field.offsetParent !== null);
@@ -538,6 +560,19 @@ export function VyaparBilling({
       next?.focus();
       if (next instanceof HTMLInputElement) next.select();
     }}>
+      <header className="billing-workspace-header">
+        <div>
+          <span className="eyebrow">QUICK BILLING</span>
+          <h1>New retail bill</h1>
+          <p>Scan a product, confirm quantity and payment, then save. Customer details are optional for walk-in sales.</p>
+        </div>
+        <div className="billing-shortcuts" aria-label="Billing keyboard shortcuts">
+          <span><kbd>F2</kbd> Scan product</span>
+          <span><kbd>Enter</kbd> Next field</span>
+          <span><kbd>Ctrl</kbd> + <kbd>Enter</kbd> Save &amp; new</span>
+        </div>
+      </header>
+
       {/* Top Notification / Alerts */}
       {error && (
         <div className="error-banner" role="alert" style={{ marginBottom: 16 }}>
@@ -553,17 +588,15 @@ export function VyaparBilling({
         </div>
       )}
 
-      {/* TOP METADATA BAR (Matching Vyapar Screenshot) */}
+      {/* Customer and bill details */}
       <div className="vyapar-top-section">
-        {/* Left: Customer Info (with Date of Birth, Auto-lookup on name/phone) */}
         <div className="vyapar-customer-box" ref={customerBoxRef}>
-          {/* Billing Name with existing customer autocomplete dropdown */}
           <div className="vyapar-input-group" style={{ position: 'relative' }}>
-            <label className="vyapar-label">
-              <User size={13} style={{ display: 'inline', marginRight: 4 }} />
-              Billing Name (Optional)
+            <label className="vyapar-label" htmlFor="billing-customer-name">
+              <User size={15} /> Customer name <span>Optional</span>
             </label>
             <input
+              id="billing-customer-name"
               type="text"
               className="vyapar-field"
               placeholder="Search or enter customer name"
@@ -577,14 +610,16 @@ export function VyaparBilling({
               <div className="vyapar-customer-dropdown glass">
                 <div className="vyapar-dropdown-header">
                   <User size={12} />
-                  <span>Existing Customers ({filteredCustomers.length}):</span>
+                  <span>Matching customers ({filteredCustomers.length})</span>
                 </div>
                 <div className="vyapar-dropdown-list">
                   {filteredCustomers.map(cust => (
-                    <div
+                    <button
                       key={cust.id}
+                      type="button"
                       className="vyapar-customer-dropdown-item"
-                      onMouseDown={() => handleSelectCustomer(cust)}
+                      onMouseDown={event => event.preventDefault()}
+                      onClick={() => handleSelectCustomer(cust)}
                     >
                       <div className="vyapar-cust-main">
                         <strong>{cust.fullName}</strong>
@@ -599,24 +634,20 @@ export function VyaparBilling({
                         {cust.dateOfBirth && (
                           <span className="vyapar-dob-pill">DOB: {cust.dateOfBirth}</span>
                         )}
-                        {cust.address && (
-                          <small className="vyapar-addr-text">{cust.address}</small>
-                        )}
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
             )}
           </div>
 
-          {/* Phone Number with auto-match on 10 digits */}
           <div className="vyapar-input-group">
-            <label className="vyapar-label">
-              <Phone size={13} style={{ display: 'inline', marginRight: 4 }} />
-              Phone No.
+            <label className="vyapar-label" htmlFor="billing-customer-phone">
+              <Phone size={15} /> Phone number <span>Optional</span>
             </label>
             <input
+              id="billing-customer-phone"
               type="tel"
               className="vyapar-field"
               placeholder="10-digit Mobile number"
@@ -625,13 +656,12 @@ export function VyaparBilling({
             />
           </div>
 
-          {/* Date of Birth field */}
           <div className="vyapar-input-group">
-            <label className="vyapar-label">
-              <Calendar size={13} style={{ display: 'inline', marginRight: 4 }} />
-              Date of Birth
+            <label className="vyapar-label" htmlFor="billing-customer-dob">
+              <Calendar size={15} /> Date of birth <span>Optional</span>
             </label>
             <input
+              id="billing-customer-dob"
               type="date"
               className="vyapar-field"
               value={customerDateOfBirth}
@@ -640,72 +670,46 @@ export function VyaparBilling({
             />
           </div>
 
-          {/* Billing Address spanning full width */}
-          <div className="vyapar-input-group full-width">
-            <label className="vyapar-label">
-              <MapPin size={13} style={{ display: 'inline', marginRight: 4 }} />
-              Billing Address
-            </label>
-            <textarea
-              className="vyapar-field vyapar-textarea"
-              rows={2}
-              placeholder="City, State, Pincode"
-              value={customerAddress}
-              onChange={e => setCustomerAddress(e.target.value)}
-            />
-          </div>
         </div>
 
-        {/* Right: Invoice Metadata */}
         <div className="vyapar-invoice-meta-box">
           <div className="vyapar-meta-row">
-            <span className="vyapar-meta-title">Invoice Number:</span>
-            <input
-              type="text"
-              className="vyapar-meta-value"
-              value={invoiceNumber}
-              onChange={e => setInvoiceNumber(Number(e.target.value) || invoiceNumber)}
-            />
+            <span className="vyapar-meta-title">Bill number</span>
+            <strong className="vyapar-invoice-number">#{invoiceNumber}</strong>
           </div>
 
           <div className="vyapar-meta-row">
-            <span className="vyapar-meta-title">Invoice Date:</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <label className="vyapar-meta-title" htmlFor="billing-date">Bill date</label>
+            <div className="vyapar-meta-control">
               <input
+                id="billing-date"
                 type="date"
                 className="vyapar-meta-value"
                 value={invoiceDate}
                 onChange={e => setInvoiceDate(e.target.value)}
               />
-              <Calendar size={15} style={{ color: 'var(--accent)' }} />
+              <Calendar size={16} aria-hidden="true" />
             </div>
           </div>
 
           <div className="vyapar-meta-row">
-            <span className="vyapar-meta-title">Time:</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span className="vyapar-meta-title">Time</span>
+            <div className="vyapar-meta-control">
               <span className="vyapar-meta-static">{currentTime}</span>
-              <Clock size={15} style={{ color: 'var(--muted)' }} />
+              <Clock size={16} aria-hidden="true" />
             </div>
-          </div>
-
-          <div className="vyapar-meta-row">
-            <span className="vyapar-meta-title">State of supply:</span>
-            <span className="vyapar-meta-static">{stateOfSupply}</span>
           </div>
         </div>
       </div>
 
-      {/* QUICK BARCODE SCANNER / PRODUCT NO LOOKUP */}
-      <div className="vyapar-barcode-quick-bar" style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '10px 0 14px', background: 'rgba(0,0,0,0.2)', padding: '8px 14px', borderRadius: 8, border: '1px solid var(--line)' }}>
-        <QrCode size={18} style={{ color: 'var(--gold)' }} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Scan Barcode / Product #:</span>
+      <div className="vyapar-barcode-quick-bar">
+        <div className="vyapar-scan-label"><QrCode size={20} /><span>Scan or find product</span><kbd>F2</kbd></div>
         <input
+          ref={scanInputRef}
           type="text"
           autoFocus
           aria-label="Scan barcode or enter product number"
-          placeholder="Scan barcode (e.g. BOG-000001-001) or enter Product # / SKU and press Enter..."
-          style={{ flex: 1, minHeight: 36, background: 'var(--solid)', border: '1px solid var(--line)', borderRadius: 6, padding: '6px 12px', color: 'var(--text)', fontSize: 13 }}
+          placeholder="Scan barcode or enter product number / SKU, then press Enter"
           onKeyDown={e => {
             if (e.key === 'Enter') {
               e.preventDefault();
@@ -744,6 +748,7 @@ export function VyaparBilling({
                     <input
                       type="text"
                       className="vyapar-cell-input item-name-input"
+                      aria-label={`Product for row ${index + 1}`}
                       placeholder="Type or click to search items & stock..."
                       value={row.name}
                       onFocus={() => {
@@ -792,10 +797,12 @@ export function VyaparBilling({
                       </div>
                       <div className="vyapar-dropdown-list">
                         {searchResults.map(item => (
-                          <div
+                          <button
                             key={`${item.productId}-${item.sku}`}
+                            type="button"
                             className="vyapar-dropdown-item"
-                            onMouseDown={() => handleSelectItem(row.id, item)}
+                            onMouseDown={event => event.preventDefault()}
+                            onClick={() => handleSelectItem(row.id, item)}
                           >
                             <div className="vyapar-dropdown-item-title">
                               {item.productNumber && (
@@ -811,7 +818,7 @@ export function VyaparBilling({
                               </span>
                               <strong className="rate-pill">₹{item.price}</strong>
                             </div>
-                          </div>
+                          </button>
                         ))}
                         {searchResults.length === 0 && (
                           <div className="vyapar-dropdown-empty">
@@ -828,6 +835,7 @@ export function VyaparBilling({
                   <input
                     type="number"
                     data-qty-row={row.id}
+                    aria-label={`Quantity for ${row.name || `row ${index + 1}`}`}
                     min="1"
                     step="1"
                     className="vyapar-cell-input text-center"
@@ -840,6 +848,7 @@ export function VyaparBilling({
                 <td>
                   <input
                     type="number"
+                    aria-label={`MRP for ${row.name || `row ${index + 1}`}`}
                     min="0"
                     step="0.01"
                     className="vyapar-cell-input text-right"
@@ -853,6 +862,7 @@ export function VyaparBilling({
                 <td>
                   <input
                     type="number"
+                    aria-label={`Discount percentage for ${row.name || `row ${index + 1}`}`}
                     min="0"
                     max="100"
                     step="0.01"
@@ -875,6 +885,7 @@ export function VyaparBilling({
                     type="button"
                     className="vyapar-row-delete"
                     onClick={() => removeRow(row.id)}
+                    aria-label={`Remove ${row.name || `row ${index + 1}`}`}
                     title="Delete item row"
                   >
                     <Trash2 size={15} />
@@ -924,7 +935,7 @@ export function VyaparBilling({
             <div className="vyapar-payment-header">
               <span className="vyapar-subhead">Payment Mode</span>
               <span className="vyapar-payment-selected-tag">
-                Selected: <strong>{paymentMethod === 'credit' ? 'Credit / Udhar' : paymentMethod.toUpperCase()}</strong>
+                Selected: <strong>{paymentMethod === 'credit' ? 'Credit / Udhar' : paymentMethod === 'split' ? 'Split payment' : paymentMethod.toUpperCase()}</strong>
               </span>
             </div>
 
@@ -932,6 +943,7 @@ export function VyaparBilling({
               <button
                 type="button"
                 className={`vyapar-mode-btn ${paymentMethod === 'cash' ? 'active' : ''}`}
+                aria-pressed={paymentMethod === 'cash'}
                 onClick={() => setPaymentMethod('cash')}
               >
                 <Banknote size={16} />
@@ -940,6 +952,7 @@ export function VyaparBilling({
               <button
                 type="button"
                 className={`vyapar-mode-btn ${paymentMethod === 'upi' ? 'active' : ''}`}
+                aria-pressed={paymentMethod === 'upi'}
                 onClick={() => setPaymentMethod('upi')}
               >
                 <QrCode size={16} />
@@ -948,17 +961,19 @@ export function VyaparBilling({
               <button
                 type="button"
                 className={`vyapar-mode-btn ${paymentMethod === 'card' ? 'active' : ''}`}
+                aria-pressed={paymentMethod === 'card'}
                 onClick={() => setPaymentMethod('card')}
               >
                 <CreditCard size={16} />
                 <span>Card / POS</span>
               </button>
-              <button type="button" className={`vyapar-mode-btn ${paymentMethod === 'split' ? 'active' : ''}`} onClick={() => setPaymentMethod('split')}>
-                <Banknote size={16} /><span>Cash + UPI / Card</span>
+              <button type="button" className={`vyapar-mode-btn ${paymentMethod === 'split' ? 'active' : ''}`} aria-pressed={paymentMethod === 'split'} onClick={() => setPaymentMethod('split')}>
+                <Banknote size={16} /><span>Split payment</span>
               </button>
               <button
                 type="button"
                 className={`vyapar-mode-btn ${paymentMethod === 'credit' ? 'active credit-mode' : ''}`}
+                aria-pressed={paymentMethod === 'credit'}
                 onClick={() => setPaymentMethod('credit')}
               >
                 <Clock size={16} />
@@ -967,17 +982,22 @@ export function VyaparBilling({
             </div>
 
             {paymentMethod === 'split' && <div className="vyapar-mode-detail-box split-payment-fields">
-              <label>Cash ₹<input className="vyapar-field" type="number" min="0" max={totals.totalAmount} step="0.01" value={splitCash} onChange={e => setSplitCash(e.target.value)} /></label>
-              <label>Card ₹<input className="vyapar-field" type="number" min="0" max={totals.totalAmount} step="0.01" value={splitCard} onChange={e => setSplitCard(e.target.value)} /></label>
-              <p>UPI balance: <strong>₹{Math.max(0, Math.round((totals.totalAmount - Number(splitCash || 0) - Number(splitCard || 0)) * 100) / 100).toFixed(2)}</strong></p>
-              <small>Enter the cash and card amounts. The remaining balance is collected by UPI.</small>
+              <div className="split-payment-heading"><strong>Split the total across any combination</strong><small>Use two, three, or all four payment methods.</small></div>
+              <label><span>Cash ₹</span><div><input aria-label="Split cash amount" className="vyapar-field" type="number" min="0" max={totals.totalAmount} step="0.01" value={splitCash} onChange={e => setSplitCash(e.target.value)} /><button type="button" onClick={() => fillSplitBalance('cash')}>Use balance</button></div></label>
+              <label><span>UPI ₹</span><div><input aria-label="Split UPI amount" className="vyapar-field" type="number" min="0" max={totals.totalAmount} step="0.01" value={splitUpi} onChange={e => setSplitUpi(e.target.value)} /><button type="button" onClick={() => fillSplitBalance('upi')}>Use balance</button></div></label>
+              <label><span>Card ₹</span><div><input aria-label="Split card amount" className="vyapar-field" type="number" min="0" max={totals.totalAmount} step="0.01" value={splitCard} onChange={e => setSplitCard(e.target.value)} /><button type="button" onClick={() => fillSplitBalance('card')}>Use balance</button></div></label>
+              <label><span>Udhar ₹</span><div><input aria-label="Split udhar amount" className="vyapar-field" type="number" min="0" max={totals.totalAmount} step="0.01" value={splitCredit} onChange={e => setSplitCredit(e.target.value)} /><button type="button" onClick={() => fillSplitBalance('credit')}>Use balance</button></div></label>
+              <div className={`split-payment-balance ${splitRemaining < 0 ? 'over' : splitRemaining === 0 && totals.totalAmount > 0 ? 'complete' : ''}`}>
+                <span>{splitRemaining < 0 ? 'Over allocated' : splitRemaining === 0 && totals.totalAmount > 0 ? 'Fully allocated' : 'Still to allocate'}</span>
+                <strong>₹{Math.abs(splitRemaining).toFixed(2)}</strong>
+              </div>
             </div>}
 
             {/* Context details for Cash */}
-            {paymentMethod === 'cash' && (
+            {(paymentMethod === 'cash' || (paymentMethod === 'split' && splitAmounts.cash > 0)) && (
               <div className="vyapar-mode-detail-box">
                 <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                  <label style={{ fontSize: 13, fontWeight: 600 }}>Cash Received ₹:</label>
+                  <label style={{ fontSize: 13, fontWeight: 600 }}>Cash received ₹</label>
                   <input
                     type="number"
                     min="0"
@@ -998,7 +1018,7 @@ export function VyaparBilling({
             )}
 
             {/* Context details for Credit / Udhar */}
-            {paymentMethod === 'credit' && (
+            {hasCreditPayment && (
               <div className="vyapar-mode-detail-box credit-box">
                 <span className="vyapar-subhead" style={{ color: '#d9534f' }}>
                   Credit / Udhar Repayment Details
@@ -1083,7 +1103,7 @@ export function VyaparBilling({
               onClick={() => handleSubmit('new')}
               title="Save bill and immediately open a new invoice form"
             >
-              <Plus size={16} /> Save & New
+              <Plus size={16} /> {saving ? 'Saving…' : 'Save & New'}
             </button>
 
             <button
@@ -1093,7 +1113,7 @@ export function VyaparBilling({
               onClick={() => handleSubmit('share')}
               title="Save bill and open WhatsApp / SMS / PDF receipt sharing"
             >
-              <Share2 size={16} /> Save & Share
+              <Share2 size={16} /> {saving ? 'Saving…' : 'Save & Share'}
             </button>
           </div>
         </div>

@@ -70,8 +70,8 @@ test('partial discounted returns, exchanges and refund retry preserve stock and 
  const refund={requestId:'refund-recorded-01',returnId:rest.body.returnId,amount:499.33,method:'cash',reference:'Cash returned'};assert.equal((await post('/orders/refund',refund)).status,200);assert.equal((await post('/orders/refund',refund)).status,200);assert.equal((await post('/orders/refund',{...refund,requestId:'refund-excess-01',amount:.01})).status,422);
  assert.equal(records.get(`orders/${r.body.orderId}`)?.returnedAmount,749);
 });
-test('stock count rejects stale counts and preserves reservations',async()=>{
- const payload={requestId:'stock-count-test-01',productId,lines:[{sku:'TEST-JEANS-V1',expected:4,counted:5,threshold:2}],note:'Physical count'};assert.equal((await post('/inventory/count',payload)).status,200);assert.equal((await post('/inventory/count',{...payload,requestId:'stock-count-stale-01'})).status,409);assert.equal(records.get(`products/${productId}`)?.stock,5);
+test('stock count needs no reason, rejects stale counts and preserves reservations',async()=>{
+ const payload={requestId:'stock-count-test-01',productId,lines:[{sku:'TEST-JEANS-V1',expected:4,counted:5,threshold:2}]};assert.equal((await post('/inventory/count',payload)).status,200);assert.equal((await post('/inventory/count',{...payload,requestId:'stock-count-stale-01'})).status,409);assert.equal(records.get(`products/${productId}`)?.stock,5);
 });
 test('reports separate sales, credit collections, refunds and supplier cash; closing is immutable',async()=>{
  const r=await (await fetch(base+`/reports/summary?from=${shopDate()}&to=${shopDate()}`)).json();assert.ok(r.summary.billCount>=3);assert.equal(r.summary.cashSupplierPayments,100);assert.equal(r.summary.creditSales,150);
@@ -90,6 +90,9 @@ test('staff credentials are hashed, can be revoked, and changed retries are reje
 });
 test('money helpers conserve every paisa and PDF keeps long invoices',()=>{
  assert.equal(paymentBreakdown(1500,'split',[{method:'cash',amount:500},{method:'upi',amount:1000}],1000).change,500);assert.throws(()=>paymentBreakdown(1500,'split',[{method:'cash',amount:500}]),/exactly/);
+ assert.equal(paymentBreakdown(250,'split',[{method:'cash',amount:100},{method:'credit',amount:150}],200).creditAmount,150);
+ assert.equal(paymentBreakdown(250,'split',[{method:'upi',amount:100},{method:'credit',amount:150}]).creditAmount,150);
+ assert.deepEqual(paymentBreakdown(250,'split',[{method:'cash',amount:50},{method:'upi',amount:75},{method:'card',amount:25},{method:'credit',amount:100}]).payments.map(part=>part.amount),[50,75,25,100]);
  let sum=0;for(let i=0;i<3;i++)sum+=returnAmounts([{quantity:3,price:100}],299.99,{0:i},[{index:0,quantity:1,restock:true}]);assert.equal(Math.round(sum*100),29999);
  const pdf=invoicePdf({id:'long',total:60,lines:Array.from({length:60},(_,i)=>({name:`UNIQUEITEM${i}`,quantity:1,price:1}))}).toString();assert.match(pdf,/UNIQUEITEM59/);assert.match(pdf,/\/Count [2-9]/);
  assert.doesNotMatch(pdf,/DISCOUNT\s+GST\s+TOTAL/);

@@ -80,7 +80,7 @@ operationsRouter.post('/customers/update',async(req,res)=>{
  try{const db=firebase().db,input=parsed.data;res.json(await idempotent(db,'customer_update',input.requestId,input,async tx=>{const ref=db.collection('erp_customerProfiles').doc(customerKey(input.phone,''));await tx.get(ref);tx.set(ref,{name:input.name,phone:mobileNumber(input.phone),email:input.email,dateOfBirth:input.dateOfBirth,birthdayOffersOptIn:input.birthdayOffersOptIn,updatedAt:FieldValue.serverTimestamp()},{merge:true});return {updated:true};}));}catch(e){fail(res,e);}
 });
 operationsRouter.post('/inventory/count',async(req,res)=>{
- const parsed=z.object({requestId,productId:z.string().regex(/^[\w.:-]+$/),lines:z.array(z.object({sku:z.string().regex(/^[\w.:-]+$/),expected:z.number().int().min(0),counted:z.number().int().min(0).max(100000),threshold:z.number().int().min(0).max(10000)}).strict()).min(1).max(100),note:z.string().trim().min(3).max(300)}).strict().safeParse(req.body);
+ const parsed=z.object({requestId,productId:z.string().regex(/^[\w.:-]+$/),lines:z.array(z.object({sku:z.string().regex(/^[\w.:-]+$/),expected:z.number().int().min(0),counted:z.number().int().min(0).max(100000),threshold:z.number().int().min(0).max(10000)}).strict()).min(1).max(100),note:z.string().trim().max(300).optional()}).strict().safeParse(req.body);
  if(!parsed.success){res.status(422).json({error:'Enter physical counts, reorder levels and a reason.'});return;}
  try{const db=firebase().db,input=parsed.data;res.json(await idempotent(db,'stock_count',input.requestId,input,async tx=>{
   const ref=db.collection('products').doc(input.productId),doc=await tx.get(ref);if(!doc.exists)reject('Product not found.',404);
@@ -90,7 +90,7 @@ operationsRouter.post('/inventory/count',async(req,res)=>{
     const before=Number(target.stock??target.quantity??0);if(before!==line.expected)reject('Stock changed while counting. Refresh and recount before saving.',409);if(line.counted<Number(target.reserved||0))reject('Count cannot fall below stock reserved for orders.',409);
     if(variant)product={...product,variants:product.variants.map((v:any)=>v.sku===line.sku?{...v,stock:line.counted,quantity:line.counted,reorderThreshold:line.threshold}:v)};
     else product={...product,stock:line.counted,quantity:line.counted,reorderThreshold:line.threshold};
-    movements.push({productId:input.productId,sku:line.sku,deltaChange:line.counted-before,stockAfter:line.counted,reason:'physical_count',note:input.note,source:'admin',createdAt:FieldValue.serverTimestamp()});
+    movements.push({productId:input.productId,sku:line.sku,deltaChange:line.counted-before,stockAfter:line.counted,reason:'physical_count',note:input.note || 'Physical stock count',source:'admin',createdAt:FieldValue.serverTimestamp()});
   }
   if(product.variants?.length){product.stock=product.variants.reduce((sum:number,v:any)=>sum+Number(v.stock||0),0);product.quantity=product.stock;}product.inStock=product.stock>0;
   tx.update(ref,{...product,updatedAt:FieldValue.serverTimestamp()});movements.forEach((m,index)=>tx.create(db.collection('stockMovements').doc(`count_${hash(input.requestId)}_${index}`),m));return {updated:true};

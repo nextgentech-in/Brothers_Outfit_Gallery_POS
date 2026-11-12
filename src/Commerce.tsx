@@ -31,7 +31,7 @@ type PurchaseOrder = { id: string; supplierId?: string; supplierName: string; su
 type Movement = { id: string; productId?: string; sku?: string; deltaChange?: number; reason?: string; source?: string; stockAfter?: number };
 type Invoice = { id: string; orderId: string; total: number; lines: { name?: string; sku?: string; quantity?: number; price?: number; discount?: number; discountPercent?: number; tax?: number; amount?: number; taxPercent?: number }[];
   exchangeCreditUsed?: number; payments?: PaymentPart[]; creditAmount?: number; cashTendered?: number; change?: number; creditDueDate?: string;
-  customerName?: string; customerPhone?: string; customerAddress?: string; customerDateOfBirth?: string; channel: string; paymentMethod: string; kind?: string; subtotal?: number; discount?: number; tax?: number; billUrl?: string; createdAt?: { _seconds?: number; seconds?: number } };
+  customerName?: string; customerPhone?: string; customerDateOfBirth?: string; channel: string; paymentMethod: string; kind?: string; subtotal?: number; discount?: number; tax?: number; billUrl?: string; createdAt?: { _seconds?: number; seconds?: number } };
 type SyncRecord = { id: string; event?: string; status?: string; invoiceId?: string; source?: string; retryCount?: number; error?: string; providerMessageId?: string };
 type Shop = { name: string; phone: string; address: string; email: string; whatsapp: string; logo: string };
 const money = (value: number | undefined) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -76,7 +76,7 @@ export function ReceiptDialog({ invoice, shop, preview = false, onClose }: { inv
     {preview && <div className="preview-ribbon">BILL PREVIEW · SALE NOT COMPLETED</div>}
     <div className="invoice-header"><BrandLogo /><div><h2>{shop?.name || 'Brothers Outfit Gallery'}</h2><p>{shop?.address || 'FF-57, Pratham Square, Himatnagar, Gujarat 383001'}<br />Phone: {shop?.phone || '+91 84602 33020'}{shop?.email && <><br />{shop.email}</>}</p></div></div>
     <div className="invoice-title"><div><small>RETAIL SALES RECEIPT</small><h1>{preview ? 'Bill preview' : 'Thank you for shopping'}</h1></div><span>{preview ? 'Draft' : (invoice.paymentMethod === 'credit' || Number(invoice.creditAmount) > 0) ? 'Credit' : 'Paid'}</span></div>
-    <div className="invoice-meta"><div><small>Receipt number</small><strong>{preview ? 'Assigned after sale' : invoice.id}</strong></div><div><small>Date</small><strong>{issuedAt || '—'}</strong></div><div><small>Customer</small><strong>{invoice.customerName || 'Walk-in'}{invoice.customerPhone ? ` · ${invoice.customerPhone}` : ''}</strong>{invoice.customerDateOfBirth && <small>DOB: {invoice.customerDateOfBirth}</small>}{invoice.customerAddress && <small>{invoice.customerAddress}</small>}</div><div><small>Payment</small><strong>{invoice.paymentMethod.toUpperCase()}</strong></div></div>
+    <div className="invoice-meta"><div><small>Receipt number</small><strong>{preview ? 'Assigned after sale' : invoice.id}</strong></div><div><small>Date</small><strong>{issuedAt || '—'}</strong></div><div><small>Customer</small><strong>{invoice.customerName || 'Walk-in'}{invoice.customerPhone ? ` · ${invoice.customerPhone}` : ''}</strong>{invoice.customerDateOfBirth && <small>DOB: {invoice.customerDateOfBirth}</small>}</div><div><small>Payment</small><strong>{invoice.paymentMethod.toUpperCase()}</strong></div></div>
     <table><thead><tr><th>Item / SKU</th><th>Qty</th><th>MRP</th><th>Discount</th>{showHistoricalTax && <th>GST</th>}<th>Total</th></tr></thead><tbody>{invoice.lines.map((line, index) => <tr key={`${line.sku || index}:${index}`}><td><strong>{line.name || line.sku || 'Item'}</strong><small>{line.sku || ''}</small></td><td>{line.quantity}</td><td>{money(line.price)}</td><td>{money(line.discount)}{Number(line.discountPercent) > 0 && <small>{line.discountPercent}% off</small>}</td>{showHistoricalTax && <td>{money(line.tax)}</td>}<td>{money(line.amount ?? (Number(line.price || 0) * Number(line.quantity || 0) - Number(line.discount || 0) + Number(line.tax || 0)))}</td></tr>)}</tbody></table>
     <div className="invoice-summary"><span>{units} item{units === 1 ? '' : 's'} · {invoice.channel} sale</span><div><div><span>MRP total</span><strong>{money(subtotal)}</strong></div>{discount > 0 && <div><span>Discount</span><strong>− {money(discount)}</strong></div>}{Number(invoice.tax) > 0 && <div><span>GST</span><strong>{money(invoice.tax)}</strong></div>}<div className="invoice-grand-total"><span>Total</span><strong>{money(invoice.total)}</strong></div></div></div>
     {Number(invoice.exchangeCreditUsed) > 0 && <p>Exchange credit applied: {money(invoice.exchangeCreditUsed)}</p>}
@@ -104,7 +104,6 @@ async function send<T>(path: string, body: unknown): Promise<T> {
 const requestId = () => crypto.randomUUID();
 const salePayload = (sale: QueuedSale) => ({ expectedTotal:sale.expectedTotal, requestId: sale.requestId, lines: sale.lines,
   customerName: sale.customerName, customerPhone: sale.customerPhone, customerEmail: sale.customerEmail || undefined,
-  customerAddress: sale.customerAddress || undefined,
   customerDateOfBirth: sale.customerDateOfBirth || undefined, birthdayOffersOptIn: sale.birthdayOffersOptIn,
   payments: sale.payments, cashTendered: sale.cashTendered,
   ...((sale.paymentMethod === 'credit' || sale.payments?.some(p => p.method === 'credit' && p.amount > 0)) ? { creditDueDate: sale.creditDueDate, creditWhatsAppOptIn: sale.creditWhatsAppOptIn } : {}),
@@ -824,7 +823,6 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
               })),
               customerName: sale.customerName,
               customerPhone: sale.customerPhone,
-              customerAddress: sale.customerAddress,
               customerDateOfBirth: sale.customerDateOfBirth,
               channel: 'POS',
               paymentMethod: sale.paymentMethod,
