@@ -28,7 +28,7 @@ export type ClothingVariant = {
   mrp?: number;
 };
 
-export type LabelFormat = 'thermal-50x25' | 'thermal-50x38' | 'thermal-38x25' | 'a4-24' | 'a4-40';
+export type LabelFormat = 'thermal-50x25' | 'thermal-50x38' | 'thermal-38x25' | 'thermal-38x60' | 'a4-24' | 'a4-40';
 
 export interface ClothingLabelProps {
   product: ClothingProduct;

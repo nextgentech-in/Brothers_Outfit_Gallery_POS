@@ -702,14 +702,13 @@ export function VyaparBilling({
         </div>
       </div>
 
-      <div className="vyapar-barcode-quick-bar">
-        <div className="vyapar-scan-label"><QrCode size={20} /><span>Scan or find product</span><kbd>F2</kbd></div>
+      <div className="billing-scan-compact">
         <input
           ref={scanInputRef}
           type="text"
           autoFocus
           aria-label="Scan barcode or enter product number"
-          placeholder="Scan barcode or enter product number / SKU, then press Enter"
+          placeholder="Scan barcode or SKU · F2"
           onKeyDown={e => {
             if (e.key === 'Enter') {
               e.preventDefault();

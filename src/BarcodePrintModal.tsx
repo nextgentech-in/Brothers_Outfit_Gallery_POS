@@ -22,7 +22,7 @@ export function BarcodePrintModal({
   subtitle = 'Adjust format and quantities, preview below, and print crisp labels.',
   onClose
 }: BarcodePrintModalProps) {
-  const [format, setFormat] = useState<LabelFormat>('thermal-50x38');
+  const [format, setFormat] = useState<LabelFormat>('thermal-38x60');
 
   // Initialize copies per item key
   const [copies, setCopies] = useState<Record<string, number>>(() => {
@@ -101,6 +101,7 @@ export function BarcodePrintModal({
               <label>
                 <strong>Label Format & Size</strong>
                 <select value={format} onChange={e => setFormat(e.target.value as LabelFormat)}>
+                  <option value="thermal-38x60">Clothing Tag: 38 × 60 mm (Vertical)</option>
                   <option value="thermal-50x38">Thermal Roll: 50 × 38 mm (Standard Apparel)</option>
                   <option value="thermal-50x25">Thermal Roll: 50 × 25 mm (Compact)</option>
                   <option value="thermal-38x25">Thermal Roll: 38 × 25 mm (Mini)</option>

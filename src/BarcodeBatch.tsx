@@ -45,7 +45,7 @@ type LabelRow = {
 
 export function BarcodeBatch({ products, onClose }: { products: BatchLabelProduct[]; onClose: () => void }) {
   const [copies, setCopies] = useState<Record<string, number>>({});
-  const [format, setFormat] = useState<LabelFormat>('thermal-50x38');
+  const [format, setFormat] = useState<LabelFormat>('thermal-38x60');
   const [showMrp, setShowMrp] = useState(true);
   const [showDiscount, setShowDiscount] = useState(true);
   const [query, setQuery] = useState('');
@@ -101,6 +101,7 @@ export function BarcodeBatch({ products, onClose }: { products: BatchLabelProduc
             <label>
               Label format & size
               <select value={format} onChange={event => setFormat(event.target.value as LabelFormat)}>
+                <option value="thermal-38x60">Clothing Tag: 38 × 60 mm (Vertical)</option>
                 <option value="thermal-50x38">Thermal Roll: 50 × 38 mm (Standard)</option>
                 <option value="thermal-50x25">Thermal Roll: 50 × 25 mm (Compact)</option>
                 <option value="thermal-38x25">Thermal Roll: 38 × 25 mm (Mini)</option>
