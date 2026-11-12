@@ -139,37 +139,28 @@ export function createApp(options: AppOptions = {}) {
           : setupError || 'Admin sign-in is not configured on this host.' });
     }
   });
-  const defaultOwner: Owner = { uid: 'pin-owner', email: null, role: 'owner', name: 'Store owner' };
   const authenticate: RequestHandler = async (req, res, next) => {
     const cookie = cookieValue(req, sessionName);
     if (cookie) {
-      try { res.locals.owner = await auth.verify(cookie); next(); return; } catch { /* Fall back to default owner */ }
+      try { res.locals.owner = await auth.verify(cookie); next(); return; } catch { /* Fail closed. */ }
     }
-    res.locals.owner = defaultOwner;
-    next();
+    if (req.path.startsWith('/api/')) res.status(401).json({ error: 'Sign in to continue.' });
+    else res.redirect(303, '/login');
   };
   app.use('/api', async (req, res, next) => {
-    // Direct access default owner when no session is present
     const cookie = cookieValue(req, sessionName);
-    if (cookie) {
-      try {
-        res.locals.owner = await auth.verify(cookie);
-        next();
-        return;
-      } catch {
-        // Fall back to default owner
-      }
-    }
-    res.locals.owner = defaultOwner;
-    next();
+    if (!cookie) { res.status(401).json({ error: 'Sign in to continue.' }); return; }
+    auth.verify(cookie).then(owner => { res.locals.owner = owner; next(); }).catch(() => res.status(401).json({ error: 'Sign in to continue.' }));
   });
-  app.get('/api/auth/me', (_req, res) => res.json(res.locals.owner || defaultOwner));
+  app.get('/api/auth/me', (_req, res) => res.json(res.locals.owner));
   app.use('/api', (req,res,next) => {
     const role = res.locals.owner?.role;
     if (role !== 'owner' && (req.path.startsWith('/staff') || req.path.startsWith('/backup') || req.path.startsWith('/auth/device/'))) { res.status(403).json({ error: 'Owner access required.' }); return; }
     if(role==='cashier' && ['/reports','/day','/suppliers','/purchases','/purchase-orders','/expenses','/dashboard','/overview','/movements'].some(path=>req.path===path||req.path.startsWith(path+'/'))){res.status(403).json({error:'Manager or owner access required.'});return;}
     if (role === 'cashier' && !['GET','HEAD','OPTIONS'].includes(req.method) && !req.path.startsWith('/auth/')) {
-      const allowed = req.path === '/pos/recover' || (req.path === '/pos/sale' && Number(req.body?.discount || 0) === 0) || (req.path === '/credit/entries' && req.body?.kind === 'payment');
+      const lineDiscount = Array.isArray(req.body?.lines) ? req.body.lines.reduce((sum: number, line: { discount?: number }) => sum + Number(line.discount || 0), 0) : NaN;
+      const catalogDiscount = Array.isArray(req.body?.lines) && req.body.lines.length > 0 && Math.round(lineDiscount * 100) === Math.round(Number(req.body?.discount || 0) * 100);
+      const allowed = req.path === '/pos/recover' || (req.path === '/pos/sale' && (Number(req.body?.discount || 0) === 0 || catalogDiscount)) || (req.path === '/credit/entries' && req.body?.kind === 'payment');
       if (!allowed) { res.status(403).json({ error: 'Manager or owner approval is required for this action.' }); return; }
     }
     next();
@@ -196,7 +187,11 @@ export function createApp(options: AppOptions = {}) {
     } catch { res.status(503).json({ error: 'Sign-out could not be completed. Please retry.' }); }
   });
   app.get('/api/foundation', async (_req, res) => {
-    res.json({ mapping, phases, businessWritesEnabled: true });
+    if (!config.businessWritesEnabled) { res.json({ mapping, phases, businessWritesEnabled: false }); return; }
+    try {
+      const rollout = await firebase().db.collection('erp_settings').doc('commerce').get();
+      res.json({ mapping, phases, businessWritesEnabled: rollout.data()?.enabled === true });
+    } catch { res.status(503).json({ error: 'Store activation status is unavailable.' }); }
   });
   app.get('/api/overview', async (_req, res) => {
     try {
@@ -209,7 +204,21 @@ export function createApp(options: AppOptions = {}) {
     catch { res.status(503).json({ error: 'Dashboard data is unavailable. Check the server connection to the shared database.' }); }
   });
   app.use('/api', (req, res, next) => ['GET', 'HEAD', 'OPTIONS'].includes(req.method) ? next() : csrf(req, res, next));
-  // All write transaction locks removed - all store transactions are enabled
+  app.use('/api', async (req, res, next) => {
+    const writes = new Set(['/products/images/upload', '/sync/retry', '/products/create', '/products/patch',
+      '/inventory/adjust', '/inventory/adjust-batch', '/suppliers/create', '/pos/recover', '/pos/sale',
+      '/orders/status', '/orders/invoice', '/orders/return', '/orders/refund', '/credit/customers',
+      '/credit/entries', '/credit/preferences', '/whatsapp/process', '/whatsapp/retry', '/expenses/create',
+      '/day/close', '/suppliers/payment', '/customers/update', '/inventory/count', '/purchases/receive',
+      '/purchases/receive-order', '/purchases/return', '/purchases/return/apply-credit', '/purchases/return/refund', '/staff/save']);
+    if (req.method !== 'POST' || !writes.has(req.path)) { next(); return; }
+    if (!config.businessWritesEnabled) { res.status(423).json({ error: 'Live business writes are locked pending activation.' }); return; }
+    try {
+      const rollout = await firebase().db.collection('erp_settings').doc('commerce').get();
+      if (rollout.data()?.enabled === true) next();
+      else res.status(423).json({ error: 'Commerce rollout is disabled in the shared database.' });
+    } catch { res.status(503).json({ error: 'Commerce rollout status is unavailable.' }); }
+  });
   app.use('/api', commerceRouter);
   app.use('/api', creditRouter);
   app.use('/api', purchasesRouter);
@@ -221,11 +230,9 @@ export function createApp(options: AppOptions = {}) {
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Operation not found.' }));
   const errors: ErrorRequestHandler = (_error, _req, res, _next) => res.status(400).json({ error: 'The request could not be processed.' });
   app.use(errors);
-  // Redirect legacy login route directly to dashboard
-  app.get('/login', (_req, res) => res.redirect(302, '/'));
-  // Public assets and authenticated routes
+  // Public login and assets contain no business records.
   app.use((req, res, next) => {
-    const publicPath = req.path === '/enroll' || req.path === '/sw.js' || req.path === '/favicon.svg' || req.path === '/manifest.webmanifest' || req.path.startsWith('/assets/');
+    const publicPath = req.path === '/login' || req.path === '/enroll' || req.path === '/sw.js' || req.path === '/favicon.svg' || req.path === '/manifest.webmanifest' || req.path.startsWith('/assets/');
     const devAsset = !config.production && /^\/(?:@vite\/|@react-refresh|src\/|shared\/|node_modules\/(?:\.vite\/|vite\/dist\/client\/))/.test(req.path);
     if (publicPath || devAsset) next(); else authenticate(req, res, next);
   });
@@ -268,7 +275,8 @@ async function readDashboard(): Promise<DashboardSummary> {
       ? variants.reduce((sum, variant) => sum + Math.max(0, Number(variant.stock ?? variant.quantity ?? 0) - Number(variant.reserved ?? 0)) * Number(variant.salePrice ?? variant.price ?? data.salePrice ?? data.price ?? 0), 0)
       : available * Number(data.salePrice ?? data.price ?? 0);
     const reorder = variants.length ? variants.some(v => Math.max(0, Number(v.stock ?? v.quantity ?? 0)-Number(v.reserved || 0)) <= Number(v.reorderThreshold ?? data.reorderThreshold ?? 5)) : available <= Number(data.reorderThreshold ?? 5);
-    return { reorder, id: doc.id, name: String(data.name || 'Unnamed product'), sku: String(data.sku || ''), available, retailValue, variants: variants.length };
+    const gstValue = data.gstEnabled === true ? Math.round(retailValue * Number(data.gstPercent || 0)) / 100 : 0;
+    return { reorder, id: doc.id, name: String(data.name || 'Unnamed product'), sku: String(data.sku || ''), available, retailValue, gstValue, variants: variants.length };
   });
   const orders = orderDocs.docs.map(doc => ({ id: doc.id, ...doc.data() } as OrderData));
   const saleOrders = orders.filter(order => ['delivered', 'returned', 'partially returned'].includes(String(order.status || '').toLowerCase()));
@@ -279,6 +287,8 @@ async function readDashboard(): Promise<DashboardSummary> {
     customers: customers.data().count, orders: orderCount.data().count,
     availableUnits: stock.reduce((sum, product) => sum + product.available, 0),
     stockRetailValue: stock.reduce((sum, product) => sum + product.retailValue, 0),
+    stockGstValue: stock.reduce((sum, product) => sum + product.gstValue, 0),
+    stockTotalWithGst: stock.reduce((sum, product) => sum + product.retailValue + product.gstValue, 0),
     lowStock: stock.filter(product => product.available > 0 && product.reorder).length,
     outOfStock: stock.filter(product => product.available === 0).length,
     recentSales: saleOrders.reduce((sum, order) => sum + amount(order), 0),

@@ -41,23 +41,10 @@ export interface ClothingLabelProps {
 export function ClothingLabel({
   product,
   variant,
-  format = 'thermal-50x38',
-  showMrp = true,
-  showDiscount = true
+  format = 'thermal-50x38'
 }: ClothingLabelProps) {
-  const sellingPrice = variant.price ?? variant.salePrice ?? product.price ?? product.salePrice ?? 0;
   const mrp = variant.mrp ?? product.mrp ?? 0;
-
-  const discountPercent = (mrp > sellingPrice && mrp > 0)
-    ? Math.round(((mrp - sellingPrice) / mrp) * 100)
-    : 0;
-
   const barcode = variant.barcode || product.barcode || variant.sku;
-  const productNoDisplay = product.productNumber ? `#${product.productNumber}` : '—';
-  const sizeColor = [variant.size || 'Standard', variant.color].filter(Boolean).join(' / ');
-  const brandCategory = [product.brand, product.subCategory || product.category].filter(Boolean).join(' · ');
-  const fabricInfo = product.fabric || product.gsl || '';
-  const designCode = product.design || '';
 
   const money = (val: number) => `₹${val.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
@@ -68,7 +55,6 @@ export function ClothingLabel({
       {/* Top Header */}
       <div className="label-header">
         <span className="label-store-name">BROTHERS OUTFIT GALLERY</span>
-        <span className="label-product-no">{productNoDisplay}</span>
       </div>
 
       {/* Item Title & Brand */}
@@ -76,12 +62,6 @@ export function ClothingLabel({
         <div className="label-item-name" title={product.name}>
           {product.name}
         </div>
-
-        {brandCategory && (
-          <div className="label-meta-row">
-            <span className="label-meta-brand">{brandCategory}</span>
-          </div>
-        )}
 
         {/* Prominent Variant Tags */}
         <div className="label-variant-badge-row">
@@ -93,33 +73,15 @@ export function ClothingLabel({
               <strong>Colour:</strong> {variant.color}
             </span>
           )}
-          {designCode && (
-            <span className="label-meta-design">
-              <strong>Art:</strong> {designCode}
-            </span>
-          )}
         </div>
-
-        {fabricInfo && (
-          <div className="label-fabric-row">
-            <span>Fabric: {fabricInfo}</span>
-          </div>
-        )}
 
         {/* Pricing & Discount */}
         <div className="label-price-section">
-          <div className="label-selling-price">
-            <span className="label-price-caption">OFFER:</span>
-            <strong>{money(sellingPrice)}</strong>
-          </div>
-          {showMrp && mrp > 0 && (
+          {mrp > 0 && (
             <div className="label-mrp-price">
               <span>MRP: </span>
-              <del>{money(mrp)}</del>
+              <strong>{money(mrp)}</strong>
             </div>
-          )}
-          {showDiscount && discountPercent > 0 && (
-            <span className="label-discount-badge">{discountPercent}% OFF</span>
           )}
         </div>
 

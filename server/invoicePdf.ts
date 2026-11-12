@@ -1,5 +1,5 @@
 type Invoice = { id: string; orderId?: string; customerName?: string; total?: number; creditDueDate?: string; creditAmount?: number; payments?: { method: string; amount: number }[]; change?: number; exchangeCreditUsed?: number;
-  lines?: { name?: string; sku?: string; quantity?: number; price?: number }[]; paymentMethod?: string; subtotal?: number; discount?: number; createdAt?: { _seconds?: number; seconds?: number } };
+  lines?: { name?: string; sku?: string; quantity?: number; price?: number; discount?: number; tax?: number; amount?: number }[]; paymentMethod?: string; subtotal?: number; discount?: number; tax?: number; createdAt?: { _seconds?: number; seconds?: number } };
 const ascii = (value: unknown) => String(value ?? '').normalize('NFKD').replace(/[^\x20-\x7e]/g, '?').slice(0, 100);
 const escaped = (value: unknown) => ascii(value).replaceAll('\\', '\\\\').replaceAll('(', '\\(').replaceAll(')', '\\)');
 const amount = (value: unknown) => `INR ${Number(value || 0).toFixed(2)}`;
@@ -9,6 +9,7 @@ const amount = (value: unknown) => `INR ${Number(value || 0).toFixed(2)}`;
 export function invoicePdf(invoice: Invoice): Buffer {
   const subtotal = invoice.subtotal ?? (invoice.lines || []).reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0), 0);
   const discount = invoice.discount ?? Math.max(0, subtotal - Number(invoice.total || 0));
+  const showHistoricalTax = Number(invoice.tax || 0) > 0 || (invoice.lines || []).some(item => Number(item.tax || 0) > 0);
   const issued = invoice.createdAt?._seconds || invoice.createdAt?.seconds;
   const lines = [
     'BROTHERS OUTFIT GALLERY',
@@ -27,12 +28,13 @@ export function invoicePdf(invoice: Invoice): Buffer {
     ...(Number(invoice.change) > 0 ? [`Change: ${amount(invoice.change)}`] : []),
     ...((invoice.paymentMethod === 'credit' || Number(invoice.creditAmount) > 0) ? [`Repayment due: ${ascii(invoice.creditDueDate || 'Not recorded')}`] : []),
     '',
-    'ITEM / SKU                         QTY      RATE         AMOUNT',
+    showHistoricalTax ? 'ITEM / SKU                         QTY       MRP      DISCOUNT     GST      TOTAL' : 'ITEM / SKU                         QTY       MRP      DISCOUNT      TOTAL',
     '--------------------------------------------------------------------',
-    ...(invoice.lines || []).map(item => `${ascii(item.name || item.sku).slice(0, 31).padEnd(33)} ${String(item.quantity || 0).padStart(3)}  ${amount(item.price).padStart(11)}  ${amount(Number(item.price || 0) * Number(item.quantity || 0)).padStart(12)}`),
+    ...(invoice.lines || []).map(item => `${ascii(item.name || item.sku).slice(0, 30).padEnd(32)} ${String(item.quantity || 0).padStart(3)} ${amount(item.price).padStart(11)} ${amount(item.discount).padStart(11)} ${showHistoricalTax ? amount(item.tax).padStart(11) + ' ' : ''}${amount(item.amount ?? (Number(item.price || 0) * Number(item.quantity || 0) - Number(item.discount || 0) + Number(item.tax || 0))).padStart(11)}`),
     '--------------------------------------------------------------------',
     `Subtotal: ${amount(subtotal)}`,
     ...(discount > 0 ? [`Discount: -${amount(discount)}`] : []),
+    ...(Number(invoice.tax) > 0 ? [`GST: ${amount(invoice.tax)}`] : []),
     `TOTAL: ${amount(invoice.total)}`,
     '',
     'Thank you for shopping with Brothers Outfit Gallery.',

@@ -42,12 +42,24 @@ test('existing receipts use weighted cost; supplier payments cannot exceed balan
 test('awaiting purchase orders do not change stock before receipt',async()=>{
  const payload={...purchase,requestId:'ordered-purchase-01',supplierInvoice:'PO-1',amountPaid:0,mode:'order',lines:[{...purchase.lines[0],sku:'ORDERED-JEANS'}]};
  const r=await post('/purchases/receive',payload);assert.equal(r.status,201);assert.equal([...records.values()].filter(p=>p.sku==='ORDERED-JEANS').length,0);
+ assert.equal((await post('/purchases/receive',{...payload,requestId:'duplicate-order-ref-01'})).status,409);
  const receive={requestId:'receive-purchase-01',orderId:r.body.orderId,amountPaid:10,paymentMethod:'upi'};assert.equal((await post('/purchases/receive-order',receive)).status,201);assert.equal((await post('/purchases/receive-order',receive)).status,201);assert.equal((await post('/purchases/receive-order',{...receive,requestId:'receive-duplicate-01'})).status,409);
 });
 test('split payments put only unpaid amount into udhar and retain cash change',async()=>{
  const sale={requestId:'split-sale-credit-01',lines:[{productId,sku:'TEST-JEANS-V1',quantity:1}],paymentMethod:'split',payments:[{method:'cash',amount:100},{method:'credit',amount:150}],cashTendered:200,customerName:'Test Customer',customerPhone:'9876543210',customerDateOfBirth:'1998-02-28',creditDueDate:dueDateAfter(7)};
  const r=await post('/pos/sale',sale);assert.equal(r.status,201,JSON.stringify(r.body));const invoice=records.get(`erp_invoices/${r.body.invoiceId}`)!;assert.equal(invoice.creditAmount,150);assert.equal(invoice.change,100);const accounts=[...records].filter(([k])=>k.startsWith('erp_creditAccounts/'));assert.equal(accounts[0][1].balance,150);
  assert.equal((await post('/pos/sale',{...sale,requestId:'bad-split-sale-01',payments:[{method:'cash',amount:99}]})).status,422);
+});
+test('GST-enabled stock does not add tax to the bill and cash plus UPI settles exactly',async()=>{
+ const [path, product]=[...records].find(([key,value])=>key.startsWith('products/')&&value.sku==='ORDERED-JEANS')!;
+ records.set(path,{...product,gstEnabled:true,gstPercent:5});
+ const sale={requestId:'gst-split-sale-01',expectedTotal:250,lines:[{productId:path.slice('products/'.length),sku:'ORDERED-JEANS-V1',quantity:1,price:300,discount:50}],paymentMethod:'split',payments:[{method:'cash',amount:100},{method:'upi',amount:150}]};
+ const result=await post('/pos/sale',sale);assert.equal(result.status,201,JSON.stringify(result.body));
+ const invoice=records.get(`erp_invoices/${result.body.invoiceId}`)!;
+ assert.equal(invoice.total,250);assert.equal(invoice.tax,0);assert.equal(invoice.lines[0].tax,0);assert.equal(invoice.lines[0].discount,50);assert.equal(invoice.lines[0].discountPercent,16.67);assert.equal(invoice.lines[0].amount,250);
+ assert.deepEqual(invoice.payments,sale.payments);
+ assert.equal((await post('/pos/sale',{...sale,requestId:'gst-tax-rejected-01',lines:[{...sale.lines[0],tax:12.5,taxPercent:5}]})).status,422);
+ assert.equal((await post('/pos/sale',{...sale,requestId:'gst-mismatch-sale-01',expectedTotal:262.5})).status,409);
 });
 test('partial discounted returns, exchanges and refund retry preserve stock and money',async()=>{
  const r=await post('/pos/sale',{requestId:'paid-sale-return-01',lines:[{productId,sku:'TEST-JEANS-V1',quantity:3}],paymentMethod:'cash',discount:1});assert.equal(r.status,201,JSON.stringify(r.body));const original=records.get(`orders/${r.body.orderId}`)!;
@@ -66,12 +78,21 @@ test('reports separate sales, credit collections, refunds and supplier cash; clo
  const close={requestId:'day-closing-test-01',date:shopDate(),openingCash:1000,countedCash:1000};const first=await post('/day/close',close);assert.equal(first.status,200,JSON.stringify(first.body));assert.equal((await post('/day/close',close)).status,200);assert.equal((await post('/day/close',{...close,requestId:'day-closing-again-01'})).status,409);
 });
 test('staff credentials are hashed, can be revoked, and changed retries are rejected',async()=>{
- const payload={requestId:'create-staff-test-01',name:'Test cashier',role:'cashier',pin:'7359',active:true};const saved=await post('/staff/save',payload);assert.equal(saved.status,200,JSON.stringify(saved.body));assert.equal((await post('/staff/save',payload)).status,200);assert.equal((await post('/staff/save',{...payload,pin:'7358'})).status,409);const identity=await staffIdentity('7359');assert.equal(identity?.role,'cashier');assert.doesNotMatch(JSON.stringify(records.get(`erp_staff/${saved.body.id}`)),/7359/);assert.equal((await post('/staff/save',{...payload,id:saved.body.id,requestId:'revoke-staff-test-01',pin:undefined,active:false})).status,200);await assert.rejects(()=>currentStaff(identity!),/revoked/);
+ const payload={requestId:'create-staff-test-01',name:'Test cashier',role:'cashier',pin:'7359',active:true};
+ const saved=await post('/staff/save',payload);assert.equal(saved.status,200,JSON.stringify(saved.body));
+ assert.equal((await post('/staff/save',payload)).status,200);
+ assert.equal((await post('/staff/save',{...payload,pin:'7358'})).status,409);
+ const identity=await staffIdentity('7359');assert.equal(identity?.role,'cashier');
+ const staffRecord=records.get(`erp_staff/${saved.body.id}`)!;
+ assert.equal(staffRecord.pin,undefined);assert.match(staffRecord.pinHash,/^[a-f0-9]{64}$/);
+ assert.equal((await post('/staff/save',{...payload,id:saved.body.id,requestId:'revoke-staff-test-01',pin:undefined,active:false})).status,200);
+ await assert.rejects(()=>currentStaff(identity!),/revoked/);
 });
 test('money helpers conserve every paisa and PDF keeps long invoices',()=>{
  assert.equal(paymentBreakdown(1500,'split',[{method:'cash',amount:500},{method:'upi',amount:1000}],1000).change,500);assert.throws(()=>paymentBreakdown(1500,'split',[{method:'cash',amount:500}]),/exactly/);
  let sum=0;for(let i=0;i<3;i++)sum+=returnAmounts([{quantity:3,price:100}],299.99,{0:i},[{index:0,quantity:1,restock:true}]);assert.equal(Math.round(sum*100),29999);
  const pdf=invoicePdf({id:'long',total:60,lines:Array.from({length:60},(_,i)=>({name:`UNIQUEITEM${i}`,quantity:1,price:1}))}).toString();assert.match(pdf,/UNIQUEITEM59/);assert.match(pdf,/\/Count [2-9]/);
+ assert.doesNotMatch(pdf,/DISCOUNT\s+GST\s+TOTAL/);
  const report=summarize([{status:'Processing',totalAmount:999,paymentMethod:'cash'},{status:'Delivered',totalAmount:200,payments:[{method:'cash',amount:50},{method:'credit',amount:150}]}],[{total:10}],[{kind:'payment',creditDelta:-20,paymentMethod:'cash'}],[{method:'cash',amount:10}],[{method:'cash',amount:5}],[{method:'cash',amount:15}]);assert.equal(report.netSales,190);assert.equal(report.cashMovement,40);
 });
 test('backup round trips timestamps, contains consistent business records and excludes credentials',async()=>{

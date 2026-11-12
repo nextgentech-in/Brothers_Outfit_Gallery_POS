@@ -783,3 +783,30 @@
   }
 }
 
+/* Stock valuation follows the light reports workspace, including in dark POS mode. */
+.reports-workspace-container .stock-gst-report-header h1,
+.reports-workspace-container .stock-gst-report .table-panel h2 { color: #151526; }
+.reports-workspace-container .stock-gst-report-header p,
+.reports-workspace-container .stock-gst-report .table-panel p,
+.reports-workspace-container .stock-gst-report .table-panel small { color: #64748b; }
+.reports-workspace-container .stock-gst-report .stock-summary,
+.reports-workspace-container .stock-gst-report .table-panel {
+  background: #fff;
+  color: #343b4d;
+  border: 1px solid #dde4ed;
+  box-shadow: 0 4px 18px rgba(25, 35, 60, .04);
+}
+.reports-workspace-container .stock-gst-report .stock-summary span { color: #64748b; }
+.reports-workspace-container .stock-gst-report .stock-summary strong,
+.reports-workspace-container .stock-gst-report .table-panel td,
+.reports-workspace-container .stock-gst-report .table-panel td strong { color: #202b3d; }
+.reports-workspace-container .stock-gst-report .table-panel th { color: #64748b; }
+.reports-workspace-container .stock-gst-report .table-panel th,
+.reports-workspace-container .stock-gst-report .table-panel td { border-color: #e5eaf1; }
+.reports-workspace-container .stock-gst-report-header .button.secondary {
+  background: #fff;
+  color: #202b3d;
+  border: 1px solid #d7dfeb;
+  box-shadow: none;
+}
+

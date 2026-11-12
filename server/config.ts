@@ -51,7 +51,7 @@ export const config = {
   adminPin: env.ADMIN_PIN,
   sessionSecret,
   deviceAccessEnabled: env.ADMIN_DEVICE_ACCESS !== 'disabled',
-  businessWritesEnabled: true,
+  businessWritesEnabled: env.ADMIN_BUSINESS_WRITES === 'enabled',
   erpSyncSecret: env.ERP_SYNC_SECRET || '',
   imagekitPrivateKey: env.IMAGEKIT_PRIVATE_KEY || '',
   whatsapp: {

@@ -39,6 +39,7 @@ import { SupplierPayablesReport } from './party/SupplierPayablesReport';
 import { CashFlowReport } from './cash/CashFlowReport';
 import { ExpensesReport } from './cash/ExpensesReport';
 import { DailyClosingReport } from './cash/DailyClosingReport';
+import { StockGstReport } from './cash/StockGstReport';
 
 interface ReportNavItem {
   id: string;
@@ -86,8 +87,13 @@ const REPORT_GROUPS: ReportNavGroup[] = [
       { id: 'expenses', label: 'Expenses', icon: Receipt },
       { id: 'daily_closing', label: 'Daily Cash Closing', icon: Lock }
     ]
+  },
+  {
+    group: 'STOCK & TAX',
+    items: [{ id: 'stock_gst', label: 'GST Stock Valuation', icon: Layers }]
   }
 ];
+const CORE_REPORTS = new Set(['sales', 'purchases', 'day_book', 'profit_loss', 'outstanding_udhar', 'expenses', 'daily_closing', 'stock_gst']);
 
 export function ReportsWorkspace({
   role = 'owner',
@@ -100,6 +106,8 @@ export function ReportsWorkspace({
     const params = new URLSearchParams(window.location.search);
     return params.get('report') || 'sales';
   });
+  const [showAdvanced, setShowAdvanced] = useState(() => !CORE_REPORTS.has(new URLSearchParams(window.location.search).get('report') || 'sales'));
+  const visibleGroups = REPORT_GROUPS.map(group => ({ ...group, items: showAdvanced ? group.items : group.items.filter(item => CORE_REPORTS.has(item.id)) })).filter(group => group.items.length);
 
   const handleSelectReport = (id: string) => {
     setActiveReport(id);
@@ -128,7 +136,7 @@ export function ReportsWorkspace({
         </div>
 
         <nav className="reports-sidebar-nav">
-          {REPORT_GROUPS.map(grp => (
+          {visibleGroups.map(grp => (
             <div key={grp.group} className="reports-nav-group">
               <h3 className="reports-nav-group-title">{grp.group}</h3>
               <div className="reports-nav-group-items">
@@ -151,6 +159,7 @@ export function ReportsWorkspace({
               </div>
             </div>
           ))}
+          <button type="button" className="reports-nav-link" onClick={() => setShowAdvanced(value => !value)}>{showAdvanced ? 'Show essential reports' : 'Show more reports'}</button>
         </nav>
       </aside>
 
@@ -194,6 +203,7 @@ export function ReportsWorkspace({
         {activeReport === 'cash_flow' && <CashFlowReport />}
         {activeReport === 'expenses' && <ExpensesReport />}
         {activeReport === 'daily_closing' && <DailyClosingReport />}
+        {activeReport === 'stock_gst' && <StockGstReport />}
       </main>
     </div>
   );

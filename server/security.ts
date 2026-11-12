@@ -21,4 +21,5 @@ export function csrfGuard(origin: string, csrfName: string): RequestHandler {
 }
 export const loginLimiter = () => rateLimit({ windowMs: 15 * 60_000, limit: 5,
   standardHeaders: 'draft-8', legacyHeaders: false,
+  skipSuccessfulRequests: true,
   message: { error: 'Too many sign-in attempts. Try again in 15 minutes.' } });

@@ -20,18 +20,18 @@ import { dueDateAfter, validDueDate } from '../shared/credit';
 import { customerDetailsError, displayBirthDate, mobileNumber, shopDate, type Customer } from '../shared/customers';
 import { recoverToHeld, cacheCatalog, cachedCatalog, queueSale, queuedSales, removeSale, syncQueuedSales, holdBill, heldBills, removeHeldBill, type QueuedSale } from './offlineQueue';
 
-type Product = { id: string; name: string; sku: string; productNumber?: number; barcode?: string; price: number; mrp: number; costPrice?: number; onHand?: number;
+type Product = { id: string; name: string; sku: string; productNumber?: number; barcode?: string; price: number; mrp: number; costPrice?: number; onHand?: number; gstEnabled?: boolean; gstPercent?: number;
   brand?: string; design?: string; fabric?: string; category: string; subCategory?: string; shortDescription?: string; description?: string; gsl?: string; active: boolean; stock: number;
-  variants: { sku: string; barcode?: string; variantSequence?: number; size?: string; color?: string; stock: number; onHand?: number; reorderThreshold?: number; price: number; costPrice?: number }[] };
+  variants: { sku: string; barcode?: string; variantSequence?: number; size?: string; color?: string; stock: number; onHand?: number; reorderThreshold?: number; price: number; mrp?: number; costPrice?: number }[] };
 type Order = { id: string; status?: string; totalAmount?: number; paymentMethod?: string; createdBy?: string; createdAt?: { _seconds?: number; seconds?: number };
   customerName?: string; shippingAddress?: { fullName?: string }; items?: { name?: string; quantity?: number }[] };
 type Supplier = { id: string; name: string; phone: string; email: string; gstin: string };
 type Purchase = { id: string; supplierName: string; supplierInvoice: string; total: number; amountPaid: number; payable: number; lines?: { name?: string; sku?: string; quantity?: number; unitCost?: number; salePrice?: number; mrp?: number; stockValue?: number }[]; createdAt?: { _seconds?: number; seconds?: number } };
 type PurchaseOrder = { id: string; supplierId?: string; supplierName: string; supplierInvoice: string; total: number; status: string; lines?: { name?: string; sku?: string; quantity?: number; unitCost?: number; salePrice?: number; mrp?: number }[]; createdAt?: { _seconds?: number; seconds?: number }; receivedAt?: { _seconds?: number; seconds?: number }; purchaseId?: string };
 type Movement = { id: string; productId?: string; sku?: string; deltaChange?: number; reason?: string; source?: string; stockAfter?: number };
-type Invoice = { id: string; orderId: string; total: number; lines: { name?: string; sku?: string; quantity?: number; price?: number }[];
+type Invoice = { id: string; orderId: string; total: number; lines: { name?: string; sku?: string; quantity?: number; price?: number; discount?: number; discountPercent?: number; tax?: number; amount?: number; taxPercent?: number }[];
   exchangeCreditUsed?: number; payments?: PaymentPart[]; creditAmount?: number; cashTendered?: number; change?: number; creditDueDate?: string;
-  customerName?: string; customerPhone?: string; customerAddress?: string; customerDateOfBirth?: string; channel: string; paymentMethod: string; kind?: string; subtotal?: number; discount?: number; billUrl?: string; createdAt?: { _seconds?: number; seconds?: number } };
+  customerName?: string; customerPhone?: string; customerAddress?: string; customerDateOfBirth?: string; channel: string; paymentMethod: string; kind?: string; subtotal?: number; discount?: number; tax?: number; billUrl?: string; createdAt?: { _seconds?: number; seconds?: number } };
 type SyncRecord = { id: string; event?: string; status?: string; invoiceId?: string; source?: string; retryCount?: number; error?: string; providerMessageId?: string };
 type Shop = { name: string; phone: string; address: string; email: string; whatsapp: string; logo: string };
 const money = (value: number | undefined) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -66,6 +66,7 @@ export function ReceiptDialog({ invoice, shop, preview = false, onClose }: { inv
   const subtotal = invoice.subtotal ?? invoice.lines.reduce((sum, line) => sum + Number(line.price || 0) * Number(line.quantity || 0), 0);
   const discount = invoice.discount ?? Math.max(0, subtotal - invoice.total);
   const units = invoice.lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
+  const showHistoricalTax = Number(invoice.tax || 0) > 0 || invoice.lines.some(line => Number(line.tax || 0) > 0);
   const timestamp = invoice.createdAt?._seconds || invoice.createdAt?.seconds;
   const issuedAt = timestamp ? new Date(timestamp * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : preview ? 'Preview' : '';
   const phone = (invoice.customerPhone || '').replace(/\D/g, '');
@@ -76,8 +77,8 @@ export function ReceiptDialog({ invoice, shop, preview = false, onClose }: { inv
     <div className="invoice-header"><BrandLogo /><div><h2>{shop?.name || 'Brothers Outfit Gallery'}</h2><p>{shop?.address || 'FF-57, Pratham Square, Himatnagar, Gujarat 383001'}<br />Phone: {shop?.phone || '+91 84602 33020'}{shop?.email && <><br />{shop.email}</>}</p></div></div>
     <div className="invoice-title"><div><small>RETAIL SALES RECEIPT</small><h1>{preview ? 'Bill preview' : 'Thank you for shopping'}</h1></div><span>{preview ? 'Draft' : (invoice.paymentMethod === 'credit' || Number(invoice.creditAmount) > 0) ? 'Credit' : 'Paid'}</span></div>
     <div className="invoice-meta"><div><small>Receipt number</small><strong>{preview ? 'Assigned after sale' : invoice.id}</strong></div><div><small>Date</small><strong>{issuedAt || '—'}</strong></div><div><small>Customer</small><strong>{invoice.customerName || 'Walk-in'}{invoice.customerPhone ? ` · ${invoice.customerPhone}` : ''}</strong>{invoice.customerDateOfBirth && <small>DOB: {invoice.customerDateOfBirth}</small>}{invoice.customerAddress && <small>{invoice.customerAddress}</small>}</div><div><small>Payment</small><strong>{invoice.paymentMethod.toUpperCase()}</strong></div></div>
-    <table><thead><tr><th>Item / SKU</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead><tbody>{invoice.lines.map((line, index) => <tr key={`${line.sku || index}:${index}`}><td><strong>{line.name || line.sku || 'Item'}</strong><small>{line.sku || ''}</small></td><td>{line.quantity}</td><td>{money(line.price)}</td><td>{money(Number(line.price || 0) * Number(line.quantity || 0))}</td></tr>)}</tbody></table>
-    <div className="invoice-summary"><span>{units} item{units === 1 ? '' : 's'} · {invoice.channel} sale</span><div><div><span>Subtotal</span><strong>{money(subtotal)}</strong></div>{discount > 0 && <div><span>Discount</span><strong>− {money(discount)}</strong></div>}<div className="invoice-grand-total"><span>Total</span><strong>{money(invoice.total)}</strong></div></div></div>
+    <table><thead><tr><th>Item / SKU</th><th>Qty</th><th>MRP</th><th>Discount</th>{showHistoricalTax && <th>GST</th>}<th>Total</th></tr></thead><tbody>{invoice.lines.map((line, index) => <tr key={`${line.sku || index}:${index}`}><td><strong>{line.name || line.sku || 'Item'}</strong><small>{line.sku || ''}</small></td><td>{line.quantity}</td><td>{money(line.price)}</td><td>{money(line.discount)}{Number(line.discountPercent) > 0 && <small>{line.discountPercent}% off</small>}</td>{showHistoricalTax && <td>{money(line.tax)}</td>}<td>{money(line.amount ?? (Number(line.price || 0) * Number(line.quantity || 0) - Number(line.discount || 0) + Number(line.tax || 0)))}</td></tr>)}</tbody></table>
+    <div className="invoice-summary"><span>{units} item{units === 1 ? '' : 's'} · {invoice.channel} sale</span><div><div><span>MRP total</span><strong>{money(subtotal)}</strong></div>{discount > 0 && <div><span>Discount</span><strong>− {money(discount)}</strong></div>}{Number(invoice.tax) > 0 && <div><span>GST</span><strong>{money(invoice.tax)}</strong></div>}<div className="invoice-grand-total"><span>Total</span><strong>{money(invoice.total)}</strong></div></div></div>
     {Number(invoice.exchangeCreditUsed) > 0 && <p>Exchange credit applied: {money(invoice.exchangeCreditUsed)}</p>}
     {invoice.payments && <p>{invoice.payments.map(p => `${p.method.toUpperCase()}: ${money(p.amount)}`).join(' · ')}{Number(invoice.change) > 0 ? ` · Change: ${money(invoice.change)}` : ''}</p>}
     {(invoice.paymentMethod === 'credit' || Number(invoice.creditAmount) > 0) && <p className="credit-red"><strong>Repayment due: {invoice.creditDueDate || 'Not recorded'}</strong></p>}<div className="invoice-footer"><strong>Thank you for visiting.</strong><span>Keep this receipt for your records. For assistance, contact {shop?.phone || '+91 84602 33020'}.</span><small>Sales receipt · GST tax invoice not issued</small></div>
@@ -410,7 +411,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
   const [newOrderCount, setNewOrderCount] = useState(0);
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [offlineSales, setOfflineSales] = useState<QueuedSale[]>([]);
-  const [writesEnabled, setWritesEnabled] = useState(true);
+  const [writesEnabled, setWritesEnabled] = useState(false);
   const [held, setHeld] = useState<QueuedSale[]>([]);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const checkoutGuard = useRef(false);
@@ -459,7 +460,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
 
   const [online,setOnline]=useState(navigator.onLine);
   useEffect(()=>{const update=()=>setOnline(navigator.onLine);window.addEventListener('online',update);window.addEventListener('offline',update);return()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update);};},[]);
-  async function refreshActivation(){try{const data=await get<{businessWritesEnabled:boolean}>('foundation');setWritesEnabled(data.businessWritesEnabled ?? true);localStorage.setItem('pos-activation-cache',JSON.stringify({enabled:true,at:Date.now()}));}catch{setWritesEnabled(true);}}
+  async function refreshActivation(){try{const data=await get<{businessWritesEnabled:boolean}>('foundation');setWritesEnabled(data.businessWritesEnabled === true);}catch{setWritesEnabled(false);}}
   useEffect(()=>{void refreshActivation();},[]);
   async function recoverQueued(sale:QueuedSale){try{const result=await send<{state:string;invoiceId?:string}>('pos/recover',{requestId:sale.requestId});if(result.state==='posted'){await removeSale(sale.requestId);setNotice(`Already posted as ${result.invoiceId}. Find its receipt in Orders.`);}else{await recoverToHeld(sale);setHeld(await heldBills());setNotice('Moved to held bills. Open Billing / POS and resume it to review current stock and prices.');}await refreshOffline();}catch(e){setError((e as Error).message);}}
   function exportQueue(){const url=URL.createObjectURL(new Blob([JSON.stringify({format:'pos-pending-bills-v1',items:offlineSales},null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='pos-pending-bills.json';link.click();URL.revokeObjectURL(url);}
@@ -787,6 +788,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
           if (held.length > 0) void resumeBill(held[0]);
         }}
         onSaveBill={async (sale, action) => {
+          if (!writesEnabled) throw new Error('Billing is locked until the store activation is complete.');
           setCheckoutBusy(true);
           setError('');
           try {
@@ -814,7 +816,11 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
                 name: l.name || l.sku,
                 sku: l.sku,
                 quantity: l.quantity,
-                price: l.price
+                price: l.price,
+                discount: l.discount,
+                discountPercent: (l.price || 0) * l.quantity > 0 ? Math.round(Number(l.discount || 0) / ((l.price || 0) * l.quantity) * 10_000) / 100 : 0,
+                tax: l.tax,
+                amount: Math.round(((l.price || 0) * l.quantity - (l.discount || 0) + (l.tax || 0)) * 100) / 100
               })),
               customerName: sale.customerName,
               customerPhone: sale.customerPhone,
@@ -825,6 +831,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
               kind: 'sales_receipt',
               subtotal: sale.lines.reduce((sum, l) => sum + (l.price || 0) * l.quantity, 0),
               discount: sale.discount,
+              tax: sale.tax,
               billUrl: result.billUrl,
               creditDueDate: sale.creditDueDate
             };

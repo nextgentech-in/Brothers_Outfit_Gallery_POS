@@ -15,6 +15,7 @@ import { CommandPalette } from './CommandPalette';
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'same-origin', ...options });
+  if (response.status === 401 && !url.includes('/auth/')) window.location.assign('/login');
   if (!(response.headers.get('content-type') || '').includes('application/json')) throw new Error('The admin API is not connected on this deployment. Check the Vercel function and environment settings.');
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Something went wrong. Please retry.');
@@ -30,14 +31,24 @@ function Brand({ compact = false }: { compact?: boolean }) {
 export function App() {
   const [dark, setDark] = useState(() => localStorage.getItem('bo-theme-v2') !== 'light');
   useEffect(() => {
-    if (window.location.pathname === '/login') {
-      history.replaceState(null, '', '/');
-    }
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#111111' : '#f4f5f7');
     localStorage.setItem('bo-theme-v2', dark ? 'dark' : 'light');
   }, [dark]);
-  return <><div className="ambient ambient-one" /><div className="ambient ambient-two" />{window.location.pathname === '/enroll' ? <EnrollDevice /> : <Workspace dark={dark} toggleTheme={() => setDark(!dark)} />}</>;
+  return <><div className="ambient ambient-one" /><div className="ambient ambient-two" />{window.location.pathname === '/login' ? <Login /> : window.location.pathname === '/enroll' ? <EnrollDevice /> : <Workspace dark={dark} toggleTheme={() => setDark(!dark)} />}</>;
+}
+function Login() {
+  const [pin, setPin] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [deviceStatus, setDeviceStatus] = useState<{ loginAvailable: boolean; disabled?: boolean } | null>(null);
+  useEffect(() => { api<{ loginAvailable: boolean; disabled?: boolean }>('/api/auth/device/status').then(setDeviceStatus).catch(cause => setError((cause as Error).message)); }, []);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError('');
+    try { await post('/api/auth/login', { pin }); window.location.assign('/'); }
+    catch (cause) { setError((cause as Error).message); setBusy(false); }
+  }
+  return <main className="login-page"><section className="login-side"><div className="login-card glass"><Brand /><span className="pill"><LockKeyhole size={14} /> Shop access</span><h1>Billing starts here</h1><p>Enter your four-digit shop PIN.</p><form onSubmit={event => void submit(event)}><label htmlFor="pin">Shop PIN</label><input id="pin" type="password" inputMode="numeric" pattern="[0-9]{4}" minLength={4} maxLength={4} autoComplete="off" required autoFocus value={pin} onChange={event => setPin(event.target.value)} />{deviceStatus?.disabled && <p role="status">Hosted access is disabled.</p>}{deviceStatus && !deviceStatus.loginAvailable && !deviceStatus.disabled && <p role="status">This device needs a one-time trust link from the shop owner.</p>}{new URLSearchParams(window.location.search).has('paired') && <p role="status">Device trusted. Enter your PIN.</p>}{error && <p className="error" role="alert">{error}</p>}<button className="button primary login-submit" disabled={busy || !deviceStatus?.loginAvailable}>{busy ? 'Signing in…' : 'Open billing'}<ArrowRight size={17} /></button></form></div></section></main>;
 }
 function EnrollDevice() {
   const [token] = useState(() => {
@@ -56,17 +67,17 @@ function EnrollDevice() {
   return <main className="device-enroll-page"><div className="login-card glass"><Brand /><span className="eyebrow">ONE-TIME SETUP</span><h1>Trust this device</h1><p>Pair this browser with the shop POS. After pairing, daily sign-in uses only your PIN.</p><form onSubmit={event => void submit(event)}><label htmlFor="device-label">Device name</label><input id="device-label" value={label} onChange={event => setLabel(event.target.value)} maxLength={60} minLength={1} required placeholder="Shop laptop or my phone" />{error && <p className="error" role="alert">{error}</p>}<button className="button primary login-submit" disabled={busy || !token}>{busy ? 'Pairing…' : 'Trust this device'}<ArrowRight size={17} /></button></form><p className="muted">This invitation works once and expires after 10 minutes.</p></div></main>;
 }
 const primaryTabs: { id: string; label: string; icon: LucideIcon }[] = [
+  { id: 'pos', label: 'Billing', icon: ShoppingBag },
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'pos', label: 'Billing & POS', icon: ShoppingBag },
   { id: 'products', label: 'Products', icon: Package },
   { id: 'customers', label: 'Customers', icon: Users },
   { id: 'suppliers', label: 'Suppliers', icon: Truck },
   { id: 'credit', label: 'Credit / Udhar', icon: ArrowDownUp },
   { id: 'inventory', label: 'Inventory', icon: ArrowDownUp },
-  { id: 'orders', label: 'Orders', icon: FileText },
-  { id: 'reports', label: 'Reports', icon: BarChart3 }
+  { id: 'orders', label: 'Orders', icon: FileText }
 ];
 const moreTabs: { id: string; label: string; icon: LucideIcon }[] = [
+  { id: 'reports', label: 'Reports', icon: BarChart3 },
   { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
   { id: 'sync', label: 'Sync health', icon: RefreshCw },
   { id: 'security', label: 'Trusted devices', icon: ShieldCheck }
@@ -74,30 +85,23 @@ const moreTabs: { id: string; label: string; icon: LucideIcon }[] = [
 const tabs = [...primaryTabs, ...moreTabs];
 function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => void }) {
   const initial = window.location.pathname.slice(1);
-  const [tab, setTab] = useState(tabs.some(t => t.id === initial && t.id !== 'login') ? initial : 'dashboard');
-  const [owner, setOwner] = useState<Owner | null>({ uid: 'pin-owner', email: null, role: 'owner', name: 'Store owner' });
+  const [tab, setTab] = useState(tabs.some(t => t.id === initial && t.id !== 'login') ? initial : 'pos');
+  const [owner, setOwner] = useState<Owner | null>(null);
   const [error, setError] = useState('');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const allowed=(id:string)=>owner?.role!=='cashier'||['pos','customers','credit','sync'].includes(id);
   useEffect(()=>{if(owner?.role==='cashier'&&!allowed(tab))navigate('pos');},[owner,tab]);
-  function navigate(id: string) { setTab(id); history.pushState(null, '', id === 'dashboard' ? '/' : `/${id}`); }
+  function navigate(id: string) { setTab(id); history.pushState(null, '', id === 'pos' ? '/' : `/${id}`); }
   useEffect(() => {
     api<Owner>('/api/auth/me').then(identity => {
       if (identity) {
         setOwner(identity);
         localStorage.setItem('pos-offline-session', JSON.stringify({ identity, at: Date.now() }));
       }
-    }).catch(() => {
-      try {
-        const saved = JSON.parse(localStorage.getItem('pos-offline-session') || 'null');
-        if (saved?.identity) setOwner(saved.identity);
-      } catch {
-        // Default owner remains active
-      }
-    });
+    }).catch(() => window.location.assign('/login'));
     const pop = () => {
       const current = window.location.pathname.slice(1);
-      setTab(tabs.some(t => t.id === current && t.id !== 'login') ? current : 'dashboard');
+      setTab(tabs.some(t => t.id === current && t.id !== 'login') ? current : 'pos');
     };
     window.addEventListener('popstate', pop);
     return () => window.removeEventListener('popstate', pop);
@@ -115,10 +119,10 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
   }, []);
 
   async function logout() {
-    try { await post('/api/auth/logout', {}); } catch {}
+    try { await post('/api/auth/logout', {}); } catch (cause) { setError((cause as Error).message); return; }
     localStorage.removeItem('pos-offline-session');
     localStorage.removeItem('pos-activation-cache');
-    navigate('dashboard');
+    window.location.assign('/login');
   }
   return <div className="workspace">
     <aside className="sidebar glass"><Brand compact /><div className="workspace-label">YOUR WORKSPACE</div><nav aria-label="Main navigation">{primaryTabs.filter(item=>allowed(item.id)).map(item => <button key={item.id} onClick={() => navigate(item.id)} className={`nav-item ${tab === item.id ? 'selected' : ''}`} aria-current={tab === item.id ? 'page' : undefined}><item.icon size={19} />{item.label}{tab === item.id && <span className="nav-dot" />}</button>)}<details className="sidebar-more"><summary>More tools</summary><div className="more-menu">{moreTabs.filter(item=>allowed(item.id)&&(item.id!=='security'||owner?.role==='owner')).map(item => <button key={item.id} onClick={() => navigate(item.id)} className={`nav-item ${tab === item.id ? 'selected' : ''}`}><item.icon size={19} />{item.label}</button>)}</div></details></nav>

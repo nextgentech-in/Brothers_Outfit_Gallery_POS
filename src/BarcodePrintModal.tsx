@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Printer, X, Eye, EyeOff, Settings, CheckSquare } from 'lucide-react';
+import { Printer } from 'lucide-react';
 import { ClothingLabel, type ClothingProduct, type ClothingVariant, type LabelFormat } from './ClothingLabel';
 
 export type PrintableItem = {
@@ -23,8 +23,6 @@ export function BarcodePrintModal({
   onClose
 }: BarcodePrintModalProps) {
   const [format, setFormat] = useState<LabelFormat>('thermal-50x38');
-  const [showMrp, setShowMrp] = useState(true);
-  const [showDiscount, setShowDiscount] = useState(true);
 
   // Initialize copies per item key
   const [copies, setCopies] = useState<Record<string, number>>(() => {
@@ -110,28 +108,6 @@ export function BarcodePrintModal({
                   <option value="a4-40">A4 Sheet: 40 labels (4 × 10 grid, 48.5 × 25.4 mm)</option>
                 </select>
               </label>
-            </div>
-
-            <div className="barcode-setting-group toggles-group">
-              <span className="setting-label">Display Options</span>
-              <div className="barcode-checkbox-options">
-                <label className="checkbox-pill">
-                  <input
-                    type="checkbox"
-                    checked={showMrp}
-                    onChange={e => setShowMrp(e.target.checked)}
-                  />
-                  <span>Show MRP</span>
-                </label>
-                <label className="checkbox-pill">
-                  <input
-                    type="checkbox"
-                    checked={showDiscount}
-                    onChange={e => setShowDiscount(e.target.checked)}
-                  />
-                  <span>Show Discount %</span>
-                </label>
-              </div>
             </div>
 
             <div className="barcode-setting-group bulk-qty-group">
@@ -242,8 +218,6 @@ export function BarcodePrintModal({
                 product={labelItem.product}
                 variant={labelItem.variant}
                 format={format}
-                showMrp={showMrp}
-                showDiscount={showDiscount}
               />
             ))}
             {printableList.length === 0 && (

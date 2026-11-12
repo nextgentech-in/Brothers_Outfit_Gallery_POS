@@ -7,6 +7,7 @@ import { idempotent } from './transactions.js';
 import { changeStock, fiscalYear } from './commerce.js';
 import { shopDate } from '../shared/customers.js';
 import { validDueDate } from '../shared/credit.js';
+import { stockValue, stockValueRows } from '../shared/stockGst.js';
 
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 const paise = (v: unknown) => Math.round(Number(v || 0) * 100);
@@ -15,6 +16,20 @@ const reject = (msg: string, status = 422): never => { throw Object.assign(new E
 const fail = (res: any, e: any) => res.status(e.status || 503).json({ error: e.status ? e.message : 'Report data currently unavailable.' });
 
 export const reportsRouter = Router();
+
+reportsRouter.get('/reports/stock-gst', async (_req, res) => {
+  try {
+    const products = await firebase().db.collection('products').get();
+    const rows = stockValueRows(products.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const items = rows.filter(row => row.gstPercent > 0 && row.quantity > 0);
+    const sum = (key: 'quantity' | 'baseValue' | 'gstValue' | 'totalValue') => Math.round(rows.reduce((total, row) => total + row[key], 0) * 100) / 100;
+    res.json({ checkedAt: new Date().toISOString(), summary: {
+      products: new Set(rows.map(row => row.productId)).size,
+      gstProducts: new Set(items.map(row => row.productId)).size,
+      units: sum('quantity'), baseValue: sum('baseValue'), gstValue: sum('gstValue'), totalValue: sum('totalValue')
+    }, items });
+  } catch { res.status(503).json({ error: 'Stock GST report is unavailable.' }); }
+});
 
 function range(from: unknown, to: unknown) {
   const f = String(from || shopDate()), t = String(to || f);
@@ -254,6 +269,8 @@ reportsRouter.get('/reports/dashboard-summary', async (req, res) => {
     let totalStockUnits = 0;
     let stockCostTotalPaise = 0;
     let stockRetailTotalPaise = 0;
+    let stockGstTotalPaise = 0;
+    let productCount = 0;
     let lowStockCount = 0;
     let outOfStockCount = 0;
     const lowStockItems: any[] = [];
@@ -265,15 +282,19 @@ reportsRouter.get('/reports/dashboard-summary', async (req, res) => {
       const pSku = p.sku || doc.id;
       const lower = `${doc.id} ${pName} ${pSku}`.toLowerCase();
       if (lower.includes('demo') || lower.includes('sample')) continue;
+      productCount++;
+      const gstPercent = p.gstEnabled === true ? Number(p.gstPercent || 0) : 0;
 
       if (Array.isArray(p.variants) && p.variants.length > 0) {
         for (const v of p.variants) {
-          const stk = Number(v.stock ?? v.onHand ?? 0);
+          const stk = Math.max(0, Number(v.stock ?? v.onHand ?? 0) - Number(v.reserved ?? 0));
           const cost = Number(v.costPrice ?? p.costPrice ?? 0);
-          const price = Number(v.price ?? p.price ?? 0);
+          const price = Number(v.salePrice ?? v.price ?? p.salePrice ?? p.price ?? 0);
           totalStockUnits += stk;
           stockCostTotalPaise += Math.round(stk * cost * 100);
-          stockRetailTotalPaise += Math.round(stk * price * 100);
+          const value = stockValue(stk, price, gstPercent);
+          stockRetailTotalPaise += paise(value.baseValue);
+          stockGstTotalPaise += paise(value.gstValue);
           if (stk <= 0) {
             outOfStockCount++;
             if (lowStockItems.length < 15) {
@@ -287,12 +308,14 @@ reportsRouter.get('/reports/dashboard-summary', async (req, res) => {
           }
         }
       } else {
-        const stk = Number(p.stock ?? p.onHand ?? 0);
+        const stk = Math.max(0, Number(p.stock ?? p.onHand ?? 0) - Number(p.reserved ?? 0));
         const cost = Number(p.costPrice || 0);
-        const price = Number(p.price || 0);
+        const price = Number(p.salePrice ?? p.price ?? 0);
         totalStockUnits += stk;
         stockCostTotalPaise += Math.round(stk * cost * 100);
-        stockRetailTotalPaise += Math.round(stk * price * 100);
+        const value = stockValue(stk, price, gstPercent);
+        stockRetailTotalPaise += paise(value.baseValue);
+        stockGstTotalPaise += paise(value.gstValue);
         if (stk <= 0) {
           outOfStockCount++;
           if (lowStockItems.length < 15) {
@@ -353,8 +376,11 @@ reportsRouter.get('/reports/dashboard-summary', async (req, res) => {
       },
       inventory: {
         availableUnits: totalStockUnits,
+        productCount,
         stockCostValue: rupees(stockCostTotalPaise),
         stockRetailValue: rupees(stockRetailTotalPaise),
+        stockGstValue: rupees(stockGstTotalPaise),
+        stockTotalWithGst: rupees(stockRetailTotalPaise + stockGstTotalPaise),
         lowStockCount,
         outOfStockCount,
         lowStockItems

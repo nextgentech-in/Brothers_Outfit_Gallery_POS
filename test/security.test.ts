@@ -130,6 +130,10 @@ test('forged sessions never reach protected data', async () => {
 test('login rate limiting rejects repeated attempts', async () => {
   const { cookie, token } = await csrf();
   let response: Response | undefined;
+  for (let n = 0; n < 6; n++) {
+    const success = await fetch(origin + '/api/auth/login', { method: 'POST', headers: { origin: config.origin, cookie, 'x-csrf-token': token, 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: fixturePin }) });
+    assert.equal(success.status, 200, 'successful sign-ins must not trigger the limiter');
+  }
   for (let n = 0; n < 6; n++) response = await fetch(origin + '/api/auth/login', { method: 'POST', headers: { origin: config.origin, cookie, 'x-csrf-token': token, 'Content-Type': 'application/json' }, body: '{}' });
   assert.equal(response?.status, 429); assert.ok(response?.headers.get('retry-after'));
 });
@@ -140,5 +144,6 @@ test('cashier and manager permissions are enforced by the server',async()=>{
  for(const path of ['/api/reports/summary','/api/dashboard','/api/suppliers','/api/backup/export','/api/staff'])assert.equal((await fetch(origin+path,{headers})).status,403,path);
  for(const path of ['/api/orders/return','/api/inventory/count','/api/expenses/create','/api/products/create'])assert.equal((await fetch(origin+path,{method:'POST',headers,body:'{}'})).status,403,path);
  assert.equal((await fetch(origin+'/api/pos/sale',{method:'POST',headers,body:JSON.stringify({discount:10})})).status,403);
+ assert.equal((await fetch(origin+'/api/pos/sale',{method:'POST',headers,body:JSON.stringify({discount:10,lines:[{discount:10}]})})).status,423);
  fixtureRole='manager';assert.equal((await fetch(origin+'/api/staff',{headers})).status,403);
 });

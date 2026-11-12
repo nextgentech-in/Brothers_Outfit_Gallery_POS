@@ -79,9 +79,12 @@ export interface DashboardReportData {
     ownerWithdrawals: number;
   };
   inventory: {
+    productCount: number;
     availableUnits: number;
     stockCostValue: number;
     stockRetailValue: number;
+    stockGstValue: number;
+    stockTotalWithGst: number;
     lowStockCount: number;
     outOfStockCount: number;
     lowStockItems: Array<{ id: string; name: string; sku: string; available: number; status: string }>;
@@ -230,7 +233,9 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
       `--- REAL-TIME INVENTORY STATUS ---`,
       `Available Stock Units,${data.inventory.availableUnits}`,
       `Stock Cost Value,${canViewFinancials ? data.inventory.stockCostValue : 'Restricted'}`,
-      `Stock Retail Value,${data.inventory.stockRetailValue}`,
+      `Stock Selling Value Excluding GST,${data.inventory.stockRetailValue}`,
+      `Stock GST Value,${data.inventory.stockGstValue}`,
+      `Stock Selling Value Including GST,${data.inventory.stockTotalWithGst}`,
       `Low Stock Items Count (1-5 units),${data.inventory.lowStockCount}`,
       `Out of Stock Items Count (0 units),${data.inventory.outOfStockCount}`,
       ``,
@@ -668,13 +673,13 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
           ) : (
             <div className="dashboard-kpi-card">
               <div className="dashboard-kpi-top">
-                <span className="dashboard-kpi-label">Tax Collected</span>
+                <span className="dashboard-kpi-label">Historical Sales Tax</span>
                 <div className="dashboard-kpi-icon"><Receipt size={18} /></div>
               </div>
               <div className="dashboard-kpi-value">
                 {data ? money(data.summary.taxCollected) : '—'}
               </div>
-              <div className="dashboard-kpi-subtext">GST and local taxes in period</div>
+              <div className="dashboard-kpi-subtext">Tax recorded on earlier sales in period</div>
             </div>
           )}
 
@@ -787,7 +792,7 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
             <div className="dashboard-inv-card" onClick={() => navigate('inventory')}>
               <div className="dashboard-inv-info">
                 <strong>{data ? data.inventory.availableUnits.toLocaleString('en-IN') : '—'} units</strong>
-                <small>Available Stock Quantity (Current)</small>
+                <small>{data ? `${data.inventory.productCount} products · ` : ''}Available stock units</small>
               </div>
               <Boxes size={22} style={{ color: 'var(--accent)' }} />
             </div>
@@ -805,8 +810,17 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
             <div className="dashboard-inv-card" onClick={() => navigate('inventory')}>
               <div className="dashboard-inv-info">
                 <strong>{data ? money(data.inventory.stockRetailValue) : '—'}</strong>
-                <small>Stock Value at Retail MRP</small>
+                <small>Stock selling value · excluding GST</small>
               </div>
+              <ShoppingBag size={22} style={{ color: 'var(--accent)' }} />
+            </div>
+
+            <div className="dashboard-inv-card" onClick={() => navigate('inventory')}>
+              <div className="dashboard-inv-info"><strong>{data ? money(data.inventory.stockGstValue) : '—'}</strong><small>GST on stock at selling price</small></div>
+              <ShoppingBag size={22} style={{ color: 'var(--accent)' }} />
+            </div>
+            <div className="dashboard-inv-card" onClick={() => navigate('inventory')}>
+              <div className="dashboard-inv-info"><strong>{data ? money(data.inventory.stockTotalWithGst) : '—'}</strong><small>Stock selling value · including GST</small></div>
               <ShoppingBag size={22} style={{ color: 'var(--accent)' }} />
             </div>
 
@@ -1199,6 +1213,8 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
       </section>
 
       {/* 5. OPTIONAL BUSINESS CHARTS & CHANNEL BREAKDOWN */}
+      <details className="dashboard-advanced">
+        <summary>More sales analysis</summary>
       <section className="dashboard-charts-grid" aria-label="Visual Business Insights">
         {/* Chart A: Sales Channel Breakdown */}
         <div className="dashboard-chart-card">
@@ -1291,6 +1307,7 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
           </small>
         </div>
       </section>
+      </details>
 
       {/* ===================================================================
           MODALS & QUICK ACTION WORKFLOWS

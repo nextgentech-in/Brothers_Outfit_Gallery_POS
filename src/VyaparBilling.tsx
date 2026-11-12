@@ -3,6 +3,7 @@ import { Plus, Trash2, Search, ArrowRight, Share2, Printer, Check, RefreshCw, Al
 import { mobileNumber, shopDate } from '../shared/customers';
 import { validDueDate, dueDateAfter } from '../shared/credit';
 import type { QueuedSale } from './offlineQueue';
+import { paymentBreakdown } from '../shared/payments';
 
 export type ProductVariant = {
   sku: string;
@@ -12,6 +13,7 @@ export type ProductVariant = {
   color?: string;
   stock: number;
   price: number;
+  mrp?: number;
 };
 
 export type ProductItem = {
@@ -46,9 +48,11 @@ export type BillRow = {
   stock: number;
   quantity: number;
   price: number;
+  mrp: number;
+  salePrice: number;
+  discountPercent: number;
+  discountManual: boolean;
   discount: number;
-  taxPercent: number;
-  taxAmount: number;
   amount: number;
 };
 
@@ -60,19 +64,13 @@ const createEmptyRow = (id: string = crypto.randomUUID()): BillRow => ({
   stock: 0,
   quantity: 1,
   price: 0,
+  mrp: 0,
+  salePrice: 0,
+  discountPercent: 0,
+  discountManual: false,
   discount: 0,
-  taxPercent: 0,
-  taxAmount: 0,
   amount: 0
 });
-
-const TAX_OPTIONS = [
-  { label: '0%', value: 0 },
-  { label: '5%', value: 5 },
-  { label: '12%', value: 12 },
-  { label: '18%', value: 18 },
-  { label: '28%', value: 28 }
-];
 
 export function VyaparBilling({
   products,
@@ -112,7 +110,9 @@ export function VyaparBilling({
   const [stateOfSupply] = useState('Gujarat');
 
   // Payment mode options (down side of terms & conditions)
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'upi' | 'card' | 'credit'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'upi' | 'card' | 'credit' | 'split'>('cash');
+  const [splitCash, setSplitCash] = useState('');
+  const [splitCard, setSplitCard] = useState('');
   const [creditDueDate, setCreditDueDate] = useState(() => dueDateAfter(7));
   const [creditWhatsAppOptIn, setCreditWhatsAppOptIn] = useState(true);
   const [whatsappOptIn, setWhatsAppOptIn] = useState(false);
@@ -142,6 +142,7 @@ export function VyaparBilling({
       variantText: string;
       stock: number;
       price: number;
+      mrp: number;
       category?: string;
     }[] = [];
 
@@ -158,6 +159,7 @@ export function VyaparBilling({
             variantText: detail ? ` (${detail})` : '',
             stock: v.stock ?? p.stock,
             price: v.price || p.price,
+            mrp: v.mrp ?? p.mrp,
             category: p.category
           });
         }
@@ -171,6 +173,7 @@ export function VyaparBilling({
           variantText: '',
           stock: p.stock,
           price: p.price,
+          mrp: p.mrp,
           category: p.category
         });
       }
@@ -275,11 +278,10 @@ export function VyaparBilling({
   }
 
   // Row update helpers
-  function calculateRowAmount(qty: number, price: number, discount: number, taxPercent: number) {
-    const base = Math.max(0, qty * price - discount);
-    const taxAmt = Math.round((base * taxPercent) / 100 * 100) / 100;
-    const finalAmt = Math.round((base + taxAmt) * 100) / 100;
-    return { taxAmount: taxAmt, amount: finalAmt };
+  function calculateRowAmount(qty: number, mrp: number, discountPercent: number, salePrice?: number) {
+    const gross = Math.round(qty * mrp * 100);
+    const discount = (salePrice === undefined ? Math.round(gross * discountPercent / 100) : gross - Math.round(qty * salePrice * 100)) / 100;
+    return { discount, amount: Math.max(0, Math.round(gross - discount * 100) / 100) };
   }
 
   function updateRowField(id: string, field: keyof BillRow, value: any) {
@@ -287,14 +289,16 @@ export function VyaparBilling({
       prev.map(r => {
         if (r.id !== id) return r;
         const updated = { ...r, [field]: value };
-        if (['quantity', 'price', 'discount', 'taxPercent'].includes(field)) {
-          const { taxAmount, amount } = calculateRowAmount(
+        if (field === 'discountPercent') updated.discountManual = true;
+        if (['quantity', 'mrp', 'discountPercent'].includes(field)) {
+          const { discount, amount } = calculateRowAmount(
             Number(updated.quantity || 0),
-            Number(updated.price || 0),
-            Number(updated.discount || 0),
-            Number(updated.taxPercent || 0)
+            Number(updated.mrp || 0),
+            Number(updated.discountPercent || 0),
+            updated.discountManual ? undefined : updated.salePrice
           );
-          updated.taxAmount = taxAmount;
+          updated.price = Number(updated.mrp || 0);
+          updated.discount = discount;
           updated.amount = amount;
         }
         return updated;
@@ -307,7 +311,9 @@ export function VyaparBilling({
       prev.map(r => {
         if (r.id !== rowId) return r;
         const fullName = `${item.productName}${item.variantText}`;
-        // Default price to 0 so user manually enters the selling price
+        const mrp = item.mrp || item.price;
+        const discountPercent = mrp > 0 ? Math.round((mrp - item.price) / mrp * 10000) / 100 : 0;
+        const amounts = calculateRowAmount(r.quantity, mrp, discountPercent, item.price);
         return {
           ...r,
           productId: item.productId,
@@ -315,14 +321,19 @@ export function VyaparBilling({
           name: fullName,
           variantDetail: item.variantText,
           stock: item.stock,
-          price: 0,
-          taxAmount: 0,
-          amount: 0
+          price: mrp,
+          mrp,
+          salePrice: item.price,
+          discountPercent,
+          discountManual: false,
+          discount: amounts.discount,
+          amount: amounts.amount
         };
       })
     );
     setActiveSearchRowId(null);
     setSearchQuery('');
+    requestAnimationFrame(() => document.querySelector<HTMLInputElement>(`[data-qty-row="${rowId}"]`)?.focus());
   }
 
   function handleBarcodeScan(rawCode: string) {
@@ -352,6 +363,9 @@ export function VyaparBilling({
     } else {
       const newRowId = crypto.randomUUID();
       const fullName = `${match.productName}${match.variantText}`;
+      const mrp = match.mrp || match.price;
+      const discountPercent = mrp > 0 ? Math.round((mrp - match.price) / mrp * 10000) / 100 : 0;
+      const amounts = calculateRowAmount(1, mrp, discountPercent, match.price);
       setRows(prev => [
         ...prev,
         {
@@ -362,11 +376,13 @@ export function VyaparBilling({
           variantDetail: match!.variantText,
           stock: match!.stock,
           quantity: 1,
-          price: 0,
-          discount: 0,
-          taxPercent: 0,
-          taxAmount: 0,
-          amount: 0
+          price: mrp,
+          mrp,
+          salePrice: match.price,
+          discountPercent,
+          discountManual: false,
+          discount: amounts.discount,
+          amount: amounts.amount
         }
       ]);
     }
@@ -389,7 +405,6 @@ export function VyaparBilling({
     let totalQty = 0;
     let totalGross = 0;
     let totalDiscount = 0;
-    let totalTax = 0;
     let totalAmount = 0;
 
     for (const r of rows) {
@@ -397,13 +412,11 @@ export function VyaparBilling({
         const qty = Number(r.quantity || 0);
         const price = Number(r.price || 0);
         const disc = Number(r.discount || 0);
-        const tax = Number(r.taxAmount || 0);
         const amt = Number(r.amount || 0);
 
         totalQty += qty;
         totalGross += qty * price;
         totalDiscount += disc;
-        totalTax += tax;
         totalAmount += amt;
       }
     }
@@ -412,7 +425,6 @@ export function VyaparBilling({
       totalQty,
       totalGross: Math.round(totalGross * 100) / 100,
       totalDiscount: Math.round(totalDiscount * 100) / 100,
-      totalTax: Math.round(totalTax * 100) / 100,
       totalAmount: Math.round(totalAmount * 100) / 100
     };
   }, [rows]);
@@ -427,6 +439,18 @@ export function VyaparBilling({
       setError('Please add at least one item with quantity greater than zero.');
       return;
     }
+    if (validLines.some(line => !line.productId || line.mrp <= 0 || line.quantity > line.stock)) {
+      setError('Choose an in-stock product for each row and check its quantity and MRP.');
+      return;
+    }
+    const upiRemainder = Math.round((totals.totalAmount - Number(splitCash || 0) - Number(splitCard || 0)) * 100) / 100;
+    const payments = paymentMethod === 'split' ? [
+      { method: 'cash' as const, amount: Number(splitCash || 0) },
+      { method: 'upi' as const, amount: upiRemainder },
+      { method: 'card' as const, amount: Number(splitCard || 0) }
+    ].filter(part => part.amount > 0) : undefined;
+    try { paymentBreakdown(totals.totalAmount, paymentMethod, payments, cashTendered ? Number(cashTendered) : undefined); }
+    catch (cause) { setError((cause as Error).message); return; }
 
     if (paymentMethod === 'credit') {
       if (!customerName.trim()) {
@@ -452,9 +476,7 @@ export function VyaparBilling({
         name: line.name,
         quantity: Number(line.quantity),
         price: Number(line.price),
-        discount: Number(line.discount || 0),
-        tax: Number(line.taxAmount || 0),
-        taxPercent: Number(line.taxPercent || 0)
+        discount: Number(line.discount || 0)
       })),
       customerName: customerName.trim() || undefined,
       customerPhone: customerPhone.trim() || undefined,
@@ -464,8 +486,8 @@ export function VyaparBilling({
       creditWhatsAppOptIn: paymentMethod === 'credit' ? creditWhatsAppOptIn : undefined,
       whatsappOptIn: Boolean(customerPhone.trim()) && (whatsappOptIn || creditWhatsAppOptIn),
       discount: totals.totalDiscount,
-      tax: totals.totalTax,
       paymentMethod,
+      payments,
       cashTendered: cashTendered ? Number(cashTendered) : undefined,
       queuedAt: new Date().toISOString(),
       state: 'pending'
@@ -481,6 +503,8 @@ export function VyaparBilling({
         setCustomerDateOfBirth('');
         setCustomerAddress('');
         setCashTendered('');
+        setSplitCash('');
+        setSplitCard('');
         setInvoiceNumber(n => n + 1);
       }
     } catch (err) {
@@ -506,7 +530,14 @@ export function VyaparBilling({
   }, []);
 
   return (
-    <div className="vyapar-billing-container glass">
+    <div className="vyapar-billing-container glass" onKeyDown={event => {
+      if (event.key !== 'Enter' || event.defaultPrevented || !(event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement)) return;
+      event.preventDefault();
+      const fields = [...event.currentTarget.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input:not([type="hidden"]):not(:disabled):not([readonly]), select:not(:disabled)')].filter(field => field.offsetParent !== null);
+      const next = fields[fields.indexOf(event.target) + 1];
+      next?.focus();
+      if (next instanceof HTMLInputElement) next.select();
+    }}>
       {/* Top Notification / Alerts */}
       {error && (
         <div className="error-banner" role="alert" style={{ marginBottom: 16 }}>
@@ -671,6 +702,8 @@ export function VyaparBilling({
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Scan Barcode / Product #:</span>
         <input
           type="text"
+          autoFocus
+          aria-label="Scan barcode or enter product number"
           placeholder="Scan barcode (e.g. BOG-000001-001) or enter Product # / SKU and press Enter..."
           style={{ flex: 1, minHeight: 36, background: 'var(--solid)', border: '1px solid var(--line)', borderRadius: 6, padding: '6px 12px', color: 'var(--text)', fontSize: 13 }}
           onKeyDown={e => {
@@ -683,7 +716,7 @@ export function VyaparBilling({
         />
       </div>
 
-      {/* ITEMS TABLE SECTION (Exact Columns requested: item, quentity, price/piece, discount, tax, amount) */}
+      {/* Bill totals use MRP and the item discount; GST stays in stock reporting. */}
       <div className="vyapar-table-wrapper" ref={dropdownRef}>
         <table className="vyapar-items-table">
           <thead>
@@ -691,9 +724,8 @@ export function VyaparBilling({
               <th style={{ width: 42, textAlign: 'center' }}>#</th>
               <th style={{ minWidth: 260 }}>ITEM</th>
               <th style={{ width: 85, textAlign: 'center' }}>QTY</th>
-              <th style={{ width: 110, textAlign: 'right' }}>PRICE/PIECE</th>
-              <th style={{ width: 100, textAlign: 'right' }}>DISCOUNT (₹)</th>
-              <th style={{ width: 110, textAlign: 'right' }}>TAX</th>
+              <th style={{ width: 110, textAlign: 'right' }}>MRP / PIECE</th>
+              <th style={{ width: 100, textAlign: 'right' }}>DISCOUNT %</th>
               <th style={{ width: 120, textAlign: 'right' }}>AMOUNT (₹)</th>
               <th style={{ width: 40, textAlign: 'center' }}></th>
             </tr>
@@ -795,6 +827,7 @@ export function VyaparBilling({
                 <td>
                   <input
                     type="number"
+                    data-qty-row={row.id}
                     min="1"
                     step="1"
                     className="vyapar-cell-input text-center"
@@ -810,9 +843,9 @@ export function VyaparBilling({
                     min="0"
                     step="0.01"
                     className="vyapar-cell-input text-right"
-                    value={row.price === 0 ? 0 : (row.price || '')}
-                    placeholder="0.00"
-                    onChange={e => updateRowField(row.id, 'price', e.target.value === '' ? 0 : Number(e.target.value))}
+                    value={row.mrp || ''}
+                    placeholder="MRP"
+                    readOnly
                   />
                 </td>
 
@@ -821,39 +854,19 @@ export function VyaparBilling({
                   <input
                     type="number"
                     min="0"
+                    max="100"
                     step="0.01"
                     className="vyapar-cell-input text-right"
-                    value={row.discount === 0 ? 0 : (row.discount || '')}
+                    value={row.discountPercent}
                     placeholder="0"
-                    onChange={e => updateRowField(row.id, 'discount', e.target.value === '' ? 0 : Number(e.target.value))}
+                    onChange={e => updateRowField(row.id, 'discountPercent', Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
                   />
-                </td>
-
-                {/* TAX (Editable) */}
-                <td>
-                  <select
-                    className="vyapar-cell-input text-right"
-                    value={row.taxPercent}
-                    onChange={e => updateRowField(row.id, 'taxPercent', Number(e.target.value))}
-                  >
-                    {TAX_OPTIONS.map(opt => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
+                  <small className="vyapar-line-discount">−₹{row.discount.toFixed(2)} for {row.quantity}</small>
                 </td>
 
                 {/* AMOUNT (Calculated & Editable) */}
                 <td>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    className="vyapar-cell-input text-right font-bold"
-                    value={row.amount === 0 ? 0 : (row.amount || '')}
-                    onChange={e => updateRowField(row.id, 'amount', e.target.value === '' ? 0 : Number(e.target.value))}
-                  />
+                  <strong>₹{row.amount.toFixed(2)}</strong>
                 </td>
 
                 {/* Action: Delete Row */}
@@ -880,7 +893,6 @@ export function VyaparBilling({
               <td style={{ textAlign: 'center', fontWeight: 700 }}>{totals.totalQty}</td>
               <td style={{ textAlign: 'right', color: 'var(--muted)' }}>—</td>
               <td style={{ textAlign: 'right', fontWeight: 700 }}>₹{totals.totalDiscount}</td>
-              <td style={{ textAlign: 'right', fontWeight: 700 }}>₹{totals.totalTax}</td>
               <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--accent)', fontSize: 16 }}>
                 ₹{totals.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
               </td>
@@ -941,6 +953,9 @@ export function VyaparBilling({
                 <CreditCard size={16} />
                 <span>Card / POS</span>
               </button>
+              <button type="button" className={`vyapar-mode-btn ${paymentMethod === 'split' ? 'active' : ''}`} onClick={() => setPaymentMethod('split')}>
+                <Banknote size={16} /><span>Cash + UPI / Card</span>
+              </button>
               <button
                 type="button"
                 className={`vyapar-mode-btn ${paymentMethod === 'credit' ? 'active credit-mode' : ''}`}
@@ -950,6 +965,13 @@ export function VyaparBilling({
                 <span>Credit / Udhar</span>
               </button>
             </div>
+
+            {paymentMethod === 'split' && <div className="vyapar-mode-detail-box split-payment-fields">
+              <label>Cash ₹<input className="vyapar-field" type="number" min="0" max={totals.totalAmount} step="0.01" value={splitCash} onChange={e => setSplitCash(e.target.value)} /></label>
+              <label>Card ₹<input className="vyapar-field" type="number" min="0" max={totals.totalAmount} step="0.01" value={splitCard} onChange={e => setSplitCard(e.target.value)} /></label>
+              <p>UPI balance: <strong>₹{Math.max(0, Math.round((totals.totalAmount - Number(splitCash || 0) - Number(splitCard || 0)) * 100) / 100).toFixed(2)}</strong></p>
+              <small>Enter the cash and card amounts. The remaining balance is collected by UPI.</small>
+            </div>}
 
             {/* Context details for Cash */}
             {paymentMethod === 'cash' && (
@@ -1044,12 +1066,6 @@ export function VyaparBilling({
               <div className="vyapar-summary-line discount">
                 <span>Discount:</span>
                 <span>− ₹{totals.totalDiscount.toFixed(2)}</span>
-              </div>
-            )}
-            {totals.totalTax > 0 && (
-              <div className="vyapar-summary-line tax">
-                <span>Tax:</span>
-                <span>+ ₹{totals.totalTax.toFixed(2)}</span>
               </div>
             )}
             <div className="vyapar-summary-line total-highlight">
