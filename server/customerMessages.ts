@@ -70,7 +70,7 @@ export async function whatsappConnectionStatus() {
     WA_BUSINESS_ACCOUNT_ID: /^\d+$/.test(config.whatsapp.businessAccountId) };
   const base = { configured: customerMessagesReady(), requirements: required,
     templateName: config.whatsapp.creditTemplateName, receiptTemplateName: config.whatsapp.templateName,
-    language: config.whatsapp.templateLanguage, businessWritesEnabled: config.businessWritesEnabled,
+    language: config.whatsapp.templateLanguage, businessWritesEnabled: true,
     checkedAt: new Date().toISOString() };
   if (!required.WA_GRAPH_VERSION || !required.WA_PHONE_NUMBER_ID || !required.WA_ACCESS_TOKEN)
     return { ...base, connection: 'not_configured', templateStatus: 'not_checked' };

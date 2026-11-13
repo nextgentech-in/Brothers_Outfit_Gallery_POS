@@ -406,7 +406,6 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
   const [newOrderCount, setNewOrderCount] = useState(0);
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [offlineSales, setOfflineSales] = useState<QueuedSale[]>([]);
-  const [writesEnabled, setWritesEnabled] = useState(false);
   const [held, setHeld] = useState<QueuedSale[]>([]);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const checkoutGuard = useRef(false);
@@ -455,8 +454,6 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
 
   const [online,setOnline]=useState(navigator.onLine);
   useEffect(()=>{const update=()=>setOnline(navigator.onLine);window.addEventListener('online',update);window.addEventListener('offline',update);return()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update);};},[]);
-  async function refreshActivation(){try{const data=await get<{businessWritesEnabled:boolean}>('foundation');setWritesEnabled(data.businessWritesEnabled === true);}catch{setWritesEnabled(false);}}
-  useEffect(()=>{void refreshActivation();},[]);
   async function recoverQueued(sale:QueuedSale){try{const result=await send<{state:string;invoiceId?:string}>('pos/recover',{requestId:sale.requestId});if(result.state==='posted'){await removeSale(sale.requestId);setNotice(`Already posted as ${result.invoiceId}. Find its receipt in Orders.`);}else{await recoverToHeld(sale);setHeld(await heldBills());setNotice('Moved to held bills. Open Billing / POS and resume it to review current stock and prices.');}await refreshOffline();}catch(e){setError((e as Error).message);}}
   function exportQueue(){const url=URL.createObjectURL(new Blob([JSON.stringify({format:'pos-pending-bills-v1',items:offlineSales},null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='pos-pending-bills.json';link.click();URL.revokeObjectURL(url);}
 
@@ -500,7 +497,6 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
 
   async function load() {
     setLoading(true); setError('');
-    void refreshActivation();
     const paths: Record<string, string[]> = { products: ['products'], pos: ['products', 'shop-details', 'customers', 'invoices'],
       inventory: ['products', 'movements'], orders: [], customers: ['customers'],
       suppliers: ['suppliers', 'purchases', 'products', 'purchase-orders'],
@@ -675,7 +671,6 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
   async function completeSale(event: FormEvent) {
     event.preventDefault();
     if (checkoutGuard.current) return;
-    if (!writesEnabled) { setError('Billing is locked until the shared stock and schema review is complete.'); return; }
     if (!cart.length) return;
     const customerError = customerDetailsError(customerPhone, customerDateOfBirth);
     if (customerError) { setError(customerError); setCustomerDetailsOpen(true); setCustomerDialogOpen(true); return; }
@@ -777,7 +772,6 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
         <button className="button secondary" onClick={() => void load()} disabled={loading}><RefreshCw size={16} />Refresh</button>
       </div>
     )}
-    {!writesEnabled && <div className="notice" role="status">Read-only mode: your live catalog is available. Sales and product changes need store activation. You can preview and hold bills while setup is completed.</div>}
     {loading && <div className="notice" role="status"><RefreshCw size={16} />Loading shared store data…</div>}
     {error && <div className="error-banner" role="alert">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
     {notice && <div className="success-banner" role="status"><Check size={16} />{notice}<button onClick={() => setNotice('')}>Dismiss</button></div>}
@@ -797,7 +791,6 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
           if (held.length > 0) void resumeBill(held[0]);
         }}
         onSaveBill={async (sale, action) => {
-          if (!writesEnabled) throw new Error('Billing is locked until the store activation is complete.');
           setCheckoutBusy(true);
           setError('');
           try {

@@ -4,9 +4,6 @@ import type { Server } from 'node:http';
 import { createApp } from '../server/app.js';
 import { config } from '../server/config.js';
 
-// This fixture exercises the locked state even when the local shop is enabled.
-config.businessWritesEnabled = false;
-
 let server: Server;
 let origin: string;
 let revoked = false;
@@ -105,7 +102,7 @@ test('local owner can create a single-use device invitation only with a session 
   assert.equal(invite.status, 200);
   assert.match((await invite.json() as { url: string }).url, /\/enroll#token=/);
 });
-test('business routes require CSRF and stay locked before schema review', async () => {
+test('business routes require CSRF and otherwise reach normal validation', async () => {
   const { cookie, token } = await csrf();
   const login = await fetch(origin + '/api/auth/login', { method: 'POST', headers: {
     origin: config.origin, cookie, 'x-csrf-token': token, 'Content-Type': 'application/json'
@@ -115,15 +112,15 @@ test('business routes require CSRF and stay locked before schema review', async 
   const headers = { origin: config.origin, cookie: `${cookie}; ${session}`, 'Content-Type': 'application/json' };
   const deniedCsrf = await fetch(origin + '/api/pos/sale', { method: 'POST', headers, body: '{}' });
   assert.equal(deniedCsrf.status, 403);
-  const locked = await fetch(origin + '/api/pos/sale', { method: 'POST', headers: { ...headers, 'x-csrf-token': token }, body: '{}' });
-  assert.equal(locked.status, 423);
-  const lockedProduct = await fetch(origin + '/api/products/create', { method: 'POST', headers: { ...headers, 'x-csrf-token': token }, body: '{}' });
-  assert.equal(lockedProduct.status, 423);
-  const lockedBatchAdjustment = await fetch(origin + '/api/inventory/adjust-batch', { method: 'POST', headers: { ...headers, 'x-csrf-token': token }, body: '{}' });
-  assert.equal(lockedBatchAdjustment.status, 423);
+  const sale = await fetch(origin + '/api/pos/sale', { method: 'POST', headers: { ...headers, 'x-csrf-token': token }, body: '{}' });
+  assert.equal(sale.status, 422);
+  const product = await fetch(origin + '/api/products/create', { method: 'POST', headers: { ...headers, 'x-csrf-token': token }, body: '{}' });
+  assert.equal(product.status, 422);
+  const batchAdjustment = await fetch(origin + '/api/inventory/adjust-batch', { method: 'POST', headers: { ...headers, 'x-csrf-token': token }, body: '{}' });
+  assert.equal(batchAdjustment.status, 422);
   for (const endpoint of ['/api/credit/customers', '/api/credit/entries', '/api/credit/preferences', '/api/whatsapp/process', '/api/whatsapp/retry']) {
     const response = await fetch(origin + endpoint, { method: 'POST', headers: { ...headers, 'x-csrf-token': token }, body: '{}' });
-    assert.equal(response.status, 423, endpoint);
+    assert.notEqual(response.status, 423, endpoint);
   }
 });
 test('forged sessions never reach protected data', async () => {
@@ -147,6 +144,6 @@ test('cashier and manager permissions are enforced by the server',async()=>{
  for(const path of ['/api/reports/summary','/api/dashboard','/api/suppliers','/api/backup/export','/api/staff'])assert.equal((await fetch(origin+path,{headers})).status,403,path);
  for(const path of ['/api/orders/return','/api/inventory/count','/api/expenses/create','/api/products/create'])assert.equal((await fetch(origin+path,{method:'POST',headers,body:'{}'})).status,403,path);
  assert.equal((await fetch(origin+'/api/pos/sale',{method:'POST',headers,body:JSON.stringify({discount:10})})).status,403);
- assert.equal((await fetch(origin+'/api/pos/sale',{method:'POST',headers,body:JSON.stringify({discount:10,lines:[{discount:10}]})})).status,423);
+ assert.equal((await fetch(origin+'/api/pos/sale',{method:'POST',headers,body:JSON.stringify({discount:10,lines:[{discount:10}]})})).status,422);
  fixtureRole='manager';assert.equal((await fetch(origin+'/api/staff',{headers})).status,403);
 });

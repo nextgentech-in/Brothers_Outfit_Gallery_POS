@@ -68,7 +68,9 @@ reportsRouter.get('/reports/dashboard-summary', async (req, res) => {
       db.collection('erp_returns').where('createdAt', '>=', start).where('createdAt', '<', end).get(),
       db.collection('erp_expenses').where('createdAt', '>=', start).where('createdAt', '<', end).get(),
       db.collection('erp_purchases').where('createdAt', '>=', start).where('createdAt', '<', end).get(),
-      db.collection('erp_customerLedger').where('createdAt', '>=', start).where('createdAt', '<', end).where('kind', '==', 'payment').get(),
+      // Filter kind in memory so a fresh store does not need a composite index
+      // before the daily dashboard can load.
+      db.collection('erp_customerLedger').where('createdAt', '>=', start).where('createdAt', '<', end).get(),
       db.collection('erp_supplierRefunds').where('createdAt', '>=', start).where('createdAt', '<', end).get(),
       db.collection('erp_refunds').where('createdAt', '>=', start).where('createdAt', '<', end).get(),
       db.collection('erp_creditAccounts').get(),
@@ -177,6 +179,7 @@ reportsRouter.get('/reports/dashboard-summary', async (req, res) => {
     let udharRepaidPaise = 0;
     for (const doc of customerLedgerSnap.docs) {
       const l = doc.data();
+      if (l.kind !== 'payment') continue;
       udharRepaidPaise += -paise(l.creditDelta || 0);
     }
 

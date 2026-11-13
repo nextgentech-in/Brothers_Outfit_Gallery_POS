@@ -148,10 +148,12 @@ export function changeStock(product: Product, sku: string, delta: number): { pro
     variants[index] = { ...variants[index], stock: after, quantity: after };
     const total = variants.reduce((sum, v) => sum + Number(v.stock ?? 0), 0);
     return { product: { ...product, variants, stock: total, quantity: total, inStock: total > 0,
+      ...(delta > 0 && total > 0 ? { active: true, isDeleted: false, deletedAt: FieldValue.delete() } : {}),
       reserved: variants.reduce((sum, v) => sum + Number(v.reserved ?? 0), 0),
       sizes: [...new Set(variants.filter(v => Number(v.stock) - Number(v.reserved ?? 0) > 0).map(v => v.size).filter(Boolean))] }, after };
   }
-  return { product: { ...product, stock: after, quantity: after, inStock: after > 0 }, after };
+  return { product: { ...product, stock: after, quantity: after, inStock: after > 0,
+    ...(delta > 0 && after > 0 ? { active: true, isDeleted: false, deletedAt: FieldValue.delete() } : {}) }, after };
 }
 function publicProduct(doc: FirebaseFirestore.QueryDocumentSnapshot) {
   const data = doc.data();

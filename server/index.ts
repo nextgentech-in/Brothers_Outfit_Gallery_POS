@@ -26,16 +26,14 @@ if (config.production) {
     catch (error) { next(error); }
   });
 }
-server.listen(config.port, config.host, () => console.log(`Brothers Outfit Admin · ${config.origin} · review preview · writes ${config.businessWritesEnabled ? 'environment-enabled' : 'locked'}`));
+server.listen(config.port, config.host, () => console.log(`Brothers Outfit Admin · ${config.origin} · store operations enabled`));
 
 let deliveryWorkerBusy = false;
 const deliveryWorker = setInterval(async () => {
-  if (deliveryWorkerBusy || !config.businessWritesEnabled || (!whatsappReady() && !customerMessagesReady())) return;
+  if (deliveryWorkerBusy || (!whatsappReady() && !customerMessagesReady())) return;
   deliveryWorkerBusy = true;
   try {
     const db = firebase().db;
-    const rollout = await db.collection('erp_settings').doc('commerce').get();
-    if (rollout.data()?.enabled !== true) return;
     const pending = await db.collection('erp_syncLog').where('status', '==', 'awaiting_provider').limit(20).get();
     for (const event of pending.docs) await deliverInvoice(db, event.id);
     await processCustomerMessages(db);

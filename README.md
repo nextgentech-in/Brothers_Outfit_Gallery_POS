@@ -2,7 +2,7 @@
 
 Latest changes and cashier instructions: [daily-use update, purchases and barcode labels](docs/08-daily-use-update.md). Purchases receive stock immediately by default, create new items atomically, and calculate cost × quantity.
 
-A separate private admin project in `D:\Brothers_Outfit_Admin`. The public website remains in `D:\Brothers_Outfit\brothers`. Both apps use the same Firestore product records and stock balances. On 13 November 2026, the owner requested a reset of the previous cloud POS data. A private backup was saved, 637 old POS and business records were removed, and 9 website-origin products remained (6 active). The website's retired `/api/pos/*` connection returns HTTP 410; the offline Mr. Munim installation was not touched. The shared commerce flag and local `ADMIN_BUSINESS_WRITES` are enabled for testing. Hosted Vercel settings and deployment still require team access, so the hosted app is not yet verified as writable.
+A separate private admin project connected to the same Firestore database as the public website in `D:\Brothers_Outfit\brothers`. On 13 November 2026, the owner requested a reset of the previous cloud POS data. A private backup was saved, 637 old POS and business records were removed, and 9 website-origin products remained (6 active). The website's retired `/api/pos/*` connection returns HTTP 410; the offline Mr. Munim installation was not touched. The POS reads and updates the shared catalog, variants, orders, customers, stock movements and store details. Product editing, stock adjustments, POS receipts, order status/returns, supplier receipts and offline queuing are enabled for authenticated staff.
 
 See [current activation status](docs/07-activation-status.md). Billing now includes held bills on this device, current-stock checks on resume, a duplicate-click guard, and clearer handling of rejected sales.
 
@@ -10,7 +10,7 @@ Billing is the first screen; the dashboard remains one click away with product, 
 
 Receipt sharing defaults to manual sending. With customer consent, the free manual path is: complete the sale, select Share on WhatsApp, then send the prepared receipt message. Download PDF separately and attach it in WhatsApp when a document is required. This manual path requires a person to press Send; it does not auto-send the PDF. Automatic document delivery requires the Meta WhatsApp Business API credentials and approved template listed below, and provider charges may apply. The local preview has no provider connection and cannot auto-send messages.
 
-POS sales also create a signed, read-only PDF link on the shared Firebase invoice. The link works without admin login and expires after 30 days. A completed receipt can open the customer's SMS app with the link and phone number filled in, or share the link through WhatsApp; staff must tap Send. The website's primary OTP path uses Firebase Phone Authentication, which sends verification codes only and cannot send arbitrary receipt messages. Automatic SMS requires a separate messaging provider and is not enabled. All commerce writes remain gated by the existing rollout controls.
+POS sales also create a signed, read-only PDF link on the shared Firebase invoice. The link works without admin login and expires after 30 days. A completed receipt can open the customer's SMS app with the link and phone number filled in, or share the link through WhatsApp; staff must tap Send. The website's primary OTP path uses Firebase Phone Authentication, which sends verification codes only and cannot send arbitrary receipt messages. Automatic SMS requires a separate messaging provider and is not enabled.
 
 ## Start locally
 
@@ -25,7 +25,7 @@ Open [http://localhost:4310](http://localhost:4310). Use `localhost` consistentl
 
 Sign in with the four-digit PIN configured as `ADMIN_PIN` in the admin project's ignored `.env` file. No email, ID or password is requested. The local preview PIN was set by the owner. Sessions are opaque and expire after eight hours by default; logout revokes that session. Local sessions are in memory and a server restart signs everyone out. Hosted sign-in also requires a one-time trusted-device pairing from the local preview; ordinary sign-in on paired devices remains PIN-only. Hosted sessions, devices and sign-in limits use the additive `erp_authState` collection. Firebase Auth accounts and website authentication are not changed.
 
-The local preview binds to `127.0.0.1`. Its business-write routes require both `ADMIN_BUSINESS_WRITES=enabled` server-side and `erp_settings/commerce.enabled=true` in Firestore. Both are enabled for the local shop test. Hosted sign-in has a distributed login limiter and requires a valid trusted-device cookie, because the requested four-digit PIN is already known publicly.
+The local app binds to `127.0.0.1`. Business operations are available after sign-in; PIN/session, trusted-device, role and CSRF protections remain enforced. Hosted sign-in has a distributed login limiter and requires a valid trusted-device cookie, because the requested four-digit PIN is already known publicly.
 
 ## Customer birthdays in billing
 
@@ -47,7 +47,7 @@ The composer works without Meta credentials or API templates. On a computer, lin
 
 Selecting **Credit / udhaar** during billing requires the customer's name, mobile, birthday and repayment date. The same transaction saves the credit entry with the sale. Held/offline bills retain that date. Credit PDFs say **PAYMENT DUE**, and full returns cancel only the unpaid part of the returned bill; any already-paid part remains subject to the existing refund review.
 
-Ledger entries stay in `erp_customerLedger`. New entries include `kind`, `sequence`, `dueDate`, `note` and `paymentMethod`; return reductions identify the original entry through `appliesTo`. `erp_creditAccounts/{customerKey}` serializes changes to each account. Repayment amounts cannot exceed the outstanding balance, and stable request IDs make retries idempotent. No migration or balance rewrite is applied automatically. All new mutation routes retain authentication, CSRF and both commerce-write gates.
+Ledger entries stay in `erp_customerLedger`. New entries include `kind`, `sequence`, `dueDate`, `note` and `paymentMethod`; return reductions identify the original entry through `appliesTo`. `erp_creditAccounts/{customerKey}` serializes changes to each account. Repayment amounts cannot exceed the outstanding balance, and stable request IDs make retries idempotent. No migration or balance rewrite is applied automatically. All mutation routes retain authentication, role checks and CSRF protection.
 
 **WhatsApp** shows configured/missing settings, a live Meta connection check, sending-number details, quality rating, template approval when checkable, and customer message history. Automatic account creation, credit and repayment messages use the separate `creditWhatsAppOptIn` preference. New messages are created atomically in `erp_customerMessages` with the ledger change. They are attempted after commit and remain queued if provider settings are missing. Accepted means accepted by Meta, not delivered/read; delivery webhooks are not implemented. Ambiguous timeouts and interrupted sends require review rather than automatic resend. Confirmed rejections support an explicit retry.
 
@@ -55,7 +55,7 @@ For automatic account messages configure `WA_GRAPH_VERSION`, `WA_PHONE_NUMBER_ID
 
 The approved account/credit utility template must use a static body with **five positional text parameters**, in this order: customer name, activity, transaction amount, remaining balance, repayment due date (or “No payment due”). Example body for provider review: `Hello {{1}}, your Brothers Outfit Gallery account update: {{2}}. Amount: {{3}}. Balance: {{4}}. Repayment due: {{5}}.` The account owner must obtain Meta approval for their template and language before sending.
 
-The dedicated Node server processes queued customer messages every 45 seconds while commerce writes are enabled. Vercel Functions do not run that background loop: new events are attempted during their request; use **Process queued messages** or a separately configured authenticated worker for pending delivery. Due-date reminder messages are not scheduled automatically. Real Firebase, provider authorization, template approval and live message delivery still require environment-specific verification.
+The dedicated Node server processes queued customer messages every 45 seconds when the provider is configured. Vercel Functions do not run that background loop: new events are attempted during their request; use **Process queued messages** or a separately configured authenticated worker for pending delivery. Due-date reminder messages are not scheduled automatically. Real Firebase, provider authorization, template approval and live message delivery still require environment-specific verification.
 
 ## Review first
 
@@ -73,7 +73,7 @@ The [implementation review](docs/05-implementation-review.md) records the earlie
 | `npm run dev` | Local Express + Vite app on port 4310 |
 | `npm run build` | Strict TypeScript check, production frontend and server build |
 | `npm start` | Production server; requires HTTPS `ADMIN_ORIGIN` |
-| `npm test` | PIN, access, CSRF, write lock, stock helper, PDF and rollback guard tests; no live DB writes |
+| `npm test` | PIN, access, CSRF, permissions, stock helper, PDF and rollback guard tests; no live DB writes |
 | `npm run inspect` | Read at most 3 documents in each of 8 existing collections; output field names/types only |
 | `npm run migrate` | Print Phase 1 migration proposal; no DB access |
 | `npm run rollback` | Print non-destructive rollback proposal; no DB access |
@@ -90,7 +90,7 @@ npm run rollback -- --apply --project=<exact-project-id>
 
 Neither migration command has been applied to the live database. Migration `0001` creates only `erp_settings/system` and `erp_migrations/0001_foundation`. The separate owner-requested 13 November reset removed the previous cloud POS stock-movement and business history after creating a private backup.
 
-Commerce writes additionally require a database rollout flag. After reviewing the exact schema and website checkout cutover, `npm run commerce:rollout -- --enable --apply --project=<exact-project-id>` creates or enables `erp_settings/commerce`, and the server must separately set `ADMIN_BUSINESS_WRITES=enabled`. `--disable` with the same guarded arguments is the non-destructive rollback script; it retains accepted stock and financial history. Neither direction has been applied to the live database.
+The legacy `commerce:rollout` command remains only as a historical maintenance utility. Normal billing, inventory, purchases, expenses and credit operations no longer depend on its database flag or on an environment write gate.
 
 ## Environment names (no values)
 
@@ -103,7 +103,6 @@ Commerce writes additionally require a database rollout flag. After reviewing th
 | `ADMIN_SESSION_SECRET` | Optional dedicated random 32+ character server secret for hosted auth; when unset, a separate key is derived from the existing server-only Firebase service key with HKDF |
 | `ADMIN_PAIRING_ORIGIN` | HTTPS production POS origin used when creating a one-time device invitation; defaults to the canonical Vercel URL |
 | `ADMIN_DEVICE_ACCESS` | Set to `disabled` to stop hosted pairing, sign-in and active sessions before device rollback; enabled when unset |
-| `ADMIN_BUSINESS_WRITES` | Set to `enabled` only after reviewed stock and schema cutover; otherwise every business write is locked |
 | `ADMIN_ORIGIN`, `ADMIN_PORT`, `ADMIN_HOST`, `SESSION_HOURS` | Origin, bind address and session lifetime |
 | `TRUST_PROXY_HOPS` | Exact trusted reverse-proxy topology; default zero |
 | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` | Existing gateway credentials, reserved for billing phase |
@@ -124,14 +123,14 @@ The Firebase Admin dependency chain needs the checked-in npm override for `jwks-
 
 Set the Vercel project's Root Directory to this repository's root, Framework Preset to Vite, Build Command to `npm run build`, and Output Directory to `dist` (the checked-in `vercel.json` declares the last three). A wrong root or output directory can still produce a 404. The function URL `/api/health` should return JSON `{"status":"ok",...}`; `/login` should serve the app; anonymous `/api/dashboard` should return JSON 401. The Vercel project must receive its own server-side environment variables; it cannot read the sibling website's local `.env`.
 
-Required Vercel environment names for sign-in and data: `ADMIN_PIN`, `FIREBASE_ADMIN_PROJECT_ID`, and either `FIREBASE_SERVICE_ACCOUNT_JSON` or `FIREBASE_CLIENT_EMAIL` plus `FIREBASE_PRIVATE_KEY`. A dedicated `ADMIN_SESSION_SECRET` is recommended but optional when a Firebase service key is configured: the server derives a stable, separate session HMAC key from that existing secret. Rotating the Firebase service key invalidates existing POS sessions unless a dedicated session secret is set. The canonical URL is the fallback `ADMIN_ORIGIN`; set `ADMIN_ORIGIN` explicitly if using another domain. The Firebase project must be the same project as the website. For ImageKit uploads add `IMAGEKIT_PRIVATE_KEY`. Hosted `ADMIN_BUSINESS_WRITES` must be checked in Vercel before hosted billing can be verified.
+Required Vercel environment names for sign-in and data: `ADMIN_PIN`, `FIREBASE_ADMIN_PROJECT_ID`, and either `FIREBASE_SERVICE_ACCOUNT_JSON` or `FIREBASE_CLIENT_EMAIL` plus `FIREBASE_PRIVATE_KEY`. A dedicated `ADMIN_SESSION_SECRET` is recommended but optional when a Firebase service key is configured: the server derives a stable, separate session HMAC key from that existing secret. Rotating the Firebase service key invalidates existing POS sessions unless a dedicated session secret is set. The canonical URL is the fallback `ADMIN_ORIGIN`; set `ADMIN_ORIGIN` explicitly if using another domain. The Firebase project must be the same project as the website. For ImageKit uploads add `IMAGEKIT_PRIVATE_KEY`.
 
 **The requested four-digit local PIN is known from this project discussion.** Hosted PIN sign-in requires a device paired from the local shop preview. Open `http://localhost:4310/security`, select **Create one-time link**, and open that link on the browser you want to use. The link expires after 10 minutes and works once. Once paired, visit `/login` on that same browser and enter the PIN. If a device is lost, revoke it from Trusted devices; its active sessions then fail their grant check. [The exact additive document mapping and rollback](docs/06-trusted-device-access-proposal.md) were approved before implementation.
 
 Hosted PIN sessions and login limits use `erp_authState` with HMAC-hashed IDs; invitations and device grants use SHA-256 IDs derived from random 256-bit tokens. No raw PIN, token or client IP is stored. The device rollback script dry-runs by default and deletes only device invitations, grants and linked sessions when applied with an exact project ID. The broader `npm run auth:rollback` revokes every POS auth document. Vercel Functions do not run the interval worker in `server/index.ts`; WhatsApp retry scheduling needs a separate hosted worker or a suitable scheduled function before Phase 7 can be called complete.
 
-For a dedicated Node host, run `npm ci`, `npm run build`, then `npm start` behind HTTPS. Set `ADMIN_ORIGIN`, `ADMIN_HOST`, `ADMIN_PORT`, credentials and trusted proxy topology for that host. Production uses the same durable sessions and write gates. No production stock or order mutation has been applied from the local preview.
+For a dedicated Node host, run `npm ci`, `npm run build`, then `npm start` behind HTTPS. Set `ADMIN_ORIGIN`, `ADMIN_HOST`, `ADMIN_PORT`, credentials and trusted proxy topology for that host. Production uses the same durable sessions and request protections.
 
 ## Verification limits
 
-Automated tests cover PIN access, trusted-device pairing, CSRF, write locking, stock bounds and receipt PDF structure. A real Vercel pairing and PIN sign-in reached the hosted dashboard; revoking that temporary device made its existing session return HTTP 401. The live catalog and orders were read in a browser preview, and a sample PDF was rendered. Production business migration application, concurrent stock transactions, gateway/webhook reconciliation, WhatsApp delivery, checkout reservations and offline reconnect remain unverified or incomplete. See the [implementation review](docs/05-implementation-review.md) and [end-to-end checklist](docs/04-delivery-and-tests.md).
+Automated tests cover PIN access, trusted-device pairing, CSRF, role permissions, stock bounds and receipt PDF structure. A real Vercel pairing and PIN sign-in reached the hosted dashboard; revoking that temporary device made its existing session return HTTP 401. Gateway/webhook reconciliation, WhatsApp delivery and offline reconnect still require environment-specific verification. See the [implementation review](docs/05-implementation-review.md) and [end-to-end checklist](docs/04-delivery-and-tests.md).

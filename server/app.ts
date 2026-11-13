@@ -40,7 +40,7 @@ export function createApp(options: AppOptions = {}) {
   app.use('/api', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false }));
   app.post('/api/internal/receipt', rateLimit({ windowMs: 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false }),
     express.raw({ type: 'application/json', limit: '4kb' }), async (req, res) => {
-    if (!config.businessWritesEnabled || !config.erpSyncSecret) { res.status(423).json({ error: 'Receipt delivery is disabled.' }); return; }
+    if (!config.erpSyncSecret) { res.status(503).json({ error: 'Receipt delivery is not configured.' }); return; }
     const signature = req.get('x-erp-signature') || '';
     const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
     const expected = createHmac('sha256', config.erpSyncSecret).update(raw).digest('hex');
@@ -54,7 +54,7 @@ export function createApp(options: AppOptions = {}) {
     if (!parsed.success) { res.status(400).json({ error: 'Invalid event.' }); return; }
     try {
       const db = firebase().db;
-      const [, event, invoice] = await db.getAll(db.collection('erp_settings').doc('commerce'),
+      const [event, invoice] = await db.getAll(
         db.collection('erp_syncLog').doc(parsed.data.eventId), db.collection('erp_invoices').doc(parsed.data.invoiceId));
       if (event.data()?.invoiceId !== parsed.data.invoiceId || invoice.data()?.orderId !== parsed.data.orderId) {
         res.status(409).json({ error: 'Event identity mismatch.' }); return;
@@ -187,11 +187,7 @@ export function createApp(options: AppOptions = {}) {
     } catch { res.status(503).json({ error: 'Sign-out could not be completed. Please retry.' }); }
   });
   app.get('/api/foundation', async (_req, res) => {
-    if (!config.businessWritesEnabled) { res.json({ mapping, phases, businessWritesEnabled: false }); return; }
-    try {
-      const rollout = await firebase().db.collection('erp_settings').doc('commerce').get();
-      res.json({ mapping, phases, businessWritesEnabled: rollout.data()?.enabled === true });
-    } catch { res.status(503).json({ error: 'Store activation status is unavailable.' }); }
+    res.json({ mapping, phases, businessWritesEnabled: true });
   });
   app.get('/api/overview', async (_req, res) => {
     try {
@@ -212,12 +208,7 @@ export function createApp(options: AppOptions = {}) {
       '/day/close', '/suppliers/payment', '/customers/update', '/inventory/count', '/purchases/receive',
       '/purchases/receive-order', '/purchases/return', '/purchases/return/apply-credit', '/purchases/return/refund', '/staff/save']);
     if (req.method !== 'POST' || !writes.has(req.path)) { next(); return; }
-    if (!config.businessWritesEnabled) { res.status(423).json({ error: 'Live business writes are locked pending activation.' }); return; }
-    try {
-      const rollout = await firebase().db.collection('erp_settings').doc('commerce').get();
-      if (rollout.data()?.enabled === true) next();
-      else res.status(423).json({ error: 'Commerce rollout is disabled in the shared database.' });
-    } catch { res.status(503).json({ error: 'Commerce rollout status is unavailable.' }); }
+    next();
   });
   app.use('/api', commerceRouter);
   app.use('/api', creditRouter);
@@ -242,7 +233,7 @@ async function readOverview(): Promise<Overview> {
   const db = firebase().db;
   const counts = await Promise.all(['products', 'orders', 'users', 'stockMovements'].map(name => db.collection(name).count().get()));
   return { products: counts[0].data().count, orders: counts[1].data().count, customers: counts[2].data().count,
-    movements: counts[3].data().count, checkedAt: new Date().toISOString(), businessWritesEnabled: config.businessWritesEnabled };
+    movements: counts[3].data().count, checkedAt: new Date().toISOString(), businessWritesEnabled: true };
 }
 async function readDashboard(): Promise<DashboardSummary> {
   type OrderData = { id: string; status?: unknown; createdBy?: unknown; totalAmount?: unknown; total?: unknown; returnedAmount?: unknown;
@@ -296,7 +287,7 @@ async function readDashboard(): Promise<DashboardSummary> {
     posSales: saleOrders.filter(isPos).reduce((sum, order) => sum + amount(order), 0),
     pendingOrders: orders.filter(order => ['processing', 'pending', 'confirmed', 'packed'].includes(String(order.status || '').toLowerCase())).length,
     syncFailures: syncDocs.docs.filter(doc => ['failed', 'awaiting_provider'].includes(String(doc.data().status || ''))).length,
-    sampledOrders: orders.length, checkedAt: new Date().toISOString(), businessWritesEnabled: config.businessWritesEnabled,
+    sampledOrders: orders.length, checkedAt: new Date().toISOString(), businessWritesEnabled: true,
     lowStockItems: stock.filter(product => product.reorder).sort((a, b) => a.available - b.available).slice(0, 8)
       .map(({ id, name, sku, available }) => ({ id, name, sku, available })),
     recentOrders: orders.slice(0, 6).map(order => ({ id: order.id, customer: String(order.customerName || order.shippingAddress?.fullName || 'Walk-in'),
