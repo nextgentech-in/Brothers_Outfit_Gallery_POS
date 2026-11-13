@@ -48,7 +48,19 @@ export function invoicePdf(invoice: Invoice): Buffer {
     '<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>'
   ];
   pages.forEach((page,index) => {
-    const text = ['BT', '/F1 10 Tf', '40 790 Td', '14 TL', ...page.map((line,i) => `${i ? 'T* ' : ''}(${escaped(line)}) Tj`), 'ET'].join('\n');
+    const text = [
+      ...(index === 0 ? ['0.08 0.12 0.17 rg 0 720 595 122 re f', '0.55 0.36 0.08 rg 0 712 595 8 re f'] : []),
+      'BT', '/F1 10 Tf', '14 TL',
+      ...page.flatMap((line, i) => {
+        const y = 790 - i * 14;
+        const heading = line === 'BROTHERS OUTFIT GALLERY';
+        const total = line.startsWith('TOTAL:');
+        const section = line.startsWith('SALES RECEIPT') || line.startsWith('ITEM / SKU');
+        const color = index === 0 && (i < 5 || heading) ? '1 1 1 rg' : total ? '0.53 0.34 0.08 rg' : section ? '0.16 0.27 0.35 rg' : '0.16 0.20 0.24 rg';
+        return [color, `1 0 0 1 40 ${y} Tm`, `(${escaped(line)}) Tj`];
+      }),
+      'ET'
+    ].join('\n');
     objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + index * 2} 0 R >>`,
       `<< /Length ${Buffer.byteLength(text, 'ascii')} >>\nstream\n${text}\nendstream`);
   });

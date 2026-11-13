@@ -263,8 +263,8 @@ async function readDashboard(): Promise<DashboardSummary> {
       ? variants.reduce((sum, variant) => sum + Math.max(0, Number(variant.stock ?? variant.quantity ?? 0) - Number(variant.reserved ?? 0)), 0)
       : Math.max(0, Number(data.stock ?? data.quantity ?? 0) - Number(data.reserved ?? 0));
     const retailValue = variants.length
-      ? variants.reduce((sum, variant) => sum + Math.max(0, Number(variant.stock ?? variant.quantity ?? 0) - Number(variant.reserved ?? 0)) * Number(variant.salePrice ?? variant.price ?? data.salePrice ?? data.price ?? 0), 0)
-      : available * Number(data.salePrice ?? data.price ?? 0);
+      ? variants.reduce((sum, variant) => sum + Math.max(0, Number(variant.stock ?? variant.quantity ?? 0) - Number(variant.reserved ?? 0)) * Number(variant.costPrice ?? data.costPrice ?? 0), 0)
+      : available * Number(data.costPrice ?? 0);
     const reorder = variants.length ? variants.some(v => Math.max(0, Number(v.stock ?? v.quantity ?? 0)-Number(v.reserved || 0)) <= Number(v.reorderThreshold ?? data.reorderThreshold ?? 5)) : available <= Number(data.reorderThreshold ?? 5);
     const gstValue = data.gstEnabled === true ? Math.round(retailValue * Number(data.gstPercent || 0)) / 100 : 0;
     return { reorder, id: doc.id, name: String(data.name || 'Unnamed product'), sku: String(data.sku || ''), available, retailValue, gstValue, variants: variants.length };

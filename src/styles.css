@@ -165,6 +165,47 @@
 
 @media print{body:has(>.print-backdrop)>*:not(.print-backdrop){display:none!important}body>.print-backdrop{display:block!important;position:static!important;padding:0!important;background:#fff!important;visibility:visible!important}.print-backdrop .invoice-sheet,.print-backdrop .barcode-editor{position:static!important;inset:auto!important;overflow:visible!important;max-height:none!important;margin:0!important}.receipt-80 .invoice-title,.receipt-58 .invoice-title{display:block!important}.receipt-80 .invoice-title>span,.receipt-58 .invoice-title>span{display:inline-block;margin-top:4px}.receipt-80 .invoice-meta,.receipt-58 .invoice-meta{padding:4px!important}.receipt-80 .invoice-meta strong,.receipt-58 .invoice-meta strong,.receipt-80 .invoice-header p,.receipt-58 .invoice-header p,.receipt-80 .invoice-footer span,.receipt-58 .invoice-footer span{font-size:9px!important}.receipt-80 .invoice-meta small,.receipt-58 .invoice-meta small{font-size:8px!important}.receipt-80 .invoice-summary,.receipt-58 .invoice-summary{font-size:10px!important}.receipt-80 .invoice-footer strong,.receipt-58 .invoice-footer strong{font-size:11px!important}}
 
+/* Purchase entry and stock movement controls */
+.purchase-receive .purchase-top{gap:18px 22px;margin-bottom:20px}
+.purchase-receive .purchase-import{margin:16px 0 20px}
+.purchase-receive .purchase-search-toolbar{margin:20px 0 18px}
+.purchase-receive .purchase-search-toolbar .field-search{width:min(520px,100%);min-height:48px}
+.purchase-receive .purchase-item-fields{gap:14px 18px}
+.purchase-receive .purchase-item-card{margin:18px 0;padding:22px}
+.purchase-receive .purchase-footer{margin:24px 0 20px}
+.stock-direction{display:flex;align-items:stretch;gap:6px;margin-top:7px}
+.stock-direction button{min-width:42px;border:1px solid var(--line);border-radius:8px;background:var(--solid);color:var(--text);font-size:22px;font-weight:700;cursor:pointer}
+.stock-direction button.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.stock-direction input{min-width:0;margin:0!important;flex:1}
+
+/* Clothing tags contain only the identifying details requested by the shop. */
+.clothing-label-card .label-body{justify-content:space-between}
+.clothing-label-card .label-variant-badge-row{display:grid;grid-template-columns:1fr;gap:2mm;width:100%}
+.clothing-label-card .label-variant-pill{display:block;text-align:left;background:transparent;border:0;padding:0;color:#111}
+.clothing-label-card .label-barcode-container{margin-top:auto}
+
+@media print{
+  body:has(.reports-workspace-container)>*{visibility:visible!important}
+  body:has(.reports-workspace-container) .reports-workspace-container,body:has(.reports-workspace-container) .reports-workspace-container *{visibility:visible!important}
+  body:has(.reports-workspace-container) .sidebar,body:has(.reports-workspace-container) .topbar,body:has(.reports-workspace-container) .reports-secondary-sidebar,body:has(.reports-workspace-container) .reports-mobile-selector,body:has(.reports-workspace-container) .report-header-actions,body:has(.reports-workspace-container) .report-filters,body:has(.reports-workspace-container) button{display:none!important}
+  body:has(.reports-workspace-container) .main-area,body:has(.reports-workspace-container) .content,body:has(.reports-workspace-container) .reports-workspace-container,body:has(.reports-workspace-container) .reports-main-content{display:block!important;width:100%!important;max-width:none!important;min-width:0!important;height:auto!important;overflow:visible!important;margin:0!important;padding:0!important;background:#fff!important;color:#17212c!important}
+  body:has(.reports-workspace-container) .glass,body:has(.reports-workspace-container) .table-panel{background:#fff!important;color:#17212c!important;box-shadow:none!important;break-inside:auto!important}
+  body:has(.reports-workspace-container) .table-wrap{overflow:visible!important;max-height:none!important}
+  body:has(.reports-workspace-container) table{width:100%!important;font-size:9pt!important}
+  body:has(.reports-workspace-container) thead{display:table-header-group}
+  body:has(.reports-workspace-container) tr{break-inside:avoid}
+  body:has(.reports-workspace-container) th{background:#e9edf2!important;color:#17212c!important}
+  body:has(.reports-workspace-container) td{color:#17212c!important}
+  body:has(.reports-workspace-container) .report-header{border-bottom:2px solid #855715!important;margin-bottom:18px!important}
+  body:has(.reports-workspace-container) .report-title{color:#17212c!important}
+  body:has(.reports-workspace-container) .report-btn{display:none!important}
+  body:has(.reports-workspace-container) .reports-main-content{page:professional-report}
+  body:has(.reports-workspace-container) *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  body:has(>.print-backdrop) .invoice-sheet *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  body:has(>.print-backdrop) .invoice-title>span{background:#eaf5ed!important;color:#246940!important}
+}
+@page professional-report{size:A4 landscape;margin:12mm}
+
 /* Vyapar-style Billing Layout */
 .vyapar-billing-container{padding:24px;border-radius:18px;margin-bottom:24px}
 .vyapar-top-section{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(280px,1fr);gap:24px;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid var(--line)}

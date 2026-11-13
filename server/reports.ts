@@ -292,10 +292,9 @@ reportsRouter.get('/reports/dashboard-summary', async (req, res) => {
         for (const v of p.variants) {
           const stk = Math.max(0, Number(v.stock ?? v.onHand ?? 0) - Number(v.reserved ?? 0));
           const cost = Number(v.costPrice ?? p.costPrice ?? 0);
-          const price = Number(v.salePrice ?? v.price ?? p.salePrice ?? p.price ?? 0);
           totalStockUnits += stk;
           stockCostTotalPaise += Math.round(stk * cost * 100);
-          const value = stockValue(stk, price, gstPercent);
+          const value = stockValue(stk, cost, gstPercent);
           stockRetailTotalPaise += paise(value.baseValue);
           stockGstTotalPaise += paise(value.gstValue);
           if (stk <= 0) {
@@ -313,10 +312,9 @@ reportsRouter.get('/reports/dashboard-summary', async (req, res) => {
       } else {
         const stk = Math.max(0, Number(p.stock ?? p.onHand ?? 0) - Number(p.reserved ?? 0));
         const cost = Number(p.costPrice || 0);
-        const price = Number(p.salePrice ?? p.price ?? 0);
         totalStockUnits += stk;
         stockCostTotalPaise += Math.round(stk * cost * 100);
-        const value = stockValue(stk, price, gstPercent);
+        const value = stockValue(stk, cost, gstPercent);
         stockRetailTotalPaise += paise(value.baseValue);
         stockGstTotalPaise += paise(value.gstValue);
         if (stk <= 0) {
