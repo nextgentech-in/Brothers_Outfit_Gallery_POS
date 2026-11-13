@@ -105,7 +105,7 @@ test('credit list includes legacy balances and distinguishes undated debt', asyn
   assert.equal(orphanDetail.customer.summary.balance, 250); assert.equal(orphanDetail.customer.profileAvailable, false);
 });
 
-function configured() { Object.assign(config.whatsapp, { graphVersion: 'v25.0', phoneNumberId: '12345', accessToken: 'test-provider-token', creditTemplateName: 'credit_update', templateLanguage: 'en_US', businessAccountId: '67890' }); }
+function configured() { Object.assign(config.whatsapp, { paidTemplatesEnabled: true, graphVersion: 'v25.0', phoneNumberId: '12345', accessToken: 'test-provider-token', creditTemplateName: 'credit_update', templateLanguage: 'en_US', businessAccountId: '67890' }); }
 function pendingMessage(id: string, optIn = true) {
   records.set(`erp_customerProfiles/${key}`, { ...records.get(`erp_customerProfiles/${key}`), creditWhatsAppOptIn: optIn });
   records.set(`erp_customerMessages/${id}`, { customerKey: key, name: 'Credit Customer', phone: '919876543210', action: 'Payment received', amount: 100,

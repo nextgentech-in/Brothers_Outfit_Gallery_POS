@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { toSVG } from '@bwip-js/node';
 import { firebase } from './firebase.js';
 import { invoicePdf } from './invoicePdf.js';
-import { deliverInvoice } from './whatsapp.js';
+import { deliverInvoice, whatsappReplyReady } from './whatsapp.js';
 import { customerBillUrl } from './billLink.js';
 import { customerKey } from './customerIdentity.js';
 import { customerDirectory, customerProfileFields } from './customers.js';
@@ -215,7 +215,7 @@ commerceRouter.get('/products/:productId/label', async (req, res) => {
   } catch (error) { fail(res, error); }
 });
 commerceRouter.get('/barcode/render', (req, res) => {
-  const code = z.string().trim().min(1).max(64).safeParse(req.query.code);
+  const code = z.string().trim().min(1).max(req.query.format === 'qrcode' ? 200 : 64).safeParse(req.query.code);
   const format = z.enum(['code128', 'qrcode']).safeParse(req.query.format || 'code128');
   if (!code.success || !format.success) { res.status(400).json({ error: 'Invalid barcode query.' }); return; }
   try {
@@ -224,14 +224,15 @@ commerceRouter.get('/barcode/render', (req, res) => {
       text: code.data,
       scale: 3,
       height: 12,
+      ...(format.data === 'qrcode' ? { padding: 12 } : {}),
       includetext: format.data === 'code128',
       textxalign: 'center',
       backgroundcolor: 'FFFFFF'
     });
     res.set({
       'Content-Type': 'image/svg+xml',
-      'Content-Disposition': `inline; filename="${code.data}.svg"`,
-      'Cache-Control': 'public, max-age=86400'
+      'Content-Disposition': 'inline; filename="barcode.svg"',
+      'Cache-Control': 'private, no-store'
     }).send(svg);
   } catch (error) {
     res.status(400).json({ error: 'Barcode rendering failed.' });
@@ -454,6 +455,7 @@ commerceRouter.get('/shop-details', async (_req, res) => {
     res.json({ name: doc.data()?.storeName || 'Brothers Outfit Gallery', phone: doc.data()?.phone || '+91 84602 33020',
       address: doc.data()?.address || 'FF-57, Pratham Square, Sahakari Jin Road, Himatnagar, Gujarat 383001',
       email: doc.data()?.email || 'brothersoutfitgallery@gmail.com', whatsapp: doc.data()?.whatsappNumber || '918460233020',
+      whatsappReceiptReplies: whatsappReplyReady(),
       logo: '/favicon.svg' }); }
   catch { res.status(503).json({ error: 'Shop details are unavailable.' }); }
 });

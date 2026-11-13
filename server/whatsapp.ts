@@ -7,11 +7,14 @@ const phoneDigits = (phone: unknown) => {
   const normalized = digits.length === 10 ? `91${digits}` : digits;
   return /^\d{10,15}$/.test(normalized) ? normalized : '';
 };
-export const whatsappReady = () => /^v\d+\.\d+$/.test(config.whatsapp.graphVersion) &&
+const cloudReady = () => /^v\d+\.\d+$/.test(config.whatsapp.graphVersion) &&
+  /^\d+$/.test(config.whatsapp.phoneNumberId) && Boolean(config.whatsapp.accessToken);
+export const whatsappReplyReady = () => cloudReady() && Boolean(config.whatsapp.appSecret && config.whatsapp.verifyToken);
+export const whatsappReady = () => config.whatsapp.paidTemplatesEnabled && /^v\d+\.\d+$/.test(config.whatsapp.graphVersion) &&
   /^\d+$/.test(config.whatsapp.phoneNumberId) && Boolean(config.whatsapp.accessToken && config.whatsapp.templateName);
 const api = () => `https://graph.facebook.com/${config.whatsapp.graphVersion}/${config.whatsapp.phoneNumberId}`;
 
-async function sendPdf(invoice: FirebaseFirestore.DocumentData & { id: string }) {
+export async function sendPdf(invoice: FirebaseFirestore.DocumentData & { id: string }, reply = false) {
   const recipient = phoneDigits(invoice.customerPhone);
   if (!recipient) throw Object.assign(new Error('invalid_phone'), { code: 'invalid_phone' });
   const pdf = invoicePdf(invoice);
@@ -26,10 +29,11 @@ async function sendPdf(invoice: FirebaseFirestore.DocumentData & { id: string })
   if (!mediaId) throw Object.assign(new Error('media_id_missing'), { code: 'media_id_missing' });
   const message = await fetch(`${api()}/messages`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: recipient,
-      type: 'template', template: { name: config.whatsapp.templateName,
+      ...(reply ? { type: 'document', document: { id: mediaId, filename: `${invoice.id}.pdf` } } :
+      { type: 'template', template: { name: config.whatsapp.templateName,
         language: { code: config.whatsapp.templateLanguage }, components: [{ type: 'header', parameters: [
           { type: 'document', document: { id: mediaId, filename: `${invoice.id}.pdf` } }
-        ] }] } }), signal: AbortSignal.timeout(15_000) });
+        ] }] } }) }), signal: AbortSignal.timeout(15_000) });
   if (!message.ok) throw Object.assign(new Error('message_rejected'), { code: 'message_rejected', permanent: message.status < 500 });
   const body = await message.json() as { messages?: { id?: string }[] };
   const messageId = String(body.messages?.[0]?.id || '');

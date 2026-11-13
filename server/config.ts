@@ -54,6 +54,9 @@ export const config = {
   erpSyncSecret: env.ERP_SYNC_SECRET || '',
   imagekitPrivateKey: env.IMAGEKIT_PRIVATE_KEY || '',
   whatsapp: {
+    appSecret: env.WA_APP_SECRET || '',
+    verifyToken: env.WA_WEBHOOK_VERIFY_TOKEN || '',
+    paidTemplatesEnabled: env.WA_ALLOW_PAID_TEMPLATES === 'true',
     graphVersion: env.WA_GRAPH_VERSION || '', phoneNumberId: env.WA_PHONE_NUMBER_ID || '',
     accessToken: env.WA_ACCESS_TOKEN || '', templateName: env.WA_TEMPLATE_NAME || '',
     creditTemplateName: env.WA_CREDIT_TEMPLATE_NAME || '', businessAccountId: env.WA_BUSINESS_ACCOUNT_ID || '',

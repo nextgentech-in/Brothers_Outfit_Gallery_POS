@@ -17,6 +17,7 @@ import { operationsRouter } from './operations.js';
 import { returnsRouter } from './returns.js';
 import { reportsRouter } from './reports.js';
 import { deliverInvoice } from './whatsapp.js';
+import { whatsappWebhook } from './whatsappWebhook.js';
 import { validBillLink } from './billLink.js';
 import { invoicePdf } from './invoicePdf.js';
 import { deviceAccess, type DeviceAccess } from './deviceAccess.js';
@@ -37,6 +38,7 @@ export function createApp(options: AppOptions = {}) {
     connectSrc: ["'self'"], objectSrc: ["'none'"], frameAncestors: ["'none'"]
   }} : false, strictTransportSecurity: config.production ? { maxAge: 31536000 } : false }));
   app.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+  app.use(whatsappWebhook);
   app.use('/api', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false }));
   app.post('/api/internal/receipt', rateLimit({ windowMs: 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false }),
     express.raw({ type: 'application/json', limit: '4kb' }), async (req, res) => {

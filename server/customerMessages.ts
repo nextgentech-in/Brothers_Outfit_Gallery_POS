@@ -2,7 +2,7 @@ import { FieldValue, type Firestore, type Transaction } from 'firebase-admin/fir
 import { config } from './config.js';
 import { mobileNumber } from '../shared/customers.js';
 
-export const customerMessagesReady = () => /^v\d+\.\d+$/.test(config.whatsapp.graphVersion) &&
+export const customerMessagesReady = () => config.whatsapp.paidTemplatesEnabled && /^v\d+\.\d+$/.test(config.whatsapp.graphVersion) &&
   /^\d+$/.test(config.whatsapp.phoneNumberId) && Boolean(config.whatsapp.accessToken && config.whatsapp.creditTemplateName);
 export function queueCustomerMessage(db: Firestore, tx: Transaction, id: string, details: {
   customerKey: string; name: string; phone: string; action: string; amount: number; balance: number; dueDate: string; consent: boolean;

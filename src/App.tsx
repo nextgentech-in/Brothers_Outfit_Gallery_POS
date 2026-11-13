@@ -1,17 +1,17 @@
-import { StaffSettings } from './StaffSettings';
-import { DailyOperations } from './DailyOperations';
-import { useEffect, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react';
 import { ArrowDownUp, ArrowRight, BarChart3, ChevronRight, FileText,
   LayoutDashboard, LockKeyhole, MessageCircle, Moon, Package, RefreshCw, ShieldCheck,
   ShoppingBag, Sun, Truck, Users, Search, type LucideIcon } from 'lucide-react';
 import type { Owner } from '../shared/contracts';
-import { CommerceView } from './Commerce';
 import { BrandLogo } from './BrandLogo';
-import { Dashboard } from './Dashboard';
-import { CreditView } from './CreditView';
-import { WhatsAppView } from './WhatsAppView';
-import { ReportsWorkspace } from './reports/ReportsWorkspace';
-import { CommandPalette } from './CommandPalette';
+
+const CommerceView = lazy(() => import('./Commerce').then(m => ({ default: m.CommerceView })));
+const Dashboard = lazy(() => import('./Dashboard').then(m => ({ default: m.Dashboard })));
+const StaffSettings = lazy(() => import('./StaffSettings').then(m => ({ default: m.StaffSettings })));
+const CreditView = lazy(() => import('./CreditView').then(m => ({ default: m.CreditView })));
+const WhatsAppView = lazy(() => import('./WhatsAppView').then(m => ({ default: m.WhatsAppView })));
+const ReportsWorkspace = lazy(() => import('./reports/ReportsWorkspace').then(m => ({ default: m.ReportsWorkspace })));
+const CommandPalette = lazy(() => import('./CommandPalette').then(m => ({ default: m.CommandPalette })));
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'same-origin', ...options });
@@ -155,20 +155,22 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
       </div>
     </header>
     <main className="content" id="main-content">{error && <div className="error-banner" role="alert">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
+      <Suspense fallback={<p role="status">Loading workspace…</p>}>
       {tab === 'dashboard' && <Dashboard navigate={navigate} role={owner?.role} />}
       {tab === 'security' && owner?.role === 'owner' && <><StaffSettings /><TrustedDevices /></>}
       {tab === 'reports' && <ReportsWorkspace role={owner?.role} />}
       {tab === 'credit' && <CreditView />}
       {tab === 'whatsapp' && <WhatsAppView onCustomers={() => navigate('customers')} />}
       {['products', 'pos', 'inventory', 'orders', 'customers', 'suppliers', 'sync'].includes(tab) && <CommerceView tab={tab} role={owner?.role} />}
+      </Suspense>
       <footer className="page-footer"><span>BROTHERS OUTFIT GALLERY <span className="footer-separator">/</span> STUDIO</span><span>A little more clarity. Every day.</span></footer>
     </main></div>
-    <CommandPalette
+    {paletteOpen && <Suspense fallback={null}><CommandPalette
       isOpen={paletteOpen}
       onClose={() => setPaletteOpen(false)}
       navigate={navigate}
       role={owner?.role}
-    />
+    /></Suspense>}
   </div>;
 }
 type DeviceInfo = { id: string; label: string; createdAt: number; expiresAt: number; lastUsedAt: number | null };

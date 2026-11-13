@@ -116,7 +116,7 @@ export function VyaparBilling({
   const [splitCard, setSplitCard] = useState('');
   const [splitCredit, setSplitCredit] = useState('');
   const [creditDueDate, setCreditDueDate] = useState(() => dueDateAfter(7));
-  const [creditWhatsAppOptIn, setCreditWhatsAppOptIn] = useState(true);
+  const [creditWhatsAppOptIn, setCreditWhatsAppOptIn] = useState(false);
   const [whatsappOptIn, setWhatsAppOptIn] = useState(false);
   const [cashTendered, setCashTendered] = useState('');
   const [terms] = useState('Goods once sold can be exchanged within 7 days with bill tag intact.');
@@ -225,6 +225,8 @@ export function VyaparBilling({
   }, [customers, customerSearchQuery]);
 
   function handleSelectCustomer(cust: CustomerItem) {
+    setWhatsAppOptIn(false);
+    setCreditWhatsAppOptIn(false);
     setCustomerName(cust.fullName || '');
     const rawPhone = cust.phone ? cust.phone.replace(/\D/g, '') : '';
     const cleanPhone = rawPhone.length === 12 && rawPhone.startsWith('91') ? rawPhone.slice(2) : (cust.phone || '');
@@ -252,6 +254,8 @@ export function VyaparBilling({
   }
 
   function handlePhoneChange(phoneVal: string) {
+    setWhatsAppOptIn(false);
+    setCreditWhatsAppOptIn(false);
     setCustomerPhone(phoneVal);
     const digits = phoneVal.replace(/\D/g, '');
     if (digits.length === 10) {
@@ -506,7 +510,7 @@ export function VyaparBilling({
       customerDateOfBirth: customerDateOfBirth || undefined,
       creditDueDate: hasCreditPayment ? creditDueDate : undefined,
       creditWhatsAppOptIn: hasCreditPayment ? creditWhatsAppOptIn : undefined,
-      whatsappOptIn: Boolean(customerPhone.trim()) && (whatsappOptIn || (hasCreditPayment && creditWhatsAppOptIn)),
+      whatsappOptIn: Boolean(mobileNumber(customerPhone)) && whatsappOptIn,
       discount: totals.totalDiscount,
       paymentMethod,
       payments,
@@ -522,6 +526,8 @@ export function VyaparBilling({
         setRows([createEmptyRow('new-1')]);
         setCustomerName('');
         setCustomerPhone('');
+        setWhatsAppOptIn(false);
+        setCreditWhatsAppOptIn(false);
         setCustomerDateOfBirth('');
         setCashTendered('');
         setSplitCash('');
@@ -670,6 +676,10 @@ export function VyaparBilling({
               value={customerPhone}
               onChange={e => handlePhoneChange(e.target.value)}
             />
+            {mobileNumber(customerPhone) && <label className="check-row">
+              <input type="checkbox" checked={whatsappOptIn} onChange={e => setWhatsAppOptIn(e.target.checked)} />
+              Customer agrees to automatic WhatsApp receipt delivery
+            </label>}
           </div>
 
           <div className="vyapar-input-group">
@@ -1056,7 +1066,7 @@ export function VyaparBilling({
                     checked={creditWhatsAppOptIn}
                     onChange={e => setCreditWhatsAppOptIn(e.target.checked)}
                   />
-                  Send bill & automatic due reminders on WhatsApp
+                  Customer agrees to WhatsApp credit updates
                 </label>
               </div>
             )}

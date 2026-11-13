@@ -35,7 +35,7 @@ type Invoice = { id: string; orderId: string; total: number; lines: { name?: str
   exchangeCreditUsed?: number; payments?: PaymentPart[]; creditAmount?: number; cashTendered?: number; change?: number; creditDueDate?: string;
   customerName?: string; customerPhone?: string; customerDateOfBirth?: string; channel: string; paymentMethod: string; kind?: string; subtotal?: number; discount?: number; tax?: number; billUrl?: string; createdAt?: { _seconds?: number; seconds?: number }; issuedAt?: { _seconds?: number; seconds?: number } };
 type SyncRecord = { id: string; event?: string; status?: string; invoiceId?: string; source?: string; retryCount?: number; error?: string; providerMessageId?: string };
-type Shop = { name: string; phone: string; address: string; email: string; whatsapp: string; logo: string };
+type Shop = { name: string; phone: string; address: string; email: string; whatsapp: string; logo: string; whatsappReceiptReplies?: boolean };
 const money = (value: number | undefined) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const stockCostValue = (product: Product) => product.variants.length ? product.variants.reduce((sum,v) => sum + (v.onHand ?? v.stock) * Number(v.costPrice ?? product.costPrice ?? 0), 0) : (product.onHand ?? product.stock) * Number(product.costPrice || 0);
 const retailStockValue = (product: Product) => product.variants.length
@@ -64,10 +64,17 @@ export function ReceiptDialog({ invoice, shop, preview = false, onClose }: { inv
   const showHistoricalTax = Number(invoice.tax || 0) > 0 || invoice.lines.some(line => Number(line.tax || 0) > 0);
   const timestamp = invoice.issuedAt?._seconds || invoice.issuedAt?.seconds || invoice.createdAt?._seconds || invoice.createdAt?.seconds;
   const issuedAt = timestamp ? new Date(timestamp * 1000).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) : preview ? 'Preview' : '';
-  const phone = (invoice.customerPhone || '').replace(/\D/g, '');
+  const phone = mobileNumber(invoice.customerPhone || '');
+  const shopWhatsApp = mobileNumber(String(shop?.whatsapp || ''));
+  const requestUrl = !preview && phone && shop?.whatsappReceiptReplies && shopWhatsApp
+    ? `https://wa.me/${shopWhatsApp}?text=${encodeURIComponent('BILL ' + invoice.id)}` : '';
   const whatsappText = [shop?.name || 'Brothers Outfit Gallery', 'Sales receipt ' + invoice.id, ...invoice.lines.map(line => `${line.name || line.sku || 'Item'} (${line.sku || 'Item'}) × ${line.quantity || 0}: ${money(Number(line.price || 0) * Number(line.quantity || 0))}`), discount > 0 ? 'Discount: ' + money(discount) : '', 'Total: ' + money(invoice.total), invoice.billUrl ? 'Open your bill PDF: ' + invoice.billUrl : '', 'Payment: ' + invoice.paymentMethod, 'Thank you for shopping with us.'].filter(Boolean).join('\n');
   return createPortal(<div className="editor-backdrop print-backdrop" onClick={onClose}><div className={`invoice-sheet glass receipt-${paper}`} role="dialog" aria-modal="true" aria-label={preview ? 'Bill print preview' : `Receipt ${invoice.id}`} onClick={event => event.stopPropagation()}>
     <div className="invoice-actions"><select aria-label="Receipt paper" value={paper} onChange={e => { setPaper(e.target.value); localStorage.setItem('receipt-paper', e.target.value); }}><option value="a4">A4 receipt</option><option value="80">80 mm thermal</option><option value="58">58 mm thermal</option></select><button className="button secondary" onClick={onClose}>Close</button>{!preview && <a className="button secondary" href={`/api/invoices/${encodeURIComponent(invoice.id)}/pdf`} download>Download PDF</a>}{!preview && invoice.billUrl && <a className="button secondary" href={invoice.billUrl} target="_blank" rel="noopener noreferrer">Open customer link</a>}{!preview && phone.length >= 10 && invoice.billUrl && <a className="button secondary" href={`sms:+${phone}?body=${encodeURIComponent('Your Brothers Outfit bill ' + invoice.id + ': ' + invoice.billUrl)}`}>Share by SMS</a>}{!preview && phone.length >= 10 && <a className="button secondary" href={`https://wa.me/${phone}?text=${encodeURIComponent(whatsappText)}`} target="_blank" rel="noopener noreferrer"><MessageCircle size={16} />Share on WhatsApp</a>}<button className="button primary" onClick={() => window.print()}><Printer size={16} />Print bill</button></div>
+    {requestUrl && <div className="no-print">
+      <p>Scan with the customer’s phone and send the WhatsApp request to receive this PDF automatically.</p>
+      <img width={128} height={128} alt="Scan to request this receipt on WhatsApp" src={`/api/barcode/render?format=qrcode&code=${encodeURIComponent(requestUrl)}`} />
+    </div>}
     {preview && <div className="preview-ribbon">BILL PREVIEW · SALE NOT COMPLETED</div>}
     <div className="invoice-header"><BrandLogo /><div><h2>{shop?.name || 'Brothers Outfit Gallery'}</h2><p>{shop?.address || 'FF-57, Pratham Square, Himatnagar, Gujarat 383001'}<br />Phone: {shop?.phone || '+91 84602 33020'}{shop?.email && <><br />{shop.email}</>}</p></div></div>
     <div className="invoice-title"><div><small>RETAIL SALES RECEIPT</small><h1>{preview ? 'Bill preview' : 'Thank you for shopping'}</h1></div><span>{preview ? 'Draft' : (invoice.paymentMethod === 'credit' || Number(invoice.creditAmount) > 0) ? 'Credit' : 'Paid'}</span></div>
@@ -500,7 +507,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
   async function load() {
     setLoading(true); setError('');
     const paths: Record<string, string[]> = { products: ['products'], pos: ['products', 'shop-details', 'customers', 'invoices'],
-      inventory: ['products', 'movements'], orders: [], customers: ['customers'],
+      inventory: ['products', 'movements'], orders: ['shop-details'], customers: ['customers'],
       suppliers: ['suppliers', 'purchases', 'products', 'purchase-orders'],
       reports: ['orders', 'invoices'], sync: ['sync-health'] };
     const wanted = paths[tab] || [];
