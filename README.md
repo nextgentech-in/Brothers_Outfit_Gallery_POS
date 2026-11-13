@@ -2,7 +2,7 @@
 
 Latest changes and cashier instructions: [daily-use update, purchases and barcode labels](docs/08-daily-use-update.md). Purchases receive stock immediately by default, create new items atomically, and calculate cost × quantity.
 
-A separate private admin project in `D:\Brothers_Outfit_Admin`. The public website remains in `D:\Brothers_Outfit\brothers`; its guarded checkout integration was changed after the owner authorized it and has not been deployed. This is a review preview connected to the existing Firestore database. It reads the live catalog, variants, orders, customers, stock movements and store details. Product editing, stock adjustments, POS receipts, order status/returns, supplier receipts and offline queuing have been implemented behind a live-write lock. No production business mutation has been executed by this project.
+A separate private admin project in `D:\Brothers_Outfit_Admin`. The public website remains in `D:\Brothers_Outfit\brothers`. Both apps use the same Firestore product records and stock balances. On 13 November 2026, the owner requested a reset of the previous cloud POS data. A private backup was saved, 637 old POS and business records were removed, and 9 website-origin products remained (6 active). The website's retired `/api/pos/*` connection returns HTTP 410; the offline Mr. Munim installation was not touched. The shared commerce flag and local `ADMIN_BUSINESS_WRITES` are enabled for testing. Hosted Vercel settings and deployment still require team access, so the hosted app is not yet verified as writable.
 
 See [current activation status](docs/07-activation-status.md). Billing now includes held bills on this device, current-stock checks on resume, a duplicate-click guard, and clearer handling of rejected sales.
 
@@ -25,7 +25,7 @@ Open [http://localhost:4310](http://localhost:4310). Use `localhost` consistentl
 
 Sign in with the four-digit PIN configured as `ADMIN_PIN` in the admin project's ignored `.env` file. No email, ID or password is requested. The local preview PIN was set by the owner. Sessions are opaque and expire after eight hours by default; logout revokes that session. Local sessions are in memory and a server restart signs everyone out. Hosted sign-in also requires a one-time trusted-device pairing from the local preview; ordinary sign-in on paired devices remains PIN-only. Hosted sessions, devices and sign-in limits use the additive `erp_authState` collection. Firebase Auth accounts and website authentication are not changed.
 
-The preview binds to `127.0.0.1`. Its business-write routes return HTTP 423 unless `ADMIN_BUSINESS_WRITES=enabled` is configured server-side. Keep that lock in place until the schema, stock-writer cutover and checkout changes are reviewed. Hosted sign-in has a distributed login limiter and requires a valid trusted-device cookie, because the requested four-digit PIN is already known publicly.
+The local preview binds to `127.0.0.1`. Its business-write routes require both `ADMIN_BUSINESS_WRITES=enabled` server-side and `erp_settings/commerce.enabled=true` in Firestore. Both are enabled for the local shop test. Hosted sign-in has a distributed login limiter and requires a valid trusted-device cookie, because the requested four-digit PIN is already known publicly.
 
 ## Customer birthdays in billing
 
@@ -64,7 +64,7 @@ The dedicated Node server processes queued customer messages every 45 seconds wh
 - [Phase 7 integration design and required website changes](docs/03-website-sync-plan.md)
 - [Delivery phases and end-to-end checklist](docs/04-delivery-and-tests.md)
 
-The owner later requested all seven phases in one pass. The [implementation review](docs/05-implementation-review.md) separates working preview features from the Phase 7 integration and provider work that still needs website changes or external credentials. Review the mapping and additive collection plan before unlocking any writes.
+The [implementation review](docs/05-implementation-review.md) records the earlier phase plan and limits. The 13 November reset and local write activation supersede its older lock status. Provider-backed WhatsApp delivery and hosted deployment checks still depend on external configuration.
 
 ## Commands
 
@@ -88,7 +88,7 @@ npm run migrate -- --apply --project=<exact-project-id>
 npm run rollback -- --apply --project=<exact-project-id>
 ```
 
-Neither command has been applied to the live database. Migration `0001` creates only `erp_settings/system` and `erp_migrations/0001_foundation`. It does not create fake catalog records, backfill stock, or enable business writes. Rollback marks the migration inactive and retains disabled settings; it refuses if settings have advanced beyond this foundation. Financial/stock history is never deleted.
+Neither migration command has been applied to the live database. Migration `0001` creates only `erp_settings/system` and `erp_migrations/0001_foundation`. The separate owner-requested 13 November reset removed the previous cloud POS stock-movement and business history after creating a private backup.
 
 Commerce writes additionally require a database rollout flag. After reviewing the exact schema and website checkout cutover, `npm run commerce:rollout -- --enable --apply --project=<exact-project-id>` creates or enables `erp_settings/commerce`, and the server must separately set `ADMIN_BUSINESS_WRITES=enabled`. `--disable` with the same guarded arguments is the non-destructive rollback script; it retains accepted stock and financial history. Neither direction has been applied to the live database.
 
@@ -124,7 +124,7 @@ The Firebase Admin dependency chain needs the checked-in npm override for `jwks-
 
 Set the Vercel project's Root Directory to this repository's root, Framework Preset to Vite, Build Command to `npm run build`, and Output Directory to `dist` (the checked-in `vercel.json` declares the last three). A wrong root or output directory can still produce a 404. The function URL `/api/health` should return JSON `{"status":"ok",...}`; `/login` should serve the app; anonymous `/api/dashboard` should return JSON 401. The Vercel project must receive its own server-side environment variables; it cannot read the sibling website's local `.env`.
 
-Required Vercel environment names for sign-in and data: `ADMIN_PIN`, `FIREBASE_ADMIN_PROJECT_ID`, and either `FIREBASE_SERVICE_ACCOUNT_JSON` or `FIREBASE_CLIENT_EMAIL` plus `FIREBASE_PRIVATE_KEY`. A dedicated `ADMIN_SESSION_SECRET` is recommended but optional when a Firebase service key is configured: the server derives a stable, separate session HMAC key from that existing secret. Rotating the Firebase service key invalidates existing POS sessions unless a dedicated session secret is set. The canonical URL is the fallback `ADMIN_ORIGIN`; set `ADMIN_ORIGIN` explicitly if using another domain. The Firebase project must be the same project as the website. For ImageKit uploads add `IMAGEKIT_PRIVATE_KEY`. Keep `ADMIN_BUSINESS_WRITES` disabled until the shared schema and checkout cutover are reviewed.
+Required Vercel environment names for sign-in and data: `ADMIN_PIN`, `FIREBASE_ADMIN_PROJECT_ID`, and either `FIREBASE_SERVICE_ACCOUNT_JSON` or `FIREBASE_CLIENT_EMAIL` plus `FIREBASE_PRIVATE_KEY`. A dedicated `ADMIN_SESSION_SECRET` is recommended but optional when a Firebase service key is configured: the server derives a stable, separate session HMAC key from that existing secret. Rotating the Firebase service key invalidates existing POS sessions unless a dedicated session secret is set. The canonical URL is the fallback `ADMIN_ORIGIN`; set `ADMIN_ORIGIN` explicitly if using another domain. The Firebase project must be the same project as the website. For ImageKit uploads add `IMAGEKIT_PRIVATE_KEY`. Hosted `ADMIN_BUSINESS_WRITES` must be checked in Vercel before hosted billing can be verified.
 
 **The requested four-digit local PIN is known from this project discussion.** Hosted PIN sign-in requires a device paired from the local shop preview. Open `http://localhost:4310/security`, select **Create one-time link**, and open that link on the browser you want to use. The link expires after 10 minutes and works once. Once paired, visit `/login` on that same browser and enter the PIN. If a device is lost, revoke it from Trusted devices; its active sessions then fail their grant check. [The exact additive document mapping and rollback](docs/06-trusted-device-access-proposal.md) were approved before implementation.
 

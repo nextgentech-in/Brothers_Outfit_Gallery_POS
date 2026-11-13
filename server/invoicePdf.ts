@@ -1,5 +1,5 @@
 type Invoice = { id: string; orderId?: string; customerName?: string; total?: number; creditDueDate?: string; creditAmount?: number; payments?: { method: string; amount: number }[]; change?: number; exchangeCreditUsed?: number;
-  lines?: { name?: string; sku?: string; quantity?: number; price?: number; discount?: number; tax?: number; amount?: number }[]; paymentMethod?: string; subtotal?: number; discount?: number; tax?: number; createdAt?: { _seconds?: number; seconds?: number } };
+  lines?: { name?: string; sku?: string; quantity?: number; price?: number; discount?: number; tax?: number; amount?: number }[]; paymentMethod?: string; subtotal?: number; discount?: number; tax?: number; createdAt?: { _seconds?: number; seconds?: number }; issuedAt?: { _seconds?: number; seconds?: number } };
 const ascii = (value: unknown) => String(value ?? '').normalize('NFKD').replace(/[^\x20-\x7e]/g, '?').slice(0, 100);
 const escaped = (value: unknown) => ascii(value).replaceAll('\\', '\\\\').replaceAll('(', '\\(').replaceAll(')', '\\)');
 const amount = (value: unknown) => `INR ${Number(value || 0).toFixed(2)}`;
@@ -10,7 +10,7 @@ export function invoicePdf(invoice: Invoice): Buffer {
   const subtotal = invoice.subtotal ?? (invoice.lines || []).reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0), 0);
   const discount = invoice.discount ?? Math.max(0, subtotal - Number(invoice.total || 0));
   const showHistoricalTax = Number(invoice.tax || 0) > 0 || (invoice.lines || []).some(item => Number(item.tax || 0) > 0);
-  const issued = invoice.createdAt?._seconds || invoice.createdAt?.seconds;
+  const issued = invoice.issuedAt?._seconds || invoice.issuedAt?.seconds || invoice.createdAt?._seconds || invoice.createdAt?.seconds;
   const lines = [
     'BROTHERS OUTFIT GALLERY',
     'FF-57, Pratham Square, Sahakari Jin Road',
@@ -20,7 +20,7 @@ export function invoicePdf(invoice: Invoice): Buffer {
     '====================================================================',
     (invoice.paymentMethod === 'credit' || Number(invoice.creditAmount) > 0) ? 'SALES RECEIPT                                      PAYMENT DUE' : 'SALES RECEIPT                                      PAYMENT RECEIVED',
     `Receipt: ${ascii(invoice.id)}`,
-    issued ? `Date: ${new Date(issued * 1000).toLocaleString('en-IN')}` : '',
+    issued ? `Date: ${new Date(issued * 1000).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}` : '',
     `Customer: ${ascii(invoice.customerName || 'Walk-in')}`,
     `Payment: ${ascii(invoice.paymentMethod || '')}`,
     ...(Number(invoice.exchangeCreditUsed) > 0 ? [`Exchange credit applied: ${amount(invoice.exchangeCreditUsed)}`] : []),

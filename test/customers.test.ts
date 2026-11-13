@@ -136,3 +136,21 @@ test('walk-in sale still succeeds without creating a customer birthday profile',
   assert.equal(response.status, 201);
   assert.equal([...records.keys()].filter(path => path.startsWith('erp_customerProfiles/')).length, profilesBefore);
 });
+
+test('bill number and India bill time are saved once, and duplicate numbers do not change stock', async () => {
+  records.set('products/manual-bill-shirt', { name: 'Shirt', sku: 'MANUAL-M', stock: 3, price: 200 });
+  const saleInput = { requestId: 'manual-bill-sale-0001', lines: [{ productId: 'manual-bill-shirt', sku: 'MANUAL-M', quantity: 1 }],
+    paymentMethod: 'cash', invoiceNumber: 42, invoiceDate: '2025-02-01', invoiceTime: '13:15' };
+  const first = await postSale(saleInput);
+  assert.equal(first.status, 201);
+  const receipt = await first.json();
+  assert.equal(receipt.invoiceId, 'BOG-2024-25-00042');
+  const issuedAt = records.get(`erp_invoices/${receipt.invoiceId}`)?.issuedAt as { toDate(): Date };
+  assert.equal(issuedAt.toDate().toISOString(), '2025-02-01T07:45:00.000Z');
+  const duplicate = await postSale({ ...saleInput, requestId: 'manual-bill-sale-0002' });
+  assert.equal(duplicate.status, 409);
+  assert.equal(records.get('products/manual-bill-shirt')?.stock, 2);
+  const next = await postSale({ ...saleInput, requestId: 'manual-bill-sale-0003', invoiceNumber: undefined });
+  assert.equal(next.status, 201);
+  assert.equal((await next.json()).invoiceId, 'BOG-2024-25-00043');
+});

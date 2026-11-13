@@ -28,7 +28,7 @@ export type ClothingVariant = {
   mrp?: number;
 };
 
-export type LabelFormat = 'thermal-50x25' | 'thermal-50x38' | 'thermal-38x25' | 'thermal-38x60' | 'a4-24' | 'a4-40';
+export type LabelFormat = 'thermal-50x25' | 'thermal-50x38' | 'thermal-38x25' | 'thermal-38x60' | 'a4-18' | 'a4-24' | 'a4-40';
 
 export interface ClothingLabelProps {
   product: ClothingProduct;
@@ -41,9 +41,13 @@ export interface ClothingLabelProps {
 export function ClothingLabel({
   product,
   variant,
-  format = 'thermal-50x38'
+  format = 'thermal-50x38',
+  showMrp = true,
+  showDiscount = true
 }: ClothingLabelProps) {
   const mrp = variant.mrp ?? product.mrp ?? 0;
+  const salePrice = variant.salePrice ?? variant.price ?? product.salePrice ?? product.price ?? 0;
+  const discountPercent = mrp > salePrice && salePrice > 0 ? Math.round((mrp - salePrice) / mrp * 100) : 0;
   const barcode = variant.barcode || product.barcode || variant.sku;
 
   const money = (val: number) => `₹${val.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
@@ -62,6 +66,8 @@ export function ClothingLabel({
         <div className="label-item-name" title={product.name}>
           {product.name}
         </div>
+        {(product.brand || product.design) && <div className="label-meta-row">{[product.brand, product.design].filter(Boolean).join(' · ')}</div>}
+        {product.fabric && <div className="label-fabric-row">Fabric: {product.fabric}</div>}
 
         {/* Prominent Variant Tags */}
         <div className="label-variant-badge-row">
@@ -77,12 +83,14 @@ export function ClothingLabel({
 
         {/* Pricing & Discount */}
         <div className="label-price-section">
-          {mrp > 0 && (
+          {showMrp && mrp > 0 && (
             <div className="label-mrp-price">
               <span>MRP: </span>
               <strong>{money(mrp)}</strong>
             </div>
           )}
+          {salePrice > 0 && <div className="label-selling-price"><span className="label-price-caption">Sale</span>{money(salePrice)}</div>}
+          {showDiscount && discountPercent > 0 && <span className="label-discount-badge">{discountPercent}% OFF</span>}
         </div>
 
         {/* Barcode Image & Human-readable text */}

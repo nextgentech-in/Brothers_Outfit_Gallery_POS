@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Printer } from 'lucide-react';
 import { ClothingLabel, type ClothingProduct, type ClothingVariant, type LabelFormat } from './ClothingLabel';
+import { BarcodePages } from './BarcodePages';
 
 export type PrintableItem = {
   product: ClothingProduct;
@@ -22,7 +23,9 @@ export function BarcodePrintModal({
   subtitle = 'Adjust format and quantities, preview below, and print crisp labels.',
   onClose
 }: BarcodePrintModalProps) {
-  const [format, setFormat] = useState<LabelFormat>('thermal-38x60');
+  const [format, setFormat] = useState<LabelFormat>('a4-18');
+  const [showMrp, setShowMrp] = useState(true);
+  const [showDiscount, setShowDiscount] = useState(true);
 
   // Initialize copies per item key
   const [copies, setCopies] = useState<Record<string, number>>(() => {
@@ -105,8 +108,9 @@ export function BarcodePrintModal({
                   <option value="thermal-50x38">Thermal Roll: 50 × 38 mm (Standard Apparel)</option>
                   <option value="thermal-50x25">Thermal Roll: 50 × 25 mm (Compact)</option>
                   <option value="thermal-38x25">Thermal Roll: 38 × 25 mm (Mini)</option>
-                  <option value="a4-24">A4 Sheet: 24 labels (3 × 8 grid, 70 × 37 mm)</option>
-                  <option value="a4-40">A4 Sheet: 40 labels (4 × 10 grid, 48.5 × 25.4 mm)</option>
+                  <option value="a4-18">NovaJet 18L: 18 labels (63.5 × 46.6 mm)</option>
+                  <option value="a4-24">NovaJet 24L: 24 labels (64 × 34 mm)</option>
+                  <option value="a4-40">NovaJet 40L: 40 labels (39 × 35 mm)</option>
                 </select>
               </label>
             </div>
@@ -144,6 +148,10 @@ export function BarcodePrintModal({
                 </div>
               </label>
             </div>
+          </div>
+          <div className="barcode-checkbox-options">
+            <label className="checkbox-pill"><input type="checkbox" checked={showMrp} onChange={event => setShowMrp(event.target.checked)} />Show MRP</label>
+            <label className="checkbox-pill"><input type="checkbox" checked={showDiscount} onChange={event => setShowDiscount(event.target.checked)} />Show discount</label>
           </div>
 
           {/* Items & Copies Table */}
@@ -212,13 +220,15 @@ export function BarcodePrintModal({
         {/* Live Print / Preview Canvas */}
         <div className="barcode-preview-container">
           <div className="preview-watermark no-print">Live Print Preview</div>
-          <div className={`barcode-sheet-printable sheet-${format}`}>
+          <BarcodePages format={format}>
             {printableList.map(labelItem => (
               <ClothingLabel
                 key={labelItem.key}
                 product={labelItem.product}
                 variant={labelItem.variant}
                 format={format}
+                showMrp={showMrp}
+                showDiscount={showDiscount}
               />
             ))}
             {printableList.length === 0 && (
@@ -226,7 +236,7 @@ export function BarcodePrintModal({
                 No labels to display. Set copies above 0 to preview and print.
               </div>
             )}
-          </div>
+          </BarcodePages>
         </div>
       </div>
     </div>,

@@ -33,7 +33,7 @@ type PurchaseOrder = { id: string; supplierId?: string; supplierName: string; su
 type Movement = { id: string; productId?: string; sku?: string; deltaChange?: number; reason?: string; source?: string; stockAfter?: number };
 type Invoice = { id: string; orderId: string; total: number; lines: { name?: string; sku?: string; quantity?: number; price?: number; discount?: number; discountPercent?: number; tax?: number; amount?: number; taxPercent?: number }[];
   exchangeCreditUsed?: number; payments?: PaymentPart[]; creditAmount?: number; cashTendered?: number; change?: number; creditDueDate?: string;
-  customerName?: string; customerPhone?: string; customerDateOfBirth?: string; channel: string; paymentMethod: string; kind?: string; subtotal?: number; discount?: number; tax?: number; billUrl?: string; createdAt?: { _seconds?: number; seconds?: number } };
+  customerName?: string; customerPhone?: string; customerDateOfBirth?: string; channel: string; paymentMethod: string; kind?: string; subtotal?: number; discount?: number; tax?: number; billUrl?: string; createdAt?: { _seconds?: number; seconds?: number }; issuedAt?: { _seconds?: number; seconds?: number } };
 type SyncRecord = { id: string; event?: string; status?: string; invoiceId?: string; source?: string; retryCount?: number; error?: string; providerMessageId?: string };
 type Shop = { name: string; phone: string; address: string; email: string; whatsapp: string; logo: string };
 const money = (value: number | undefined) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -48,23 +48,11 @@ const availableStockRows = (products: Product[]) => stockValueRows(products.map(
 
 const isPreviewProduct = (p: Product) => {
   if ((p as Product & { demoOnly?: boolean }).demoOnly === true) return false;
-  const name = String(p.name || '').toLowerCase();
-  const sku = String(p.sku || '').toLowerCase();
-  const id = String(p.id || '').toLowerCase();
   return (
     Boolean((p as any).isDemo) ||
     Boolean((p as any).preview) ||
     Boolean((p as any).isPreview) ||
-    Boolean((p as any).isSample) ||
-    id.startsWith('demo') ||
-    id.includes('preview') ||
-    id.includes('sample') ||
-    sku.startsWith('demo') ||
-    sku.includes('preview') ||
-    sku.includes('sample') ||
-    name.includes('demo') ||
-    name.includes('preview') ||
-    name.includes('sample')
+    Boolean((p as any).isSample)
   );
 };
 
@@ -74,8 +62,8 @@ export function ReceiptDialog({ invoice, shop, preview = false, onClose }: { inv
   const discount = invoice.discount ?? Math.max(0, subtotal - invoice.total);
   const units = invoice.lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
   const showHistoricalTax = Number(invoice.tax || 0) > 0 || invoice.lines.some(line => Number(line.tax || 0) > 0);
-  const timestamp = invoice.createdAt?._seconds || invoice.createdAt?.seconds;
-  const issuedAt = timestamp ? new Date(timestamp * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : preview ? 'Preview' : '';
+  const timestamp = invoice.issuedAt?._seconds || invoice.issuedAt?.seconds || invoice.createdAt?._seconds || invoice.createdAt?.seconds;
+  const issuedAt = timestamp ? new Date(timestamp * 1000).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) : preview ? 'Preview' : '';
   const phone = (invoice.customerPhone || '').replace(/\D/g, '');
   const whatsappText = [shop?.name || 'Brothers Outfit Gallery', 'Sales receipt ' + invoice.id, ...invoice.lines.map(line => `${line.name || line.sku || 'Item'} (${line.sku || 'Item'}) × ${line.quantity || 0}: ${money(Number(line.price || 0) * Number(line.quantity || 0))}`), discount > 0 ? 'Discount: ' + money(discount) : '', 'Total: ' + money(invoice.total), invoice.billUrl ? 'Open your bill PDF: ' + invoice.billUrl : '', 'Payment: ' + invoice.paymentMethod, 'Thank you for shopping with us.'].filter(Boolean).join('\n');
   return createPortal(<div className="editor-backdrop print-backdrop" onClick={onClose}><div className={`invoice-sheet glass receipt-${paper}`} role="dialog" aria-modal="true" aria-label={preview ? 'Bill print preview' : `Receipt ${invoice.id}`} onClick={event => event.stopPropagation()}>
@@ -110,6 +98,7 @@ async function send<T>(path: string, body: unknown): Promise<T> {
 }
 const requestId = () => crypto.randomUUID();
 const salePayload = (sale: QueuedSale) => ({ expectedTotal:sale.expectedTotal, requestId: sale.requestId, lines: sale.lines,
+  invoiceNumber: sale.invoiceNumber, invoiceDate: sale.invoiceDate, invoiceTime: sale.invoiceTime,
   customerName: sale.customerName, customerPhone: sale.customerPhone, customerEmail: sale.customerEmail || undefined,
   customerDateOfBirth: sale.customerDateOfBirth || undefined, birthdayOffersOptIn: sale.birthdayOffersOptIn,
   payments: sale.payments, cashTendered: sale.cashTendered,
@@ -801,7 +790,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
         products={products}
         customers={customers}
         role={role}
-        initialInvoiceNumber={invoices.length ? Number(invoices[0].id.split('-').pop() || '100') + 1 : 101}
+        initialInvoiceNumber={invoices.length ? Number(invoices[0].id.split('-').pop() || '0') + 1 : 1}
         saving={checkoutBusy}
         heldBillsCount={held.length}
         onResumeHeld={() => {
@@ -818,6 +807,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
               orderId: string;
               total: number;
               billUrl: string;
+              issuedAt: string;
               payments: PaymentPart[];
               creditAmount: number;
               cashTendered: number;
@@ -852,6 +842,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
               discount: sale.discount,
               tax: sale.tax,
               billUrl: result.billUrl,
+              issuedAt: { seconds: Math.floor(new Date(result.issuedAt).getTime() / 1000) },
               creditDueDate: sale.creditDueDate
             };
 
@@ -860,6 +851,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
             }
             setNotice(`Invoice ${result.invoiceId} recorded successfully.`);
             await load();
+            return result.invoiceId;
           } catch (err) {
             setError((err as Error).message);
             throw err;

@@ -76,7 +76,7 @@ export function VyaparBilling({
   products,
   customers = [],
   role,
-  initialInvoiceNumber = 101,
+  initialInvoiceNumber = 1,
   onSaveBill,
   heldBillsCount = 0,
   onResumeHeld,
@@ -87,7 +87,7 @@ export function VyaparBilling({
   customers?: CustomerItem[];
   role?: string;
   initialInvoiceNumber?: number;
-  onSaveBill: (sale: QueuedSale, action: 'share' | 'new') => Promise<void>;
+  onSaveBill: (sale: QueuedSale, action: 'share' | 'new') => Promise<string>;
   heldBillsCount?: number;
   onResumeHeld?: () => void;
   onParkBill?: (sale: QueuedSale) => Promise<void>;
@@ -102,10 +102,12 @@ export function VyaparBilling({
 
   // Invoice metadata
   const [invoiceNumber, setInvoiceNumber] = useState(initialInvoiceNumber);
+  const [manualInvoiceNumber, setManualInvoiceNumber] = useState(false);
   const [invoiceDate, setInvoiceDate] = useState(() => shopDate());
-  const [currentTime] = useState(() =>
-    new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-  );
+  const [invoiceTime, setInvoiceTime] = useState(() => new Date().toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false
+  }));
+  useEffect(() => { if (!manualInvoiceNumber) setInvoiceNumber(initialInvoiceNumber); }, [initialInvoiceNumber, manualInvoiceNumber]);
 
   // Payment mode options (down side of terms & conditions)
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'upi' | 'card' | 'credit' | 'split'>('cash');
@@ -443,6 +445,14 @@ export function VyaparBilling({
   async function handleSubmit(action: 'share' | 'new') {
     setError('');
     setSuccess('');
+    if (manualInvoiceNumber && (!Number.isSafeInteger(invoiceNumber) || invoiceNumber < 1 || invoiceNumber > 999999)) {
+      setError('Enter a bill number from 1 to 999999.');
+      return;
+    }
+    if (!invoiceDate || !invoiceTime) {
+      setError('Choose the bill date and time.');
+      return;
+    }
 
     const validLines = rows.filter(r => (r.productId || r.name.trim()) && r.quantity > 0);
     if (!validLines.length) {
@@ -480,6 +490,9 @@ export function VyaparBilling({
     const payload: QueuedSale = {
       expectedTotal: totals.totalAmount,
       requestId: crypto.randomUUID(),
+      ...(manualInvoiceNumber ? { invoiceNumber } : {}),
+      invoiceDate,
+      invoiceTime,
       lines: validLines.map(line => ({
         productId: line.productId || products[0]?.id || 'pos-custom-item',
         sku: line.sku || line.name,
@@ -503,9 +516,9 @@ export function VyaparBilling({
     };
 
     try {
-      await onSaveBill(payload, action);
+      const savedInvoiceId = await onSaveBill(payload, action);
       if (action === 'new') {
-        setSuccess(`Invoice #${invoiceNumber} saved successfully! New bill ready.`);
+        setSuccess(`Invoice ${savedInvoiceId} saved successfully! New bill ready.`);
         setRows([createEmptyRow('new-1')]);
         setCustomerName('');
         setCustomerPhone('');
@@ -515,7 +528,10 @@ export function VyaparBilling({
         setSplitUpi('');
         setSplitCard('');
         setSplitCredit('');
-        setInvoiceNumber(n => n + 1);
+        setInvoiceNumber(Number(savedInvoiceId.split('-').pop() || invoiceNumber) + 1);
+        setManualInvoiceNumber(false);
+        setInvoiceDate(shopDate());
+        setInvoiceTime(new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }));
         requestAnimationFrame(() => scanInputRef.current?.focus());
       }
     } catch (err) {
@@ -675,7 +691,8 @@ export function VyaparBilling({
         <div className="vyapar-invoice-meta-box">
           <div className="vyapar-meta-row">
             <span className="vyapar-meta-title">Bill number</span>
-            <strong className="vyapar-invoice-number">#{invoiceNumber}</strong>
+            <input type="number" className="vyapar-meta-value" aria-label="Bill number" min="1" max="999999"
+              value={invoiceNumber} onChange={e => { setInvoiceNumber(Number(e.target.value)); setManualInvoiceNumber(true); }} />
           </div>
 
           <div className="vyapar-meta-row">
@@ -695,7 +712,7 @@ export function VyaparBilling({
           <div className="vyapar-meta-row">
             <span className="vyapar-meta-title">Time</span>
             <div className="vyapar-meta-control">
-              <span className="vyapar-meta-static">{currentTime}</span>
+              <input type="time" className="vyapar-meta-value" aria-label="Bill time" value={invoiceTime} onChange={e => setInvoiceTime(e.target.value)} />
               <Clock size={16} aria-hidden="true" />
             </div>
           </div>

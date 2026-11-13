@@ -1,6 +1,9 @@
 export type QueuedSale = {
   expectedTotal?: number;
   requestId: string;
+  invoiceNumber?: number;
+  invoiceDate?: string;
+  invoiceTime?: string;
   lines: { productId: string; sku: string; quantity: number; price?: number; name?: string; discount?: number; tax?: number; taxPercent?: number }[];
   customerName?: string;
   customerPhone?: string;

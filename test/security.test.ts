@@ -4,6 +4,9 @@ import type { Server } from 'node:http';
 import { createApp } from '../server/app.js';
 import { config } from '../server/config.js';
 
+// This fixture exercises the locked state even when the local shop is enabled.
+config.businessWritesEnabled = false;
+
 let server: Server;
 let origin: string;
 let revoked = false;

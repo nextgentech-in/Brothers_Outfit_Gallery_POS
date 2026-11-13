@@ -2,7 +2,7 @@ import { paymentBreakdown } from '../shared/payments.js';
 import { createHash, randomBytes } from 'node:crypto';
 import express, { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
-import { FieldValue, type DocumentData } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp, type DocumentData } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { toSVG } from '@bwip-js/node';
 import { firebase } from './firebase.js';
@@ -42,8 +42,9 @@ const saleSchema = z.object({
   customerPhone: z.string().trim().max(20).optional(),
   customerEmail: z.email().max(254).optional(),
   customerAddress: z.string().trim().max(500).optional(),
-  invoiceNumber: z.number().int().optional(),
-  invoiceDate: z.string().max(30).optional(),
+  invoiceNumber: z.number().int().min(1).max(999999).optional(),
+  invoiceDate: z.iso.date().optional(),
+  invoiceTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
   customerDateOfBirth: z.string().max(10).optional(),
   birthdayOffersOptIn: z.boolean().optional(),
   creditDueDate: z.string().max(10).optional(),
@@ -175,13 +176,7 @@ commerceRouter.get('/products', async (_req, res) => {
           const data = d.data();
           if (data.isDeleted === true) return false;
           if (data.demoOnly === true) return true;
-          const id = d.id.toLowerCase();
-          const name = String(data.name || '').toLowerCase();
-          const sku = String(data.sku || '').toLowerCase();
           if (data.isDemo === true || data.preview === true || data.isPreview === true || data.isSample === true) return false;
-          if (id.startsWith('demo') || id.includes('preview') || id.includes('sample')) return false;
-          if (name.includes('demo') || name.includes('preview') || name.includes('sample')) return false;
-          if (sku.startsWith('demo') || sku.includes('preview') || sku.includes('sample')) return false;
           return true;
         })
         .map(d => {
@@ -731,14 +726,20 @@ commerceRouter.post('/pos/sale', async (req, res) => {
       const identity = customerKey(input.customerPhone, input.customerEmail);
       const creditState = (input.paymentMethod === 'credit' || (input.paymentMethod === 'split' && input.payments?.some(p => p.method === 'credit' && p.amount > 0))) ? await readCreditState(db, tx, identity) : null;
       const creditProfile = creditState ? await tx.get(db.collection('erp_customerProfiles').doc(identity)) : null;
-      const fy = fiscalYear(), counterRef = db.collection('erp_invoiceSequences').doc(fy);
+      const issuedDate = input.invoiceDate && input.invoiceTime
+        ? new Date(`${input.invoiceDate}T${input.invoiceTime}:00+05:30`)
+        : new Date();
+      if (!Number.isFinite(issuedDate.getTime())) throw Object.assign(new Error('Invalid bill date or time.'), { status: 422 });
+      const fy = fiscalYear(issuedDate), counterRef = db.collection('erp_invoiceSequences').doc(fy);
       const orderId = `POS-${hash(input.requestId).slice(0,24)}`;
       const products = new Map<string, Product>();
       const refs = [...new Set(input.lines.map(line => line.productId))].sort().map(productId => db.collection('products').doc(productId));
       const [counter, ...snapshots] = await tx.getAll(counterRef, ...refs);
       snapshots.forEach((doc, index) => { if (!doc.exists) throw Object.assign(new Error('Product not found.'), { status: 404 }); products.set(refs[index].id, doc.data() as Product); });
-      const invoiceNumber = Number(counter.data()?.lastNumber || 0) + 1;
+      const invoiceNumber = input.invoiceNumber ?? Number(counter.data()?.lastNumber || 0) + 1;
       const invoiceId = `BOG-${fy}-${String(invoiceNumber).padStart(5, '0')}`;
+      if ((await tx.get(db.collection('erp_invoices').doc(invoiceId))).exists)
+        throw Object.assign(new Error('That bill number is already used. Choose another number.'), { status: 409 });
       let subtotalPaise = 0;
       let totalLineDiscountPaise = 0;
       const lineSnapshots: Record<string, unknown>[] = [];
@@ -804,7 +805,7 @@ commerceRouter.post('/pos/sale', async (req, res) => {
       if(input.expectedTotal !== undefined && Math.round(input.expectedTotal*100)!==Math.round(total*100)) throw Object.assign(new Error('Prices changed. Restore this bill for review before collecting payment.'),{status:409});
       let settlement; try { settlement = paymentBreakdown(total, input.paymentMethod, input.payments, input.cashTendered); } catch (e) { throw Object.assign(e as Error, { status: 422 }); }
       for (const ref of refs) tx.update(ref, { ...products.get(ref.id), updatedAt: FieldValue.serverTimestamp() });
-      tx.set(counterRef, { lastNumber: invoiceNumber, updatedAt: FieldValue.serverTimestamp() });
+      tx.set(counterRef, { lastNumber: Math.max(Number(counter.data()?.lastNumber || 0), invoiceNumber), updatedAt: FieldValue.serverTimestamp() });
       tx.create(db.collection('orders').doc(orderId), {
         items: lineSnapshots, subtotal: subtotalPaise / 100, discount: discountPaise / 100, tax: taxPaise / 100, totalAmount: total,
         ...settlement, status: 'Delivered', paymentStatus: settlement.creditAmount ? (settlement.creditAmount === total ? 'Credit' : 'Part paid') : 'Paid',
@@ -839,14 +840,15 @@ commerceRouter.post('/pos/sale', async (req, res) => {
         customerDateOfBirth: input.customerDateOfBirth || '',
         customerKey: identity || null, lines: lineSnapshots,
         ...settlement, subtotal: subtotalPaise / 100, discount: discountPaise / 100, tax: taxPaise / 100, total, paymentMethod: input.paymentMethod,
-        channel: 'POS', kind: 'sales_receipt', whatsappOptIn: input.whatsappOptIn, createdAt: FieldValue.serverTimestamp(),
+        channel: 'POS', kind: 'sales_receipt', whatsappOptIn: input.whatsappOptIn,
+        issuedAt: Timestamp.fromDate(issuedDate), createdAt: FieldValue.serverTimestamp(),
         ...(creditState ? { creditDueDate: input.creditDueDate } : {})
       });
       tx.create(db.collection('erp_syncLog').doc(`invoice_${hash(input.requestId)}`), { event: 'invoice_delivery',
         source: 'pos', status: input.whatsappOptIn && input.customerPhone ? 'awaiting_provider' : 'consent_missing',
         invoiceId, retryCount: 0, createdAt: FieldValue.serverTimestamp()
       });
-      return { orderId, invoiceId, total, channel: 'POS', ...settlement };
+      return { orderId, invoiceId, issuedAt: issuedDate.toISOString(), total, channel: 'POS', ...settlement };
     });
     if (input.whatsappOptIn && input.customerPhone) await deliverInvoice(db, `invoice_${hash(input.requestId)}`).catch(() => {});
     if (result.creditAmount > 0) await deliverCustomerMessage(db, `credit_${hash(input.requestId)}`).catch(() => {});

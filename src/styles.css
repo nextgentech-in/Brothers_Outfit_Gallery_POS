@@ -1835,6 +1835,37 @@
 .label-fmt-thermal-38x60{width:38mm;height:60mm;max-width:38mm;max-height:60mm;padding:3mm}.label-fmt-thermal-38x60 .label-header{padding-bottom:2mm;margin-bottom:2mm}.label-fmt-thermal-38x60 .label-store-name{font-size:8pt;line-height:1.2}.label-fmt-thermal-38x60 .label-item-name{font-size:9pt;white-space:normal;max-height:22mm}.label-fmt-thermal-38x60 .label-variant-badge-row{display:grid;gap:1mm}.label-fmt-thermal-38x60 .label-variant-pill{font-size:8pt}.label-fmt-thermal-38x60 .label-mrp-price{font-size:12pt}.label-fmt-thermal-38x60 .label-barcode-container{margin-top:auto}.label-fmt-thermal-38x60 .label-barcode-image{width:100%;height:12mm}.label-fmt-thermal-38x60 .label-barcode-text{font-size:7pt}
 @page clothing-tag{size:38mm 60mm;margin:0}@media print{.sheet-thermal-38x60{page:clothing-tag;display:block!important;width:38mm!important;margin:0!important}.sheet-thermal-38x60 .clothing-label-card{width:38mm!important;height:60mm!important;margin:0!important;border:0!important;page-break-after:always!important;break-after:page!important}}
 
+/* NovaJet MPL sheet sizes printed on the box. Keep every grid on one A4 page. */
+.barcode-print-pages{display:flex;flex-direction:column;align-items:center;gap:16px}
+.sheet-a4-18{display:grid;grid-template-columns:repeat(3,63.5mm);grid-auto-rows:46.6mm;width:190.5mm;gap:0}
+.label-fmt-a4-18{width:63.5mm;height:46.6mm;max-width:63.5mm;max-height:46.6mm}
+.sheet-a4-24{grid-template-columns:repeat(3,64mm);grid-auto-rows:34mm;width:192mm}
+.label-fmt-a4-24{width:64mm;height:34mm;max-width:64mm;max-height:34mm;padding:1mm 2mm}
+.sheet-a4-40{grid-template-columns:repeat(5,39mm);grid-auto-rows:35mm;width:195mm}
+.label-fmt-a4-40{width:39mm;height:35mm;max-width:39mm;max-height:35mm;padding:1mm}
+.label-fmt-a4-24 .label-meta-row,.label-fmt-a4-24 .label-fabric-row{display:none}
+.label-fmt-a4-24 .label-price-section,.label-fmt-a4-40 .label-price-section{flex-wrap:wrap;gap:0.5mm}
+.label-fmt-a4-40 .label-mrp-price,.label-fmt-a4-40 .label-selling-price{font-size:7pt}
+.label-fmt-a4-40 .label-discount-badge{font-size:5.5pt}
+@page barcode-a4{size:A4;margin:0}
+@media print{
+  .barcode-print-pages{display:block!important;gap:0!important;width:210mm!important}
+  .barcode-print-pages>.sheet-a4-18,.barcode-print-pages>.sheet-a4-24,.barcode-print-pages>.sheet-a4-40{
+    page:barcode-a4;box-sizing:border-box!important;display:grid!important;width:210mm!important;height:297mm!important;
+    margin:0!important;padding:0!important;gap:0!important;justify-content:center!important;align-content:center!important;
+    break-after:page!important;page-break-after:always!important
+  }
+  .barcode-print-pages>.sheet-a4-18{grid-template-columns:repeat(3,63.5mm)!important;grid-template-rows:repeat(6,46.6mm)!important}
+  .barcode-print-pages>.sheet-a4-24{grid-template-columns:repeat(3,64mm)!important;grid-template-rows:repeat(8,34mm)!important}
+  .barcode-print-pages>.sheet-a4-40{grid-template-columns:repeat(5,39mm)!important;grid-template-rows:repeat(8,35mm)!important}
+  .barcode-print-pages>.sheet-a4-18:last-child,.barcode-print-pages>.sheet-a4-24:last-child,.barcode-print-pages>.sheet-a4-40:last-child{
+    break-after:auto!important;page-break-after:auto!important
+  }
+  .barcode-print-pages .sheet-a4-18 .clothing-label-card,.barcode-print-pages .sheet-a4-24 .clothing-label-card,.barcode-print-pages .sheet-a4-40 .clothing-label-card{
+    break-after:auto!important;page-break-after:auto!important;border:0!important;outline:0.2mm solid #999;outline-offset:-0.2mm
+  }
+}
+
 /* Theme surfaces: white workspace and black glass. */
 :root {
   color-scheme: light;

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ClothingLabel, type LabelFormat } from './ClothingLabel';
+import { BarcodePages } from './BarcodePages';
 import { Printer, Search } from 'lucide-react';
 
 export type BatchLabelProduct = {
@@ -45,7 +46,7 @@ type LabelRow = {
 
 export function BarcodeBatch({ products, onClose }: { products: BatchLabelProduct[]; onClose: () => void }) {
   const [copies, setCopies] = useState<Record<string, number>>({});
-  const [format, setFormat] = useState<LabelFormat>('thermal-38x60');
+  const [format, setFormat] = useState<LabelFormat>('a4-18');
   const [showMrp, setShowMrp] = useState(true);
   const [showDiscount, setShowDiscount] = useState(true);
   const [query, setQuery] = useState('');
@@ -105,8 +106,9 @@ export function BarcodeBatch({ products, onClose }: { products: BatchLabelProduc
                 <option value="thermal-50x38">Thermal Roll: 50 × 38 mm (Standard)</option>
                 <option value="thermal-50x25">Thermal Roll: 50 × 25 mm (Compact)</option>
                 <option value="thermal-38x25">Thermal Roll: 38 × 25 mm (Mini)</option>
-                <option value="a4-24">A4 Sheet: 24 labels (3 × 8 grid)</option>
-                <option value="a4-40">A4 Sheet: 40 labels (4 × 10 grid)</option>
+                <option value="a4-18">NovaJet 18L: 18 labels (63.5 × 46.6 mm)</option>
+                <option value="a4-24">NovaJet 24L: 24 labels (64 × 34 mm)</option>
+                <option value="a4-40">NovaJet 40L: 40 labels (39 × 35 mm)</option>
               </select>
             </label>
             <label>
@@ -177,7 +179,8 @@ export function BarcodeBatch({ products, onClose }: { products: BatchLabelProduc
           </div>
         </div>
 
-        <div className={`barcode-preview-container barcode-sheet-printable sheet-${format}`}>
+        <div className="barcode-preview-container">
+          <BarcodePages format={format}>
           {labels.map(({ row, copy }) => (
             <ClothingLabel
               key={`${row.key}:${copy}`}
@@ -188,6 +191,7 @@ export function BarcodeBatch({ products, onClose }: { products: BatchLabelProduc
               showDiscount={showDiscount}
             />
           ))}
+          </BarcodePages>
         </div>
       </div>
     </div>,
