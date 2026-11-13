@@ -12,6 +12,7 @@ import { CreditView } from './CreditView';
 import { WhatsAppView } from './WhatsAppView';
 import { ReportsWorkspace } from './reports/ReportsWorkspace';
 import { CommandPalette } from './CommandPalette';
+import { Analytics } from '@vercel/analytics/react';
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'same-origin', ...options });
@@ -35,7 +36,7 @@ export function App() {
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#08090b' : '#ffffff');
     localStorage.setItem('bo-theme-v2', dark ? 'dark' : 'light');
   }, [dark]);
-  return <><div className="ambient ambient-one" /><div className="ambient ambient-two" />{window.location.pathname === '/login' ? <Login /> : window.location.pathname === '/enroll' ? <EnrollDevice /> : <Workspace dark={dark} toggleTheme={() => setDark(!dark)} />}</>;
+  return <><div className="ambient ambient-one" /><div className="ambient ambient-two" />{window.location.pathname === '/login' ? <Login /> : window.location.pathname === '/enroll' ? <EnrollDevice /> : <Workspace dark={dark} toggleTheme={() => setDark(!dark)} />}<Analytics /></>;
 }
 function Login() {
   const [pin, setPin] = useState('');
