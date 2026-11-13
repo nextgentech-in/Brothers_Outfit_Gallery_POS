@@ -21,7 +21,7 @@ async function receive(db: Firestore, tx: Transaction, input: PurchaseInput) {
   const catalog = await tx.get(db.collection('products'));
   const products = new Map<string, DocumentData>(catalog.docs.map(doc => [doc.id, doc.data()]));
   const codes = new Set<string>();
-  for (const product of products.values()) for (const code of [product.sku, product.barcode, product.posBarcode, ...(product.variants || []).flatMap((v: any) => [v.sku,v.barcode,v.posBarcode])]) if (code) codes.add(String(code).toLowerCase());
+  for (const product of products.values()) for (const code of [product.sku, product.barcode, product.posBarcode, ...(Array.isArray(product.variants) ? product.variants : []).flatMap((v: any) => [v.sku,v.barcode,v.posBarcode])]) if (code) codes.add(String(code).toLowerCase());
   const hasNewItems = input.lines.some(l => l.newItem);
   const currentCounter = hasNewItems ? await readProductNumberCounter(db, tx) : 0;
   let nextProductNumber = currentCounter;
@@ -47,7 +47,7 @@ async function receive(db: Firestore, tx: Transaction, input: PurchaseInput) {
     }
     const product = products.get(productId);
     if (!product || product.isDeleted) reject('Product not found.', 404);
-    const variant = (product!.variants || []).find((v: any) => v.sku === sku);
+    const variant = (Array.isArray(product!.variants) ? product!.variants : []).find((v: any) => v.sku === sku);
     const target = variant || product!;
     const oldStock = Number(target.stock ?? target.quantity ?? 0);
     const costPrice = Math.round((cash(Number(target.costPrice ?? product!.costPrice ?? 0)) * oldStock + cash(line.unitCost) * line.quantity) / (oldStock + line.quantity)) / 100;
@@ -60,7 +60,7 @@ async function receive(db: Firestore, tx: Transaction, input: PurchaseInput) {
     if (changed.variants?.length === 1) Object.assign(changed, { costPrice, cost_price:costPrice, purchasePrice:costPrice, purchase_price:costPrice, price: selling, salePrice: selling, mrp, compareAtPrice:mrp });
     products.set(productId, changed); touched.add(productId);
     const lineTotal = cash(line.unitCost) * line.quantity; total += lineTotal;
-    lines.push({ productId, productNumber: product!.productNumber, barcode: variant?.barcode || product!.barcode || '', sku, name: product!.name, quantity: line.quantity, unitCost: line.unitCost, salePrice: selling, mrp, stockValue: lineTotal / 100 });
+    lines.push({ productId, productNumber: product!.productNumber ?? null, barcode: variant?.barcode || product!.barcode || '', sku, name: product!.name, quantity: line.quantity, unitCost: line.unitCost, salePrice: selling, mrp, stockValue: lineTotal / 100 });
     movements.push({ movementId: `${purchaseId}_${index}`, productId, sku, deltaChange: line.quantity, stockAfter: oldStock + line.quantity, reason: 'purchase', source: 'admin', supplierId: input.supplierId, purchaseId, createdAt: FieldValue.serverTimestamp() });
   }
   if (cash(input.amountPaid) > total) reject('Amount paid exceeds purchase total.');
@@ -73,6 +73,7 @@ async function receive(db: Firestore, tx: Transaction, input: PurchaseInput) {
   for (const productId of touched) {
     const data: DocumentData = { ...products.get(productId), updatedAt: FieldValue.serverTimestamp() };
     if (created.has(productId)) {
+      delete data.deletedAt;
       tx.create(db.collection('products').doc(productId), data);
       tx.create(db.collection('productSlugMappings').doc(hash(data.slug)), { productId, slug: data.slug, createdAt: FieldValue.serverTimestamp() });
     } else tx.update(db.collection('products').doc(productId), data);

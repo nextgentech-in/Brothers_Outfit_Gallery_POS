@@ -820,7 +820,7 @@ commerceRouter.post('/pos/sale', async (req, res) => {
         customerKey: identity || null, createdAt: FieldValue.serverTimestamp() });
       if (identity) {
         tx.set(db.collection('erp_customerProfiles').doc(identity), {
-          customerKey: identity, ...customerProfileFields(input),
+          customerKey: identity, posCustomer: true, ...customerProfileFields(input),
           ...(creditState && input.creditWhatsAppOptIn !== undefined ? { creditWhatsAppOptIn: input.creditWhatsAppOptIn } : {}), updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
         if (creditState) {

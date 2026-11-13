@@ -41,8 +41,10 @@ export interface ClothingLabelProps {
 export function ClothingLabel({
   product,
   variant,
-  format = 'thermal-50x38'
+  format = 'thermal-50x38',
+  showMrp = true
 }: ClothingLabelProps) {
+  const mrp = variant.mrp || product.mrp;
   const barcode = variant.barcode || product.barcode || variant.sku;
 
   const barcodeImgSrc = `/api/barcode/render?code=${encodeURIComponent(barcode)}&format=code128`;
@@ -61,6 +63,7 @@ export function ClothingLabel({
           </span>
           <span className="label-variant-pill"><strong>Colour:</strong> {variant.color || 'Standard'}</span>
         </div>
+        {showMrp && <span className="label-variant-pill"><strong>MRP:</strong> {mrp ? `₹${mrp.toLocaleString('en-IN')}` : '—'}</span>}
         <div className="label-barcode-container">
           <img
             src={barcodeImgSrc}

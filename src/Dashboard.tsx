@@ -117,7 +117,7 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
   const [preset, setPreset] = useState<DatePreset>('today');
   const [fromDate, setFromDate] = useState(() => shopDate());
   const [toDate, setToDate] = useState(() => shopDate());
-  const [channel, setChannel] = useState(''); // '' = all, 'pos', 'website'
+  const [channel, setChannel] = useState('pos'); // '' = all, 'pos', 'website'
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
   // Offline bills on this device
@@ -675,7 +675,7 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
               <div className="dashboard-kpi-subtext">
                 {data ? `${data.summary.grossMarginPercent}% margin` : '—'}
                 {data?.summary.hasIncompleteCost && (
-                  <span style={{ color: '#d9534f', display: 'block' }}>⚠️ Missing cost price on some items</span>
+                  <span style={{ color: '#d9534f', display: 'block' }}>⚠️ Missing purchase rate on some items</span>
                 )}
               </div>
             </div>

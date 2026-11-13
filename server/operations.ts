@@ -39,7 +39,11 @@ operationsRouter.get('/orders/search', async(req,res)=>{
     const rows=await db.collection('orders').where('createdAt','>=',start).where('createdAt','<',end).orderBy('createdAt','desc').get();
     const invoices=await db.collection('erp_invoices').where('createdAt','>=',start).where('createdAt','<',end).get();
     const invoiceByOrder=new Map(invoices.docs.map(d=>[d.data().orderId,{id:d.id,...d.data()}]));
-    const found=rows.docs.map(d=>({id:d.id,...d.data(),invoice:invoiceByOrder.get(d.id)})).filter((o:any)=>!term || `${o.id} ${o.customerName||o.shippingAddress?.fullName||''} ${o.customerPhone||o.shippingAddress?.phone||o.userPhone||''} ${o.invoice?.id||''}`.toLowerCase().includes(term.toLowerCase()) || (Boolean(mobileNumber(term))&&mobileNumber(term)===mobileNumber(o.customerPhone||o.shippingAddress?.phone||o.userPhone||'')));
+    const found=rows.docs.map(d=>{
+      const order = d.data();
+      const channel = order.createdBy === 'admin-pos' || String(order.channel).toLowerCase() === 'pos' || /^(POS|EX)-/.test(d.id) ? 'POS' : 'Website';
+      return {...order,id:d.id,channel,invoice:invoiceByOrder.get(d.id)};
+    }).filter((o:any)=>!term || `${o.id} ${o.customerName||o.shippingAddress?.fullName||''} ${o.customerPhone||o.shippingAddress?.phone||o.userPhone||''} ${o.invoice?.id||''}`.toLowerCase().includes(term.toLowerCase()) || (Boolean(mobileNumber(term))&&mobileNumber(term)===mobileNumber(o.customerPhone||o.shippingAddress?.phone||o.userPhone||'')));
     const offset=Math.max(0,Math.min(1000000,Number(req.query.offset)||0));
     res.json({items:found.slice(offset,offset+50),total:found.length,nextOffset:offset+50<found.length?offset+50:null});
   }catch(e){fail(res,e);}

@@ -1,6 +1,7 @@
 export type Customer = {
   id: string;
   customerKey?: string;
+  sources?: ('website' | 'pos')[];
   fullName: string;
   phone: string;
   email: string;

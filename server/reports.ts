@@ -108,7 +108,7 @@ reportsRouter.get('/reports/dashboard-summary', async (req, res) => {
         });
       }
 
-      const isPos = o.createdBy === 'admin-pos' || o.channel === 'POS';
+      const isPos = o.createdBy === 'admin-pos' || String(o.channel).toLowerCase() === 'pos' || /^(POS|EX)-/.test(doc.id);
       const orderChannel = isPos ? 'pos' : 'website';
       if (channel && orderChannel !== channel) continue;
 

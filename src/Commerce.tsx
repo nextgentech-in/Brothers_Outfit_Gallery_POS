@@ -396,6 +396,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
   const [customerDetailsOpen, setCustomerDetailsOpen] = useState(false);
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
   const [messageCustomer, setMessageCustomer] = useState<Customer | null>(null);
+  const [customerSource, setCustomerSource] = useState<'all' | 'website' | 'pos'>('all');
   const [birthdayFilter, setBirthdayFilter] = useState('all');
   const [creditDueDate, setCreditDueDate] = useState(dueDateAfter(7));
   const [creditWhatsAppOptIn, setCreditWhatsAppOptIn] = useState(false);
@@ -595,6 +596,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
   const billSubtotal = cart.reduce((sum, line) => sum + line.price * line.quantity, 0);
   const today = shopDate();
   const shownCustomers = customers.filter(customer =>
+    (customerSource === 'all' || customer.sources?.includes(customerSource)) &&
     `${customer.fullName} ${customer.phone} ${customer.email} ${displayBirthDate(customer.dateOfBirth)} ${customer.dateOfBirth}`.toLowerCase().includes(query.toLowerCase()) &&
     (birthdayFilter === 'all' || (birthdayFilter === 'today'
       ? customer.dateOfBirth.slice(5) === today.slice(5)
@@ -865,6 +867,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
     {tab === 'orders' && <BillHistory onInvoice={invoice => setLastInvoice(invoice)} />}
     {tab === 'customers' && <div className="glass table-panel"><div className="commerce-toolbar customer-toolbar">
       <label className="field-search"><Search size={16} /><input placeholder="Search customer" value={query} onChange={e => setQuery(e.target.value)} /></label>
+      <label className="birthday-filter">Source<select value={customerSource} onChange={event => setCustomerSource(event.target.value as typeof customerSource)}><option value="all">All sources</option><option value="website">Website</option><option value="pos">POS</option></select></label>
       <label className="birthday-filter">Birthdays<select aria-label="Birthday filter" value={birthdayFilter} onChange={event => setBirthdayFilter(event.target.value)}><option value="all">All customers</option><option value="today">Today</option><option value="month">This month</option></select></label>
       <span>{shownCustomers.length} of {customers.length} profiles</span></div>
       <p className="microcopy">Choose WhatsApp in the Action column to prepare a message. You review the draft and send it from your own WhatsApp account.</p>
@@ -873,7 +876,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
         <td>{displayBirthDate(customer.dateOfBirth)}{customer.dateOfBirth && customer.dateOfBirth.slice(5) === today.slice(5) && <small className="birthday-today">Birthday today</small>}</td>
         <td><span className={customer.birthdayOffersOptIn ? 'credit-green' : 'muted'}>{customer.birthdayOffersOptIn ? 'Opted in' : 'Not opted in'}</span></td>
         <td><button type="button" className="button secondary" onClick={()=>{history.pushState(null,'',`/orders?phone=${encodeURIComponent(customer.phone)}`);window.dispatchEvent(new PopStateEvent('popstate'));}}>Bills</button><button type="button" className="button secondary" disabled={role==='cashier' || !mobileNumber(customer.phone)} onClick={() => setEditCustomer(customer)}>Edit</button><button type="button" className="button secondary customer-whatsapp-action" disabled={!mobileNumber(customer.phone)} onClick={() => setMessageCustomer(customer)} aria-label={`WhatsApp ${customer.fullName || customer.phone || 'customer'}`}><MessageCircle size={16} />WhatsApp</button>{!mobileNumber(customer.phone) && <small>Valid mobile number needed</small>}</td>
-      </tr>)}{shownCustomers.length === 0 && <tr><td colSpan={6}>No customers match this search or birthday filter.</td></tr>}</tbody></table></div></div>}
+      </tr>)}{shownCustomers.length === 0 && <tr><td colSpan={6}>No customers match the selected filters.</td></tr>}</tbody></table></div></div>}
     {tab === 'suppliers' && (
       <>
         <div className="page-title" style={{ flexWrap: 'wrap', gap: 16 }}>

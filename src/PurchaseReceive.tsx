@@ -63,16 +63,19 @@ export function PurchaseReceive({ products, suppliers, receive }: { products: Pr
             fabric: line.newItem?.fabric,
             category: line.newItem?.category,
             price: line.salePrice,
-            mrp: line.mrp
+            mrp: line.mrp,
+            variants: []
           };
+          const existingVariant = prod.variants.find(variant => variant.sku === line.sku);
           return {
-            product: prod as any,
+            product: prod,
             variant: {
+              ...existingVariant,
               sku: line.sku,
-              size: line.newItem?.size,
-              color: line.newItem?.color,
+              size: line.newItem?.size ?? existingVariant?.size,
+              color: line.newItem?.color ?? existingVariant?.color,
               price: line.salePrice,
-              mrp: line.mrp
+              mrp: line.mrp ?? existingVariant?.mrp
             },
             defaultCopies: line.quantity
           };
@@ -121,7 +124,7 @@ export function PurchaseReceive({ products, suppliers, receive }: { products: Pr
       ))}
       {lines.map(line => <article className="purchase-item-card" key={line.rowId}><header><strong>{line.newItem ? 'New catalog item' : line.label}</strong><button type="button" className="icon-button" aria-label={`Remove ${line.label}`} onClick={() => setLines(old => old.filter(x => x.rowId !== line.rowId))}><Trash2 size={18} /></button></header>
         {line.newItem && <div className="purchase-item-fields">{(['name','category','brand','design','fabric','size','color'] as const).map(field => <label key={field}>{({ name: 'Item name', category: 'Category', brand: 'Brand', design: 'Design / article', fabric: 'Fabric', size: 'Size', color: 'Colour' })[field]}<input required={['name','category','size','color'].includes(field)} value={line.newItem![field]} maxLength={field === 'name' ? 200 : 80} onChange={e => patch(line.rowId, { newItem: { ...line.newItem!, [field]: e.target.value } })} /></label>)}<label>SKU / barcode base<input required pattern="[A-Za-z0-9_.:-]+" maxLength={100} value={line.sku} onChange={e => patch(line.rowId, { sku: e.target.value })} /></label></div>}
-        <div className="purchase-item-fields">{([{ field: 'quantity', label: 'Quantity', min: 1, step: 1 }, { field: 'unitCost', label: 'Cost per item ₹', min: 0, step: .01 }, { field: 'salePrice', label: 'Sale price ₹', min: .01, step: .01 }, { field: 'mrp', label: 'MRP ₹', min: .01, step: .01 }] as const).map(({ field, label, min, step }) => <label key={field}>{label}<input required type="number" min={min} step={step} value={line[field] ?? 0} onChange={e => patch(line.rowId, { [field]: Number(e.target.value) })} /></label>)}</div>
+        <div className="purchase-item-fields">{([{ field: 'quantity', label: 'Quantity', min: 1, step: 1 }, { field: 'unitCost', label: 'Purchase rate ₹', min: 0, step: .01 }, { field: 'salePrice', label: 'Sale price ₹', min: .01, step: .01 }, { field: 'mrp', label: 'MRP ₹', min: .01, step: .01 }] as const).map(({ field, label, min, step }) => <label key={field}>{label}<input required type="number" min={min} step={step} value={line[field] ?? 0} onChange={e => patch(line.rowId, { [field]: Number(e.target.value) })} /></label>)}</div>
         {line.newItem && <div className="purchase-item-fields"><label className="check-row"><input type="checkbox" checked={line.newItem.gstEnabled === true} onChange={e => patch(line.rowId, { newItem: { ...line.newItem!, gstEnabled: e.target.checked, gstPercent: e.target.checked ? (line.newItem?.gstPercent || 5) : 0 } })} />Charge GST on this item</label>{line.newItem.gstEnabled && <label>GST %<input type="number" min="0.01" max="100" step="0.01" value={line.newItem.gstPercent || ''} onChange={e => patch(line.rowId, { newItem: { ...line.newItem!, gstPercent: Number(e.target.value) } })} /></label>}</div>}
         <p><strong>Stock cost: {money(line.unitCost)} × {line.quantity} = {money(Math.round(line.unitCost * 100) * line.quantity / 100)}</strong></p></article>)}
       <div className="purchase-footer">{mode === 'receive' && <label>Payment method<select aria-label="Purchase payment method" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value as typeof paymentMethod)}><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option></select></label>}{mode === 'receive' && <label>Amount paid ₹<input type="number" min="0" max={total} step=".01" value={amountPaid} onChange={e => setAmountPaid(Number(e.target.value))} /></label>}<div><small>Total stock cost</small><strong>{money(total)}</strong><small>{mode === 'receive' ? `Supplier balance ${money(total - amountPaid)}` : 'No stock increase until receipt'}</small></div></div>

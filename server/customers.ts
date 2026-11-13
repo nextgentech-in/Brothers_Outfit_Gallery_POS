@@ -26,7 +26,11 @@ export function customerDirectory(users: CustomerRecord[], profiles: CustomerRec
       const phone = text(data.phone), email = text(data.email);
       const identity = customerKey(phone, email) || `${source}:${id}`;
       const existing = customers.get(identity);
+      const sources = new Set(existing?.sources);
+      if (source === 'website' || data.websiteUserId) sources.add('website');
+      if (source === 'pos' && (!data.websiteUserId || data.posCustomer === true || data.dateOfBirth)) sources.add('pos');
       customers.set(identity, {
+        sources: [...sources],
         id: existing?.id || `${source}:${id}`, customerKey: identity,
         fullName: text(data.fullName) || text(data.name) || existing?.fullName || '',
         phone: phone || existing?.phone || '',

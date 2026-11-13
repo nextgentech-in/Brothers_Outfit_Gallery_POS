@@ -180,7 +180,7 @@
 
 /* Clothing tags contain only the identifying details requested by the shop. */
 .clothing-label-card .label-body{justify-content:space-between}
-.clothing-label-card .label-variant-badge-row{display:grid;grid-template-columns:1fr;gap:2mm;width:100%}
+.clothing-label-card .label-variant-badge-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1mm;width:100%}
 .clothing-label-card .label-variant-pill{display:block;text-align:left;background:transparent;border:0;padding:0;color:#111}
 .clothing-label-card .label-barcode-container{margin-top:auto}
 
