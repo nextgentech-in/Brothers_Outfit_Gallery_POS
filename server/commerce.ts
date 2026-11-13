@@ -154,7 +154,7 @@ export function changeStock(product: Product, sku: string, delta: number): { pro
 }
 function publicProduct(doc: FirebaseFirestore.QueryDocumentSnapshot) {
   const data = doc.data();
-  return { id: doc.id, name: data.name || '', sku: data.sku || '', barcode: data.barcode || data.posBarcode || '', price: data.salePrice ?? data.price ?? 0,
+  return { id: doc.id, name: data.name || '', sku: data.sku || '', demoOnly: data.demoOnly === true, barcode: data.barcode || data.posBarcode || '', price: data.salePrice ?? data.price ?? 0,
     brand: data.brand || '', design: data.design || '', fabric: data.fabric || '', mrp: data.mrp ?? 0, costPrice: data.costPrice ?? data.cost_price ?? data.purchasePrice ?? 0,
     category: data.category || '', subCategory: data.subCategory || '', shortDescription: data.shortDescription || '',
     description: data.description || '', gsl: data.gsl || '', active: data.active !== false,
@@ -174,6 +174,7 @@ commerceRouter.get('/products', async (_req, res) => {
         .filter(d => {
           const data = d.data();
           if (data.isDeleted === true) return false;
+          if (data.demoOnly === true) return true;
           const id = d.id.toLowerCase();
           const name = String(data.name || '').toLowerCase();
           const sku = String(data.sku || '').toLowerCase();

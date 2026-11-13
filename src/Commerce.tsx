@@ -47,6 +47,7 @@ const availableStockRows = (products: Product[]) => stockValueRows(products.map(
 })));
 
 const isPreviewProduct = (p: Product) => {
+  if ((p as Product & { demoOnly?: boolean }).demoOnly === true) return false;
   const name = String(p.name || '').toLowerCase();
   const sku = String(p.sku || '').toLowerCase();
   const id = String(p.id || '').toLowerCase();
