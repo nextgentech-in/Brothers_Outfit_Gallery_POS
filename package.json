@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@bwip-js/node": "^4.11.4",
+    "@vercel/analytics": "^2.0.1",
     "express": "5.2.1",
     "express-rate-limit": "8.7.2",
     "firebase-admin": "14.5.0",
