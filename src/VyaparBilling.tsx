@@ -521,8 +521,9 @@ export function VyaparBilling({
 
     try {
       const savedInvoiceId = await onSaveBill(payload, action);
-      if (action === 'new') {
-        setSuccess(`Invoice ${savedInvoiceId} saved successfully! New bill ready.`);
+      {
+        const provisional = savedInvoiceId.startsWith('LOCAL-');
+        setSuccess(provisional ? 'Bill saved on this PC and pending sync.' : `Invoice ${savedInvoiceId} saved successfully! New bill ready.`);
         setRows([createEmptyRow('new-1')]);
         setCustomerName('');
         setCustomerPhone('');
@@ -534,7 +535,7 @@ export function VyaparBilling({
         setSplitUpi('');
         setSplitCard('');
         setSplitCredit('');
-        setInvoiceNumber(Number(savedInvoiceId.split('-').pop() || invoiceNumber) + 1);
+        if (!provisional) setInvoiceNumber(Number(savedInvoiceId.split('-').pop() || invoiceNumber) + 1);
         setManualInvoiceNumber(false);
         setInvoiceDate(shopDate());
         setInvoiceTime(new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }));

@@ -46,6 +46,7 @@ async function request<T>(mode: IDBTransactionMode, operation: (store: IDBObject
     action.onerror = () => reject(action.error);
     transaction.oncomplete = () => { database.close(); resolve(result); };
     transaction.onerror = () => { database.close(); reject(transaction.error); };
+    transaction.onabort = () => { database.close(); reject(transaction.error ?? new Error('Local database write was cancelled.')); };
   });
 }
 export const queueSale = (sale: QueuedSale) => request('readwrite', store => store.put(sale));

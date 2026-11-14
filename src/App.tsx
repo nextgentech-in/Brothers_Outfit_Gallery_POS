@@ -38,6 +38,28 @@ export function App() {
   return <><div className="ambient ambient-one" /><div className="ambient ambient-two" />{window.location.pathname === '/login' ? <Login /> : window.location.pathname === '/enroll' ? <EnrollDevice /> : <Workspace dark={dark} toggleTheme={() => setDark(!dark)} />}</>;
 }
 function Login() {
+  if (new URLSearchParams(location.search).has('desktop-pair')) return <DesktopPairing />;
+  return <PinLogin />;
+}
+function DesktopPairing() {
+  const [invite, setInvite] = useState('');
+  const [error, setError] = useState('');
+  function open(event: FormEvent) {
+    event.preventDefault();
+    try {
+      const url = new URL(invite.trim());
+      if (url.origin !== location.origin || url.pathname !== '/enroll' || !new URLSearchParams(url.hash.slice(1)).has('token')) throw new Error();
+      location.assign(url.href);
+    } catch { setError('Paste the one-time device invitation from the POS owner.'); }
+  }
+  return <main className="device-enroll-page"><form className="login-card glass" onSubmit={open}>
+    <h1>Pair this PC</h1><label htmlFor="desktop-invite">Device invitation</label>
+    <input id="desktop-invite" value={invite} onChange={e => setInvite(e.target.value)} required autoComplete="off" />
+    {error && <p role="alert">{error}</p>}
+    <button className="button primary">Open invitation</button> <a href="/login">Back to sign in</a>
+  </form></main>;
+}
+function PinLogin() {
   const [pin, setPin] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -71,7 +93,7 @@ const primaryTabs: { id: string; label: string; icon: LucideIcon }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'products', label: 'Products', icon: Package },
   { id: 'customers', label: 'Customers', icon: Users },
-  { id: 'suppliers', label: 'Suppliers', icon: Truck },
+  { id: 'suppliers', label: 'Suppliers & PO', icon: Truck },
   { id: 'credit', label: 'Credit / Udhar', icon: ArrowDownUp },
   { id: 'inventory', label: 'Inventory', icon: ArrowDownUp },
   { id: 'orders', label: 'Orders', icon: FileText }
@@ -87,24 +109,39 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
   const initial = window.location.pathname.slice(1);
   const [tab, setTab] = useState(tabs.some(t => t.id === initial && t.id !== 'login') ? initial : 'pos');
   const [owner, setOwner] = useState<Owner | null>(null);
+  const [offlineSession, setOfflineSession] = useState(false);
   const [error, setError] = useState('');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const allowed=(id:string)=>owner?.role!=='cashier'||['pos','customers','credit','sync'].includes(id);
   useEffect(()=>{if(owner?.role==='cashier'&&!allowed(tab))navigate('pos');},[owner,tab]);
   function navigate(id: string) { setTab(id); history.pushState(null, '', id === 'pos' ? '/' : `/${id}`); }
   useEffect(() => {
-    api<Owner>('/api/auth/me').then(identity => {
+    let disposed = false;
+    let expiryTimer: number | undefined;
+    const verify = () => api<Owner & { desktopOffline?: boolean; offlineUntil?: number }>('/api/auth/me').then(identity => {
+      if (disposed) return;
       if (identity) {
         setOwner(identity);
-        localStorage.setItem('pos-offline-session', JSON.stringify({ identity, at: Date.now() }));
+        setOfflineSession(identity.desktopOffline === true);
+        window.clearTimeout(expiryTimer);
+        if (identity.desktopOffline && identity.offlineUntil) {
+          expiryTimer = window.setTimeout(() => window.location.assign('/login'), Math.max(0, identity.offlineUntil - Date.now()));
+        }
       }
-    }).catch(() => window.location.assign('/login'));
+    }).catch(() => { if (!disposed) window.location.assign('/login'); });
+    void verify();
+    window.addEventListener('online', verify);
     const pop = () => {
       const current = window.location.pathname.slice(1);
       setTab(tabs.some(t => t.id === current && t.id !== 'login') ? current : 'pos');
     };
     window.addEventListener('popstate', pop);
-    return () => window.removeEventListener('popstate', pop);
+    return () => {
+      disposed = true;
+      window.clearTimeout(expiryTimer);
+      window.removeEventListener('online', verify);
+      window.removeEventListener('popstate', pop);
+    };
   }, []);
 
   useEffect(() => {
@@ -124,6 +161,7 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
     localStorage.removeItem('pos-activation-cache');
     window.location.assign('/login');
   }
+  if (!owner) return <p role="status">Checking shop access…</p>;
   return <div className="workspace">
     <aside className="sidebar glass"><Brand compact /><div className="workspace-label">YOUR WORKSPACE</div><nav aria-label="Main navigation">{primaryTabs.filter(item=>allowed(item.id)).map(item => <button key={item.id} onClick={() => navigate(item.id)} className={`nav-item ${tab === item.id ? 'selected' : ''}`} aria-current={tab === item.id ? 'page' : undefined}><item.icon size={19} />{item.label}{tab === item.id && <span className="nav-dot" />}</button>)}<details className="sidebar-more"><summary>More tools</summary><div className="more-menu">{moreTabs.filter(item=>allowed(item.id)&&(item.id!=='security'||owner?.role==='owner')).map(item => <button key={item.id} onClick={() => navigate(item.id)} className={`nav-item ${tab === item.id ? 'selected' : ''}`}><item.icon size={19} />{item.label}</button>)}</div></details></nav>
       <div className="sidebar-bottom"><div className="sidebar-connection">Shared website catalog · Live store</div>
@@ -155,6 +193,7 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
       </div>
     </header>
     <main className="content" id="main-content">{error && <div className="error-banner" role="alert">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
+      {offlineSession && <p role="status">Offline session. Bills queue on this PC. Other operations may require a connection.</p>}
       <Suspense fallback={<p role="status">Loading workspace…</p>}>
       {tab === 'dashboard' && <Dashboard navigate={navigate} role={owner?.role} />}
       {tab === 'security' && owner?.role === 'owner' && <><StaffSettings /><TrustedDevices /></>}

@@ -57,6 +57,7 @@ const isPreviewProduct = (p: Product) => {
 };
 
 export function ReceiptDialog({ invoice, shop, preview = false, onClose }: { invoice: Invoice; shop: Shop | null; preview?: boolean; onClose: () => void }) {
+  const provisional = invoice.id.startsWith('LOCAL-');
   const [paper, setPaper] = useState(() => localStorage.getItem('receipt-paper') || 'a4');
   const subtotal = invoice.subtotal ?? invoice.lines.reduce((sum, line) => sum + Number(line.price || 0) * Number(line.quantity || 0), 0);
   const discount = invoice.discount ?? Math.max(0, subtotal - invoice.total);
@@ -70,12 +71,13 @@ export function ReceiptDialog({ invoice, shop, preview = false, onClose }: { inv
     ? `https://wa.me/${shopWhatsApp}?text=${encodeURIComponent('BILL ' + invoice.id)}` : '';
   const whatsappText = [shop?.name || 'Brothers Outfit Gallery', 'Sales receipt ' + invoice.id, ...invoice.lines.map(line => `${line.name || line.sku || 'Item'} (${line.sku || 'Item'}) × ${line.quantity || 0}: ${money(Number(line.price || 0) * Number(line.quantity || 0))}`), discount > 0 ? 'Discount: ' + money(discount) : '', 'Total: ' + money(invoice.total), invoice.billUrl ? 'Open your bill PDF: ' + invoice.billUrl : '', 'Payment: ' + invoice.paymentMethod, 'Thank you for shopping with us.'].filter(Boolean).join('\n');
   return createPortal(<div className="editor-backdrop print-backdrop" onClick={onClose}><div className={`invoice-sheet glass receipt-${paper}`} role="dialog" aria-modal="true" aria-label={preview ? 'Bill print preview' : `Receipt ${invoice.id}`} onClick={event => event.stopPropagation()}>
-    <div className="invoice-actions"><select aria-label="Receipt paper" value={paper} onChange={e => { setPaper(e.target.value); localStorage.setItem('receipt-paper', e.target.value); }}><option value="a4">A4 receipt</option><option value="80">80 mm thermal</option><option value="58">58 mm thermal</option></select><button className="button secondary" onClick={onClose}>Close</button>{!preview && <a className="button secondary" href={`/api/invoices/${encodeURIComponent(invoice.id)}/pdf`} download>Download PDF</a>}{!preview && invoice.billUrl && <a className="button secondary" href={invoice.billUrl} target="_blank" rel="noopener noreferrer">Open customer link</a>}{!preview && phone.length >= 10 && invoice.billUrl && <a className="button secondary" href={`sms:+${phone}?body=${encodeURIComponent('Your Brothers Outfit bill ' + invoice.id + ': ' + invoice.billUrl)}`}>Share by SMS</a>}{!preview && phone.length >= 10 && <a className="button secondary" href={`https://wa.me/${phone}?text=${encodeURIComponent(whatsappText)}`} target="_blank" rel="noopener noreferrer"><MessageCircle size={16} />Share on WhatsApp</a>}<button className="button primary" onClick={() => window.print()}><Printer size={16} />Print bill</button></div>
+    <div className="invoice-actions"><select aria-label="Receipt paper" value={paper} onChange={e => { setPaper(e.target.value); localStorage.setItem('receipt-paper', e.target.value); }}><option value="a4">A4 receipt</option><option value="80">80 mm thermal</option><option value="58">58 mm thermal</option></select><button className="button secondary" onClick={onClose}>Close</button>{!preview && !provisional && <a className="button secondary" href={`/api/invoices/${encodeURIComponent(invoice.id)}/pdf`} download>Download PDF</a>}{!preview && invoice.billUrl && <a className="button secondary" href={invoice.billUrl} target="_blank" rel="noopener noreferrer">Open customer link</a>}{!preview && phone.length >= 10 && invoice.billUrl && <a className="button secondary" href={`sms:+${phone}?body=${encodeURIComponent('Your Brothers Outfit bill ' + invoice.id + ': ' + invoice.billUrl)}`}>Share by SMS</a>}{!preview && phone.length >= 10 && <a className="button secondary" href={`https://wa.me/${phone}?text=${encodeURIComponent(whatsappText)}`} target="_blank" rel="noopener noreferrer"><MessageCircle size={16} />Share on WhatsApp</a>}<button className="button primary" onClick={() => window.print()}><Printer size={16} />Print bill</button></div>
     {requestUrl && <div className="no-print">
       <p>Scan with the customer’s phone and send the WhatsApp request to receive this PDF automatically.</p>
       <img width={128} height={128} alt="Scan to request this receipt on WhatsApp" src={`/api/barcode/render?format=qrcode&code=${encodeURIComponent(requestUrl)}`} />
     </div>}
     {preview && <div className="preview-ribbon">BILL PREVIEW · SALE NOT COMPLETED</div>}
+    {provisional && <div className="preview-ribbon">OFFLINE BILL · PENDING SYNC</div>}
     <div className="invoice-header"><BrandLogo /><div><h2>{shop?.name || 'Brothers Outfit Gallery'}</h2><p>{shop?.address || 'FF-57, Pratham Square, Himatnagar, Gujarat 383001'}<br />Phone: {shop?.phone || '+91 84602 33020'}{shop?.email && <><br />{shop.email}</>}</p></div></div>
     <div className="invoice-title"><div><small>RETAIL SALES RECEIPT</small><h1>{preview ? 'Bill preview' : 'Thank you for shopping'}</h1></div><span>{preview ? 'Draft' : (invoice.paymentMethod === 'credit' || Number(invoice.creditAmount) > 0) ? 'Credit' : 'Paid'}</span></div>
     <div className="invoice-meta"><div><small>Receipt number</small><strong>{preview ? 'Assigned after sale' : invoice.id}</strong></div><div><small>Date</small><strong>{issuedAt || '—'}</strong></div><div><small>Customer</small><strong>{invoice.customerName || 'Walk-in'}{invoice.customerPhone ? ` · ${invoice.customerPhone}` : ''}</strong>{invoice.customerDateOfBirth && <small>DOB: {invoice.customerDateOfBirth}</small>}</div><div><small>Payment</small><strong>{invoice.paymentMethod.toUpperCase()}</strong></div></div>
@@ -104,6 +106,7 @@ async function send<T>(path: string, body: unknown): Promise<T> {
   return result;
 }
 const requestId = () => crypto.randomUUID();
+const definitiveSaleError = (error: unknown) => [400, 403, 404, 409, 422].includes((error as { status?: number }).status || 0);
 const salePayload = (sale: QueuedSale) => ({ expectedTotal:sale.expectedTotal, requestId: sale.requestId, lines: sale.lines,
   invoiceNumber: sale.invoiceNumber, invoiceDate: sale.invoiceDate, invoiceTime: sale.invoiceTime,
   customerName: sale.customerName, customerPhone: sale.customerPhone, customerEmail: sale.customerEmail || undefined,
@@ -494,15 +497,20 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
   useEffect(() => {
     void refreshOffline();
     void heldBills().then(setHeld).catch(() => {});
-    const reconnect = () => void syncQueuedSales(async sale => { await send('pos/sale', salePayload(sale)); }).then(result => {
+    const sync = (reload = false) => void navigator.locks.request('brothers-pos-sale-sync', { ifAvailable: true }, async lock => {
+      if (!lock) return;
+      const result = await syncQueuedSales(async sale => { await send('pos/sale', salePayload(sale)); });
       void refreshOffline();
+      if (result.sent || reload) await load();
       if (result.sent) setNotice(`${result.sent} queued bill(s) synced.`);
       if (result.review) setError(`${result.review} offline bill(s) need stock review.`);
-    });
+    }).catch(() => {});
+    const reconnect = () => sync(true);
     window.addEventListener('online', reconnect);
-    if (navigator.onLine) reconnect();
-    return () => window.removeEventListener('online', reconnect);
-  }, []);
+    if (navigator.onLine) sync();
+    const timer = window.setInterval(() => { if (navigator.onLine) sync(); }, 30_000);
+    return () => { window.removeEventListener('online', reconnect); window.clearInterval(timer); };
+  }, [tab]);
 
   async function load() {
     setLoading(true); setError('');
@@ -791,7 +799,13 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
     </>}
     {tab === 'pos' && (
       <VyaparBilling
-        products={products}
+        products={products.map(product => {
+          const pending = offlineSales.flatMap(sale => sale.lines).filter(line => line.productId === product.id);
+          if (!pending.length) return product;
+          const remaining = (stock: number, sku?: string) => Math.max(0, stock -
+            pending.filter(line => !sku || line.sku === sku).reduce((sum, line) => sum + line.quantity, 0));
+          return { ...product, stock: remaining(product.stock), variants: product.variants.map(variant => ({ ...variant, stock: remaining(variant.stock, variant.sku) })) };
+        })}
         customers={customers}
         role={role}
         initialInvoiceNumber={invoices.length ? Number(invoices[0].id.split('-').pop() || '0') + 1 : 1}
@@ -805,7 +819,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
           setError('');
           try {
             const payload = salePayload(sale);
-            const result = await send<{
+            type SaleResult = {
               invoiceId: string;
               orderId: string;
               total: number;
@@ -815,16 +829,31 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
               creditAmount: number;
               cashTendered: number;
               change: number;
-            }>('pos/sale', payload);
+            };
+            const result = await navigator.locks.request('brothers-pos-sale-sync', async () => {
+              await queueSale(sale);
+              try {
+                if (!navigator.onLine) return null;
+                const posted = await send<SaleResult>('pos/sale', payload);
+                await removeSale(sale.requestId);
+                return posted;
+              } catch (err) {
+                if (!definitiveSaleError(err)) return null;
+                await removeSale(sale.requestId);
+                throw err;
+              }
+            });
+            await refreshOffline();
+            const invoiceId = result?.invoiceId ?? `LOCAL-${sale.requestId}`;
 
             const inv: Invoice = {
-              id: String(result.invoiceId),
-              orderId: String(result.orderId),
-              total: Number(result.total),
-              payments: result.payments,
-              creditAmount: result.creditAmount,
-              cashTendered: result.cashTendered,
-              change: result.change,
+              id: invoiceId,
+              orderId: result?.orderId ?? '',
+              total: result?.total ?? Number(sale.expectedTotal),
+              payments: result?.payments ?? sale.payments,
+              creditAmount: result?.creditAmount ?? sale.payments?.find(part => part.method === 'credit')?.amount,
+              cashTendered: result?.cashTendered ?? sale.cashTendered,
+              change: result?.change,
               lines: sale.lines.map(l => ({
                 name: l.name || l.sku,
                 sku: l.sku,
@@ -844,17 +873,17 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
               subtotal: sale.lines.reduce((sum, l) => sum + (l.price || 0) * l.quantity, 0),
               discount: sale.discount,
               tax: sale.tax,
-              billUrl: result.billUrl,
-              issuedAt: { seconds: Math.floor(new Date(result.issuedAt).getTime() / 1000) },
+              billUrl: result?.billUrl,
+              issuedAt: { seconds: Math.floor(new Date(result?.issuedAt ?? sale.queuedAt).getTime() / 1000) },
               creditDueDate: sale.creditDueDate
             };
 
             if (action === 'share') {
               setLastInvoice(inv);
             }
-            setNotice(`Invoice ${result.invoiceId} recorded successfully.`);
-            await load();
-            return result.invoiceId;
+            setNotice(result ? `Invoice ${invoiceId} recorded successfully.` : 'Bill saved on this PC. It will sync when the server is reachable.');
+            if (result) await load();
+            return invoiceId;
           } catch (err) {
             setError((err as Error).message);
             throw err;

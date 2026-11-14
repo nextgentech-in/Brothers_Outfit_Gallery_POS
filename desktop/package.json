@@ -1,0 +1,26 @@
+{
+  "name": "brothers-outfit-pos-desktop",
+  "version": "0.1.0",
+  "description": "Brothers Outfit Gallery Windows POS",
+  "author": "Brothers Outfit Gallery",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "build:web": "npm --prefix .. run build",
+    "start": "electron .",
+    "package:win": "npm run build:web && electron-builder --win nsis --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.3.2",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "in.brothersoutfitgallery.pos",
+    "productName": "Brothers Outfit POS",
+    "directories": { "output": "../artifacts/desktop" },
+    "files": ["main.cjs", "package.json"],
+    "extraResources": [{ "from": "../dist", "to": "pos-ui" }],
+    "win": { "target": "nsis", "signAndEditExecutable": false },
+    "nsis": { "deleteAppDataOnUninstall": false }
+  }
+}
