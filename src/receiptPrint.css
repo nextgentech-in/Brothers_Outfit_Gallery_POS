@@ -1,0 +1,47 @@
+@page receipt-a4 {
+  size: A4 portrait;
+  margin: 12mm;
+}
+
+@media print {
+  body > .print-backdrop:has(.invoice-sheet) {
+    width: auto !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .print-backdrop .invoice-sheet {
+    background: #fff !important;
+    color: #222 !important;
+    box-sizing: border-box;
+    box-shadow: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .print-backdrop .invoice-sheet.receipt-a4 {
+    page: receipt-a4;
+    width: 100% !important;
+  }
+
+  .invoice-sheet .invoice-actions,
+  .invoice-sheet .no-print {
+    display: none !important;
+  }
+
+  .invoice-sheet table { table-layout: auto; width: 100%; }
+  .invoice-sheet td:first-child { overflow-wrap: anywhere; }
+  .invoice-sheet thead { display: table-header-group; }
+  .invoice-sheet tr,
+  .invoice-sheet .invoice-header,
+  .invoice-sheet .invoice-title,
+  .invoice-sheet .invoice-meta,
+  .invoice-sheet .invoice-summary,
+  .invoice-sheet .invoice-footer { break-inside: avoid; }
+
+  .invoice-sheet.receipt-a4 .invoice-summary { flex-direction: row; }
+  .invoice-sheet.receipt-58 td:nth-child(3),
+  .invoice-sheet.receipt-58 th { white-space: normal; }
+}
