@@ -16,6 +16,7 @@ import { returnAmounts } from '../shared/returns.js';
 import { summarize } from '../shared/reports.js';
 import { decodeBackup, encodeBackup, validateBackup, exportBusinessBackup } from '../server/backup.js';
 import { invoicePdf } from '../server/invoicePdf.js';
+import { validBillLink } from '../server/billLink.js';
 import { dueDateAfter } from '../shared/credit.js';
 import { shopDate } from '../shared/customers.js';
 const db=getFirestore(initializeApp({projectId:'demo-daily-pos'},'brothers-admin'));
@@ -115,5 +116,10 @@ test('purchase CSV preserves quoted fields and rejects invalid prices before imp
 });
 
 test('bill search matches the same customer with or without country code',async()=>{
- const data=await (await fetch(base+'/orders/search?q=919876543210')).json();assert.ok(data.items.some((o:any)=>o.customerName==='Test Customer'));
+ const data=await (await fetch(base+'/orders/search?q=919876543210')).json();
+ const order=data.items.find((o:any)=>o.customerName==='Test Customer' && o.invoice);
+ assert.ok(order?.invoice?.billUrl);
+ const url=new URL(order.invoice.billUrl);
+ assert.equal(url.pathname,`/api/public/bills/${order.invoice.id}/pdf`);
+ assert.ok(validBillLink(order.invoice.id,url.searchParams.get('expires'),url.searchParams.get('sig')));
 });

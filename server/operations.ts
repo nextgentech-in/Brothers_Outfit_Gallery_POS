@@ -8,6 +8,7 @@ import { summarize, paise } from '../shared/reports.js';
 import { shopDate, validBirthDate, mobileNumber } from '../shared/customers.js';
 import { validDueDate } from '../shared/credit.js';
 import { customerKey } from './customerIdentity.js';
+import { customerBillUrl } from './billLink.js';
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 const requestId = z.string().min(12).max(128).regex(/^[\w.:-]+$/);
 const money = z.number().finite().min(0).max(10000000).refine(n => Math.abs(n*100-paise(n))<.00001);
@@ -45,7 +46,12 @@ operationsRouter.get('/orders/search', async(req,res)=>{
       return {...order,id:d.id,channel,invoice:invoiceByOrder.get(d.id)};
     }).filter((o:any)=>!term || `${o.id} ${o.customerName||o.shippingAddress?.fullName||''} ${o.customerPhone||o.shippingAddress?.phone||o.userPhone||''} ${o.invoice?.id||''}`.toLowerCase().includes(term.toLowerCase()) || (Boolean(mobileNumber(term))&&mobileNumber(term)===mobileNumber(o.customerPhone||o.shippingAddress?.phone||o.userPhone||'')));
     const offset=Math.max(0,Math.min(1000000,Number(req.query.offset)||0));
-    res.json({items:found.slice(offset,offset+50),total:found.length,nextOffset:offset+50<found.length?offset+50:null});
+    const items = found.slice(offset, offset + 50).map(order => {
+      const invoice = order.invoice;
+      if (!invoice || !/^BOG-[\w.-]{1,80}$/.test(invoice.id)) return order;
+      return { ...order, invoice: { ...invoice, billUrl: customerBillUrl(invoice.id) } };
+    });
+    res.json({items,total:found.length,nextOffset:offset+50<found.length?offset+50:null});
   }catch(e){fail(res,e);}
 });
 operationsRouter.post('/expenses/create',async(req,res)=>{
