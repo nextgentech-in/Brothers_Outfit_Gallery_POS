@@ -286,7 +286,13 @@
 .vyapar-mode-detail-box{padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
 .vyapar-mode-detail-box.credit-box{border-color:#d9534f66;background:#d9534f0a}
 
-.vyapar-resume-held{font-size:13px}
+.billing-editor{min-width:0;margin:0;padding:0;border:0}
+.billing-hold-actions{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+.billing-held-list{list-style:none;margin:0 0 16px;padding:0;border:1px solid var(--line);border-radius:10px;background:var(--solid);max-height:260px;overflow:auto}
+.billing-held-list li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px}
+.billing-held-list li+li{border-top:1px solid var(--line)}
+.billing-held-list li>div{min-width:0;overflow-wrap:anywhere}
+.billing-held-list small{display:block;margin-top:3px;color:var(--muted)}
 
 .vyapar-bottom-right{display:flex;flex-direction:column;gap:16px}
 .vyapar-grand-total-panel{padding:18px 22px;border:1px solid var(--line);border-radius:12px;background:var(--solid);display:flex;flex-direction:column;gap:8px}
@@ -359,7 +365,6 @@
 .vyapar-bottom-left{gap:12px}
 .vyapar-payment-panel{order:1;padding:18px;border-radius:13px;gap:14px}
 .vyapar-notes-box{order:2;padding:11px 14px;border-radius:10px}
-.vyapar-resume-held{order:3}
 .vyapar-payment-header{gap:12px}
 .vyapar-subhead{margin-bottom:7px;color:var(--text);font-size:13px;font-weight:720}
 .vyapar-payment-selected-tag{font-size:12px}

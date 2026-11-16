@@ -1,3 +1,5 @@
+import type { BillRow } from './VyaparBilling';
+
 export type QueuedSale = {
   expectedTotal?: number;
   requestId: string;
@@ -22,6 +24,25 @@ export type QueuedSale = {
   state: 'pending' | 'review';
   error?: string;
 };
+export type BillingDraft = {
+  rows: BillRow[];
+  customerName: string;
+  customerPhone: string;
+  customerDateOfBirth: string;
+  customerEmail?: string;
+  birthdayOffersOptIn?: boolean;
+  invoiceNumber?: number;
+  invoiceDate: string;
+  invoiceTime: string;
+  paymentMethod: QueuedSale['paymentMethod'];
+  split: { cash: string; upi: string; card: string; credit: string };
+  cashTendered: string;
+  creditDueDate: string;
+  creditWhatsAppOptIn: boolean;
+  whatsappOptIn: boolean;
+};
+export type HeldBill = QueuedSale | { requestId: string; queuedAt: string; draft: BillingDraft };
+
 const DB_NAME = 'brothers-pos-offline';
 const STORE = 'sales';
 function db(): Promise<IDBDatabase> {
@@ -52,8 +73,8 @@ async function request<T>(mode: IDBTransactionMode, operation: (store: IDBObject
 export const queueSale = (sale: QueuedSale) => request('readwrite', store => store.put(sale));
 export const queuedSales = () => request<QueuedSale[]>('readonly', store => store.getAll());
 export const removeSale = (requestId: string) => request('readwrite', store => store.delete(requestId));
-export const holdBill = (sale: QueuedSale) => request('readwrite', store => store.put(sale), 'heldBills');
-export const heldBills = () => request<QueuedSale[]>('readonly', store => store.getAll(), 'heldBills');
+export const holdBill = (sale: HeldBill) => request('readwrite', store => store.put(sale), 'heldBills');
+export const heldBills = () => request<HeldBill[]>('readonly', store => store.getAll(), 'heldBills');
 export const removeHeldBill = (id: string) => request('readwrite', store => store.delete(id), 'heldBills');
 export async function cacheCatalog<T>(products: T[]) {
   const database = await db();

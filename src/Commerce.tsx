@@ -20,7 +20,7 @@ import { CreditDueFields } from './CreditView';
 import { VyaparBilling } from './VyaparBilling';
 import { dueDateAfter, validDueDate } from '../shared/credit';
 import { customerDetailsError, displayBirthDate, mobileNumber, shopDate, type Customer } from '../shared/customers';
-import { recoverToHeld, cacheCatalog, cachedCatalog, queueSale, queuedSales, removeSale, syncQueuedSales, holdBill, heldBills, removeHeldBill, type QueuedSale } from './offlineQueue';
+import { recoverToHeld, cacheCatalog, cachedCatalog, queueSale, queuedSales, removeSale, syncQueuedSales, holdBill, heldBills, removeHeldBill, type HeldBill, type QueuedSale } from './offlineQueue';
 
 const websiteProductsUrl = 'https://www.brothersoutfitgallery.com/admin/products';
 
@@ -420,7 +420,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
   const [newOrderCount, setNewOrderCount] = useState(0);
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [offlineSales, setOfflineSales] = useState<QueuedSale[]>([]);
-  const [held, setHeld] = useState<QueuedSale[]>([]);
+  const [held, setHeld] = useState<HeldBill[]>([]);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [stockDirection, setStockDirection] = useState<1 | -1>(1);
   const checkoutGuard = useRef(false);
@@ -515,20 +515,23 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
     return () => { window.removeEventListener('online', reconnect); window.clearInterval(timer); };
   }, [tab]);
 
-  async function load() {
-    setLoading(true); setError('');
+  async function load(background = false) {
+    if (!background) {
+      setLoading(true);
+      setError('');
+    }
     const paths: Record<string, string[]> = { products: ['products'], pos: ['products', 'shop-details', 'customers', 'invoices'],
       inventory: ['products', 'movements'], orders: ['shop-details'], customers: ['customers'],
       suppliers: ['suppliers', 'purchases', 'products', 'purchase-orders'],
       reports: ['orders', 'invoices'], sync: ['sync-health'] };
-    const wanted = paths[tab] || [];
+    const wanted = background ? ['products', 'customers'] : paths[tab] || [];
     try {
       const values = await Promise.all(wanted.map(path => get<{ items?: unknown[] } & Shop>(path)));
       values.forEach((value, i) => { switch (wanted[i]) {
         case 'products': {
           const clean = ((value.items || []) as Product[]).filter(p => !isPreviewProduct(p));
           setProducts(clean);
-          void cacheCatalog(clean);
+          void cacheCatalog(clean).catch(() => {});
           break;
         }
         case 'orders': setOrders((value.items || []) as Order[]); break;
@@ -550,13 +553,14 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
         } catch { /* ignore */ }
       }
     } catch (error) {
+      if (background) return;
       if (wanted.includes('products')) {
         try { const cached = (await cachedCatalog<Product>()).filter(p => !isPreviewProduct(p)); if (cached.length) { setProducts(cached); setNotice('Offline catalog loaded. Bills will queue until the connection returns.'); return; } }
         catch { /* No offline catalog available. */ }
       }
       setError((error as Error).message);
     }
-    finally { setLoading(false); }
+    finally { if (!background) setLoading(false); }
   }
   useEffect(() => { void load(); }, [tab]);
   useEffect(() => {
@@ -753,44 +757,6 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
     }
     } finally { checkoutGuard.current = false; setCheckoutBusy(false); }
   }
-  async function parkBill() {
-    if (!cart.length || checkoutGuard.current) return;
-    checkoutGuard.current = true; setCheckoutBusy(true);
-    try {
-      await holdBill({ requestId: requestId(), lines: cart.map(line => ({ productId: line.product.id, sku: line.sku, quantity: line.quantity })),
-        customerName, customerPhone, customerEmail, customerDateOfBirth, birthdayOffersOptIn, whatsappOptIn, discount, paymentMethod: payment, payments: payment === 'split' ? paymentParts : undefined, cashTendered: cashTendered ? Number(cashTendered) : undefined,
-        ...(hasCredit ? { creditDueDate, creditWhatsAppOptIn } : {}),
-        queuedAt: new Date().toISOString(), state: 'pending' });
-      setHeld(await heldBills()); setCart([]); setDiscount(0); clearCustomer();
-      setNotice('Bill held on this device. Stock is checked again when you resume.');
-    } catch { setError('Unable to save the held bill. Your current cart is still open.'); }
-    finally { checkoutGuard.current = false; setCheckoutBusy(false); }
-  }
-  async function resumeBill(bill: QueuedSale) {
-    if (checkoutGuard.current) return;
-    if (cart.length) { setError('Hold or complete the current bill before resuming another.'); return; }
-    checkoutGuard.current = true; setCheckoutBusy(true);
-    try {
-      const fresh = await get<{ items: Product[] }>('products');
-      const restored = bill.lines.map(line => {
-        const product = fresh.items.find(p => p.id === line.productId);
-        const variant = product?.variants.find(v => v.sku === line.sku);
-        if (!product || (product.variants.length > 0 && !variant) || (!product.variants.length && product.sku !== line.sku) ||
-            line.quantity > (variant?.stock ?? product.stock)) throw new Error('An item in this held bill is unavailable. Review its stock before resuming.');
-        return { product, sku: line.sku, quantity: line.quantity, price: variant?.price ?? product.price };
-      });
-      setProducts(fresh.items); setCart(restored); setCustomerName(bill.customerName || ''); setCustomerPhone(bill.customerPhone || '');
-      setSplitAmounts(Object.fromEntries((bill.payments || []).map(p => [p.method, String(p.amount)]))); setCashTendered(bill.cashTendered === undefined ? '' : String(bill.cashTendered));
-      setCustomerEmail(bill.customerEmail || ''); setPayment(bill.paymentMethod); setWhatsAppOptIn(bill.whatsappOptIn === true);
-      setCustomerDateOfBirth(bill.customerDateOfBirth || ''); setBirthdayOffersOptIn(bill.birthdayOffersOptIn === true);
-      setCustomerDetailsOpen(Boolean(bill.customerName || bill.customerPhone || bill.customerEmail || bill.customerDateOfBirth));
-      setCreditDueDate(bill.creditDueDate || ''); setCreditWhatsAppOptIn(bill.creditWhatsAppOptIn === true);
-      setDiscount(Math.min(bill.discount, restored.reduce((sum, line) => sum + line.quantity * line.price, 0)));
-      await removeHeldBill(bill.requestId); setHeld(await heldBills());
-      setNotice('Bill resumed with current prices and stock. Review before completing the sale.');
-    } catch (error) { setError((error as Error).message); }
-    finally { checkoutGuard.current = false; setCheckoutBusy(false); }
-  }
   const heading: Record<string, [string, string]> = {
     products: ['Products', 'The website catalog, in your workspace.'], pos: ['Quick billing', 'Sell from the shared catalog and create one receipt.'],
     inventory: ['Inventory', 'Variant stock and recent movements from the same database.'], orders: ['Orders', 'Website and in-store orders together.'],
@@ -824,87 +790,84 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
         customers={customers}
         role={role}
         initialInvoiceNumber={invoices.length ? Number(invoices[0].id.split('-').pop() || '0') + 1 : 1}
-        saving={checkoutBusy}
-        heldBillsCount={held.length}
-        onResumeHeld={() => {
-          if (held.length > 0) void resumeBill(held[0]);
+        heldBills={held}
+        onHoldBill={async bill => {
+          await holdBill(bill);
+          setHeld(previous => [...previous.filter(item => item.requestId !== bill.requestId), bill]);
+        }}
+        onRemoveHeldBill={async id => {
+          await removeHeldBill(id);
+          setHeld(previous => previous.filter(item => item.requestId !== id));
         }}
         onSaveBill={async (sale, action) => {
-          setCheckoutBusy(true);
-          setError('');
-          try {
-            const payload = salePayload(sale);
-            type SaleResult = {
-              invoiceId: string;
-              orderId: string;
-              total: number;
-              billUrl: string;
-              issuedAt: string;
-              payments: PaymentPart[];
-              creditAmount: number;
-              cashTendered: number;
-              change: number;
-            };
-            const result = await navigator.locks.request('brothers-pos-sale-sync', async () => {
-              await queueSale(sale);
-              try {
-                if (!navigator.onLine) return null;
-                const posted = await send<SaleResult>('pos/sale', payload);
-                await removeSale(sale.requestId);
-                return posted;
-              } catch (err) {
-                if (!definitiveSaleError(err)) return null;
-                await removeSale(sale.requestId);
-                throw err;
-              }
-            });
-            await refreshOffline();
-            const invoiceId = result?.invoiceId ?? `LOCAL-${sale.requestId}`;
-
-            const inv: Invoice = {
-              id: invoiceId,
-              orderId: result?.orderId ?? '',
-              total: result?.total ?? Number(sale.expectedTotal),
-              payments: result?.payments ?? sale.payments,
-              creditAmount: result?.creditAmount ?? sale.payments?.find(part => part.method === 'credit')?.amount,
-              cashTendered: result?.cashTendered ?? sale.cashTendered,
-              change: result?.change,
-              lines: sale.lines.map(l => ({
-                name: l.name || l.sku,
-                sku: l.sku,
-                quantity: l.quantity,
-                price: l.price,
-                discount: l.discount,
-                discountPercent: (l.price || 0) * l.quantity > 0 ? Math.round(Number(l.discount || 0) / ((l.price || 0) * l.quantity) * 10_000) / 100 : 0,
-                tax: l.tax,
-                amount: Math.round(((l.price || 0) * l.quantity - (l.discount || 0) + (l.tax || 0)) * 100) / 100
-              })),
-              customerName: sale.customerName,
-              customerPhone: sale.customerPhone,
-              customerDateOfBirth: sale.customerDateOfBirth,
-              channel: 'POS',
-              paymentMethod: sale.paymentMethod,
-              kind: 'sales_receipt',
-              subtotal: sale.lines.reduce((sum, l) => sum + (l.price || 0) * l.quantity, 0),
-              discount: sale.discount,
-              tax: sale.tax,
-              billUrl: result?.billUrl,
-              issuedAt: { seconds: Math.floor(new Date(result?.issuedAt ?? sale.queuedAt).getTime() / 1000) },
-              creditDueDate: sale.creditDueDate
-            };
-
-            if (action === 'share') {
-              setLastInvoice(inv);
+          const payload = salePayload(sale);
+          type SaleResult = {
+            invoiceId: string;
+            orderId: string;
+            total: number;
+            billUrl: string;
+            issuedAt: string;
+            payments: PaymentPart[];
+            creditAmount: number;
+            cashTendered: number;
+            change: number;
+          };
+          const result = await navigator.locks.request('brothers-pos-sale-sync', async () => {
+            await queueSale(sale);
+            try {
+              if (!navigator.onLine) return null;
+              const posted = await send<SaleResult>('pos/sale', payload);
+              await removeSale(sale.requestId);
+              return posted;
+            } catch (err) {
+              if (!definitiveSaleError(err)) return null;
+              await removeSale(sale.requestId);
+              throw err;
             }
-            setNotice(result ? `Invoice ${invoiceId} recorded successfully.` : 'Bill saved on this PC. It will sync when the server is reachable.');
-            if (result) await load();
-            return invoiceId;
-          } catch (err) {
-            setError((err as Error).message);
-            throw err;
-          } finally {
-            setCheckoutBusy(false);
+          });
+          await refreshOffline();
+          const invoiceId = result?.invoiceId ?? `LOCAL-${sale.requestId}`;
+
+          const inv: Invoice = {
+            id: invoiceId,
+            orderId: result?.orderId ?? '',
+            total: result?.total ?? Number(sale.expectedTotal),
+            payments: result?.payments ?? sale.payments,
+            creditAmount: result?.creditAmount ?? sale.payments?.find(part => part.method === 'credit')?.amount,
+            cashTendered: result?.cashTendered ?? sale.cashTendered,
+            change: result?.change,
+            lines: sale.lines.map(l => ({
+              name: l.name || l.sku,
+              sku: l.sku,
+              quantity: l.quantity,
+              price: l.price,
+              discount: l.discount,
+              discountPercent: (l.price || 0) * l.quantity > 0 ? Math.round(Number(l.discount || 0) / ((l.price || 0) * l.quantity) * 10_000) / 100 : 0,
+              tax: l.tax,
+              amount: Math.round(((l.price || 0) * l.quantity - (l.discount || 0) + (l.tax || 0)) * 100) / 100
+            })),
+            customerName: sale.customerName,
+            customerPhone: sale.customerPhone,
+            customerDateOfBirth: sale.customerDateOfBirth,
+            channel: 'POS',
+            paymentMethod: sale.paymentMethod,
+            kind: 'sales_receipt',
+            subtotal: sale.lines.reduce((sum, l) => sum + (l.price || 0) * l.quantity, 0),
+            discount: sale.discount,
+            tax: sale.tax,
+            billUrl: result?.billUrl,
+            issuedAt: { seconds: Math.floor(new Date(result?.issuedAt ?? sale.queuedAt).getTime() / 1000) },
+            creditDueDate: sale.creditDueDate
+          };
+
+          if (action === 'share') {
+            setLastInvoice(inv);
           }
+          if (result) {
+            setInvoices(previous => [inv, ...previous.filter(invoice => invoice.id !== inv.id)]);
+            void load(true);
+          }
+          return invoiceId;
         }}
       />
     )}

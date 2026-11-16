@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Search, Share2, Check, Calendar, Clock, Phone, User, Banknote, QrCode, CreditCard } from 'lucide-react';
+import { Plus, Trash2, Search, Share2, Check, Calendar, Clock, Phone, User, Banknote, QrCode, CreditCard, Pause } from 'lucide-react';
 import { mobileNumber, shopDate } from '../shared/customers';
 import { validDueDate, dueDateAfter } from '../shared/credit';
-import type { QueuedSale } from './offlineQueue';
+import type { BillingDraft, HeldBill, QueuedSale } from './offlineQueue';
 import { paymentBreakdown } from '../shared/payments';
 
 export type ProductVariant = {
@@ -72,31 +72,35 @@ const createEmptyRow = (id: string = crypto.randomUUID()): BillRow => ({
   amount: 0
 });
 
+const billTime = () => new Date().toLocaleTimeString('en-GB', {
+  timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false
+});
+const itemKey = (item: { productId: string; sku: string }) => JSON.stringify([item.productId, item.sku]);
+
 export function VyaparBilling({
   products,
   customers = [],
   role,
   initialInvoiceNumber = 1,
   onSaveBill,
-  heldBillsCount = 0,
-  onResumeHeld,
-  onParkBill,
-  saving = false
+  heldBills,
+  onHoldBill,
+  onRemoveHeldBill
 }: {
   products: ProductItem[];
   customers?: CustomerItem[];
   role?: string;
   initialInvoiceNumber?: number;
   onSaveBill: (sale: QueuedSale, action: 'share' | 'new') => Promise<string>;
-  heldBillsCount?: number;
-  onResumeHeld?: () => void;
-  onParkBill?: (sale: QueuedSale) => Promise<void>;
-  saving?: boolean;
+  heldBills: HeldBill[];
+  onHoldBill: (bill: HeldBill) => Promise<void>;
+  onRemoveHeldBill: (id: string) => Promise<void>;
 }) {
   // Customer info & Auto-lookup state
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerDateOfBirth, setCustomerDateOfBirth] = useState('');
+  const [customerExtras, setCustomerExtras] = useState<Pick<QueuedSale, 'customerEmail' | 'birthdayOffersOptIn'>>({});
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
 
@@ -104,9 +108,7 @@ export function VyaparBilling({
   const [invoiceNumber, setInvoiceNumber] = useState(initialInvoiceNumber);
   const [manualInvoiceNumber, setManualInvoiceNumber] = useState(false);
   const [invoiceDate, setInvoiceDate] = useState(() => shopDate());
-  const [invoiceTime, setInvoiceTime] = useState(() => new Date().toLocaleTimeString('en-GB', {
-    timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false
-  }));
+  const [invoiceTime, setInvoiceTime] = useState(billTime);
   useEffect(() => { if (!manualInvoiceNumber) setInvoiceNumber(initialInvoiceNumber); }, [initialInvoiceNumber, manualInvoiceNumber]);
 
   // Payment mode options (down side of terms & conditions)
@@ -129,7 +131,19 @@ export function VyaparBilling({
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [heldOpen, setHeldOpen] = useState(false);
+  const [activeHeldId, setActiveHeldId] = useState<string>();
+  const [action, setAction] = useState<'hold' | 'new' | 'share'>();
+  const actionPending = useRef(false);
+  const draftId = useRef<string | undefined>(undefined);
   const scanInputRef = useRef<HTMLInputElement>(null);
+  const focusAfterReset = useRef(false);
+
+  useEffect(() => {
+    if (action || !focusAfterReset.current) return;
+    focusAfterReset.current = false;
+    scanInputRef.current?.focus();
+  }, [action]);
 
   // Flat variants list for searching
   const searchableItems = useMemo(() => {
@@ -180,6 +194,7 @@ export function VyaparBilling({
     }
     return list;
   }, [products]);
+  const catalogItems = useMemo(() => new Map(searchableItems.map(item => [itemKey(item), item])), [searchableItems]);
 
   // Filtered search results with Product No (#12) and Barcode prioritization
   const searchResults = useMemo(() => {
@@ -227,6 +242,7 @@ export function VyaparBilling({
   function handleSelectCustomer(cust: CustomerItem) {
     setWhatsAppOptIn(false);
     setCreditWhatsAppOptIn(false);
+    setCustomerExtras({});
     setCustomerName(cust.fullName || '');
     const rawPhone = cust.phone ? cust.phone.replace(/\D/g, '') : '';
     const cleanPhone = rawPhone.length === 12 && rawPhone.startsWith('91') ? rawPhone.slice(2) : (cust.phone || '');
@@ -236,6 +252,7 @@ export function VyaparBilling({
   }
 
   function handleNameChange(nameVal: string) {
+    setCustomerExtras({});
     setCustomerName(nameVal);
     setCustomerSearchQuery(nameVal);
     setCustomerDropdownOpen(true);
@@ -256,6 +273,7 @@ export function VyaparBilling({
   function handlePhoneChange(phoneVal: string) {
     setWhatsAppOptIn(false);
     setCreditWhatsAppOptIn(false);
+    setCustomerExtras({});
     setCustomerPhone(phoneVal);
     const digits = phoneVal.replace(/\D/g, '');
     if (digits.length === 10) {
@@ -303,31 +321,27 @@ export function VyaparBilling({
     );
   }
 
+  function productRow(row: BillRow, item: typeof searchableItems[0]): BillRow {
+    const mrp = item.mrp || item.price;
+    const discountPercent = mrp > 0 ? Math.round((mrp - item.price) / mrp * 10000) / 100 : 0;
+    return {
+      ...row,
+      productId: item.productId,
+      sku: item.sku,
+      name: `${item.productName}${item.variantText}`,
+      variantDetail: item.variantText,
+      stock: item.stock,
+      price: mrp,
+      mrp,
+      salePrice: item.price,
+      discountPercent,
+      discountManual: false,
+      ...calculateRowAmount(row.quantity, mrp, discountPercent, item.price)
+    };
+  }
+
   function handleSelectItem(rowId: string, item: typeof searchableItems[0]) {
-    setRows(prev =>
-      prev.map(r => {
-        if (r.id !== rowId) return r;
-        const fullName = `${item.productName}${item.variantText}`;
-        const mrp = item.mrp || item.price;
-        const discountPercent = mrp > 0 ? Math.round((mrp - item.price) / mrp * 10000) / 100 : 0;
-        const amounts = calculateRowAmount(r.quantity, mrp, discountPercent, item.price);
-        return {
-          ...r,
-          productId: item.productId,
-          sku: item.sku,
-          name: fullName,
-          variantDetail: item.variantText,
-          stock: item.stock,
-          price: mrp,
-          mrp,
-          salePrice: item.price,
-          discountPercent,
-          discountManual: false,
-          discount: amounts.discount,
-          amount: amounts.amount
-        };
-      })
-    );
+    setRows(prev => prev.map(row => row.id === rowId ? productRow(row, item) : row));
     setActiveSearchRowId(null);
     setSearchQuery('');
     requestAnimationFrame(() => document.querySelector<HTMLInputElement>(`[data-qty-row="${rowId}"]`)?.focus());
@@ -358,30 +372,8 @@ export function VyaparBilling({
     if (emptyRow) {
       handleSelectItem(emptyRow.id, match);
     } else {
-      const newRowId = crypto.randomUUID();
-      const fullName = `${match.productName}${match.variantText}`;
-      const mrp = match.mrp || match.price;
-      const discountPercent = mrp > 0 ? Math.round((mrp - match.price) / mrp * 10000) / 100 : 0;
-      const amounts = calculateRowAmount(1, mrp, discountPercent, match.price);
-      setRows(prev => [
-        ...prev,
-        {
-          id: newRowId,
-          productId: match!.productId,
-          sku: match!.sku,
-          name: fullName,
-          variantDetail: match!.variantText,
-          stock: match!.stock,
-          quantity: 1,
-          price: mrp,
-          mrp,
-          salePrice: match.price,
-          discountPercent,
-          discountManual: false,
-          discount: amounts.discount,
-          amount: amounts.amount
-        }
-      ]);
+      const row = productRow(createEmptyRow(), match);
+      setRows(prev => [...prev, row]);
     }
   }
 
@@ -445,8 +437,145 @@ export function VyaparBilling({
     if (method === 'credit') setSplitCredit(balance);
   }
 
+  const hasDraft = Boolean(activeHeldId || customerName || customerPhone || customerDateOfBirth ||
+    rows.some(row => row.productId || row.name.trim()));
+  const availableHeld = heldBills.filter(bill => bill.requestId !== activeHeldId)
+    .sort((a, b) => b.queuedAt.localeCompare(a.queuedAt));
+
+  function resetBill(focusScanner: boolean) {
+    draftId.current = undefined;
+    setActiveHeldId(undefined);
+    setHeldOpen(false);
+    setRows([createEmptyRow()]);
+    setCustomerName('');
+    setCustomerPhone('');
+    setCustomerDateOfBirth('');
+    setCustomerExtras({});
+    setCustomerDropdownOpen(false);
+    setCustomerSearchQuery('');
+    setActiveSearchRowId(null);
+    setSearchQuery('');
+    setPaymentMethod('cash');
+    setCashTendered('');
+    setSplitCash('');
+    setSplitUpi('');
+    setSplitCard('');
+    setSplitCredit('');
+    setCreditDueDate(dueDateAfter(7));
+    setCreditWhatsAppOptIn(false);
+    setWhatsAppOptIn(false);
+    setInvoiceNumber(initialInvoiceNumber);
+    setManualInvoiceNumber(false);
+    setInvoiceDate(shopDate());
+    setInvoiceTime(billTime());
+    if (scanInputRef.current) scanInputRef.current.value = '';
+    focusAfterReset.current = focusScanner;
+  }
+
+  async function handleHold() {
+    if (actionPending.current || !hasDraft) return;
+    actionPending.current = true;
+    setAction('hold');
+    setError('');
+    setSuccess('');
+    const requestId = draftId.current ??= crypto.randomUUID();
+    try {
+      const draft: BillingDraft = {
+        rows, customerName, customerPhone, customerDateOfBirth, ...customerExtras,
+        invoiceNumber: manualInvoiceNumber ? invoiceNumber : undefined, invoiceDate, invoiceTime,
+        paymentMethod, split: { cash: splitCash, upi: splitUpi, card: splitCard, credit: splitCredit },
+        cashTendered, creditDueDate, creditWhatsAppOptIn, whatsappOptIn
+      };
+      await onHoldBill({ requestId, queuedAt: new Date().toISOString(), draft });
+      resetBill(true);
+      setSuccess('Bill held on this device. New bill ready.');
+    } catch {
+      setError('Could not hold the bill. Your current bill is still open.');
+    } finally {
+      actionPending.current = false;
+      setAction(undefined);
+    }
+  }
+
+  function restoreQueuedRows(bill: QueuedSale): BillRow[] {
+    // Older held bills may have one discount for the entire sale.
+    const distributeDiscount = bill.discount > 0 && !bill.lines.some(line => Number(line.discount) > 0);
+    const restored = bill.lines.map(line => {
+      const item = catalogItems.get(itemKey(line));
+      const row = { ...createEmptyRow(), productId: line.productId, sku: line.sku, quantity: line.quantity };
+      if (item && line.price === undefined && !distributeDiscount) return productRow(row, item);
+      const price = Number(line.price ?? item?.price ?? 0);
+      const discount = Number(line.discount ?? 0);
+      return {
+        ...row,
+        name: line.name || item?.productName || line.sku,
+        stock: item?.stock ?? 0,
+        price, mrp: price, discount,
+        discountPercent: price > 0 ? Math.round(discount / (price * line.quantity) * 10000) / 100 : 0,
+        discountManual: true,
+        amount: Math.round((price * line.quantity - discount) * 100) / 100
+      };
+    });
+    if (!distributeDiscount) return restored;
+    const gross = restored.reduce((sum, row) => sum + Math.round(row.mrp * row.quantity * 100), 0);
+    if (!gross) return restored;
+    const discount = Math.min(Math.round(bill.discount * 100), gross);
+    let cumulativeGross = 0;
+    let allocated = 0;
+    return restored.map(row => {
+      const rowGross = Math.round(row.mrp * row.quantity * 100);
+      cumulativeGross += rowGross;
+      const cumulativeDiscount = Math.round(discount * cumulativeGross / gross);
+      const rowDiscount = cumulativeDiscount - allocated;
+      allocated = cumulativeDiscount;
+      return {
+        ...row,
+        discount: rowDiscount / 100,
+        amount: (rowGross - rowDiscount) / 100,
+        discountPercent: rowGross > 0 ? Math.round(rowDiscount / rowGross * 10000) / 100 : 0
+      };
+    });
+  }
+
+  function resumeBill(bill: HeldBill) {
+    if (actionPending.current) return;
+    if (hasDraft) {
+      setError('Hold or save the current bill before resuming another.');
+      return;
+    }
+    const saved = 'draft' in bill ? bill.draft : bill;
+    const split = 'draft' in bill ? bill.draft.split : Object.fromEntries(
+      (bill.payments || []).map(part => [part.method, String(part.amount)])
+    );
+    setRows('draft' in bill ? bill.draft.rows : restoreQueuedRows(bill));
+    draftId.current = bill.requestId;
+    setActiveHeldId(bill.requestId);
+    setCustomerName(saved.customerName || '');
+    setCustomerPhone(saved.customerPhone || '');
+    setCustomerDateOfBirth(saved.customerDateOfBirth || '');
+    setCustomerExtras({ customerEmail: saved.customerEmail, birthdayOffersOptIn: saved.birthdayOffersOptIn });
+    setInvoiceNumber(saved.invoiceNumber ?? initialInvoiceNumber);
+    setManualInvoiceNumber(saved.invoiceNumber !== undefined);
+    setInvoiceDate(saved.invoiceDate ?? shopDate());
+    setInvoiceTime(saved.invoiceTime ?? billTime());
+    setPaymentMethod(saved.paymentMethod);
+    setSplitCash(split.cash ?? '');
+    setSplitUpi(split.upi ?? '');
+    setSplitCard(split.card ?? '');
+    setSplitCredit(split.credit ?? '');
+    setCashTendered(saved.cashTendered === undefined ? '' : String(saved.cashTendered));
+    setCreditDueDate(saved.creditDueDate ?? dueDateAfter(7));
+    setCreditWhatsAppOptIn(saved.creditWhatsAppOptIn === true);
+    setWhatsAppOptIn(saved.whatsappOptIn === true);
+    setHeldOpen(false);
+    setError('');
+    setSuccess('Held bill opened. Review the items and payment before saving.');
+    requestAnimationFrame(() => scanInputRef.current?.focus());
+  }
+
   // Validation & Submit
-  async function handleSubmit(action: 'share' | 'new') {
+  async function handleSubmit(saveAction: 'share' | 'new') {
+    if (actionPending.current) return;
     setError('');
     setSuccess('');
     if (manualInvoiceNumber && (!Number.isSafeInteger(invoiceNumber) || invoiceNumber < 1 || invoiceNumber > 999999)) {
@@ -463,7 +592,7 @@ export function VyaparBilling({
       setError('Please add at least one item with quantity greater than zero.');
       return;
     }
-    if (validLines.some(line => !line.productId || line.mrp <= 0 || line.quantity > line.stock)) {
+    if (validLines.some(line => line.mrp <= 0 || line.quantity > (catalogItems.get(itemKey(line))?.stock ?? 0))) {
       setError('Choose an in-stock product for each row and check its quantity and MRP.');
       return;
     }
@@ -491,15 +620,16 @@ export function VyaparBilling({
       }
     }
 
+    const id = draftId.current ??= crypto.randomUUID();
     const payload: QueuedSale = {
       expectedTotal: totals.totalAmount,
-      requestId: crypto.randomUUID(),
+      requestId: `bill:${id.slice(0, 123)}`,
       ...(manualInvoiceNumber ? { invoiceNumber } : {}),
       invoiceDate,
       invoiceTime,
       lines: validLines.map(line => ({
-        productId: line.productId || products[0]?.id || 'pos-custom-item',
-        sku: line.sku || line.name,
+        productId: line.productId,
+        sku: line.sku,
         name: line.name,
         quantity: Number(line.quantity),
         price: Number(line.price),
@@ -508,6 +638,7 @@ export function VyaparBilling({
       customerName: customerName.trim() || undefined,
       customerPhone: customerPhone.trim() || undefined,
       customerDateOfBirth: customerDateOfBirth || undefined,
+      ...customerExtras,
       creditDueDate: hasCreditPayment ? creditDueDate : undefined,
       creditWhatsAppOptIn: hasCreditPayment ? creditWhatsAppOptIn : undefined,
       whatsappOptIn: Boolean(mobileNumber(customerPhone)) && whatsappOptIn,
@@ -519,30 +650,22 @@ export function VyaparBilling({
       state: 'pending'
     };
 
+    actionPending.current = true;
+    setAction(saveAction);
     try {
-      const savedInvoiceId = await onSaveBill(payload, action);
-      {
-        const provisional = savedInvoiceId.startsWith('LOCAL-');
-        setSuccess(provisional ? 'Bill saved on this PC and pending sync.' : `Invoice ${savedInvoiceId} saved successfully! New bill ready.`);
-        setRows([createEmptyRow('new-1')]);
-        setCustomerName('');
-        setCustomerPhone('');
-        setWhatsAppOptIn(false);
-        setCreditWhatsAppOptIn(false);
-        setCustomerDateOfBirth('');
-        setCashTendered('');
-        setSplitCash('');
-        setSplitUpi('');
-        setSplitCard('');
-        setSplitCredit('');
-        if (!provisional) setInvoiceNumber(Number(savedInvoiceId.split('-').pop() || invoiceNumber) + 1);
-        setManualInvoiceNumber(false);
-        setInvoiceDate(shopDate());
-        setInvoiceTime(new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }));
-        requestAnimationFrame(() => scanInputRef.current?.focus());
+      const savedInvoiceId = await onSaveBill(payload, saveAction);
+      resetBill(saveAction === 'new');
+      setSuccess(savedInvoiceId.startsWith('LOCAL-') ? 'Bill saved on this PC and pending sync.' : `Invoice ${savedInvoiceId} saved. New bill ready.`);
+      if (activeHeldId) {
+        void onRemoveHeldBill(activeHeldId).catch(() => {
+          setError('The sale was saved, but its held copy could not be cleared from this device.');
+        });
       }
     } catch (err) {
       setError((err as Error).message || 'Failed to record bill.');
+    } finally {
+      actionPending.current = false;
+      setAction(undefined);
     }
   }
 
@@ -586,7 +709,7 @@ export function VyaparBilling({
       <header className="billing-workspace-header">
         <div>
           <span className="eyebrow">QUICK BILLING</span>
-          <h1>New retail bill</h1>
+          <h1>{activeHeldId ? 'Resumed retail bill' : 'New retail bill'}</h1>
           <p>Scan a product, confirm quantity and payment, then save. Customer details are optional for walk-in sales.</p>
         </div>
         <div className="billing-shortcuts" aria-label="Billing keyboard shortcuts">
@@ -610,6 +733,33 @@ export function VyaparBilling({
           <button type="button" onClick={() => setSuccess('')}>Dismiss</button>
         </div>
       )}
+
+      <fieldset className="billing-editor" disabled={Boolean(action)}>
+      <div className="billing-hold-actions">
+        <button type="button" className="button secondary" disabled={!hasDraft} onClick={() => void handleHold()}>
+          <Pause size={16} /> {action === 'hold' ? 'Holding…' : 'Hold & New'}
+        </button>
+        <button type="button" className="button secondary" disabled={!availableHeld.length}
+          aria-expanded={heldOpen && availableHeld.length > 0} aria-controls="held-bill-list"
+          onClick={() => setHeldOpen(open => !open)}>
+          Held Bills ({availableHeld.length})
+        </button>
+      </div>
+      <ul id="held-bill-list" className="billing-held-list" aria-label="Held bills"
+        hidden={!heldOpen || !availableHeld.length}>
+        {availableHeld.map(bill => {
+          const saved = 'draft' in bill ? bill.draft : bill;
+          const items = 'draft' in bill ? bill.draft.rows.filter(row => row.productId || row.name.trim()) : bill.lines;
+          return <li key={bill.requestId}>
+            <div><strong>{saved.customerName || 'Walk-in'}</strong>
+              <small>{items.length ? items.map(item => item.name || item.sku).join(', ') : 'No items yet'}</small>
+              <small>{new Date(bill.queuedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</small>
+            </div>
+            <button type="button" className="button secondary" onClick={() => resumeBill(bill)}
+              aria-label={`Resume bill for ${saved.customerName || 'walk-in'}`}>Resume</button>
+          </li>;
+        })}
+      </ul>
 
       {/* Customer and bill details */}
       <div className="vyapar-top-section">
@@ -762,7 +912,9 @@ export function VyaparBilling({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, index) => (
+            {rows.map((row, index) => {
+              const availableStock = catalogItems.get(itemKey(row))?.stock ?? 0;
+              return (
               <tr key={row.id}>
                 {/* # Serial */}
                 <td style={{ textAlign: 'center', color: 'var(--muted)', fontWeight: 600 }}>
@@ -803,12 +955,12 @@ export function VyaparBilling({
                         }
                       }}
                     />
-                    {row.stock > 0 && (
+                    {availableStock > 0 && (
                       <span className="vyapar-stock-badge available">
-                        Stock: {row.stock}
+                        Stock: {availableStock}
                       </span>
                     )}
-                    {row.productId && row.stock <= 0 && (
+                    {row.productId && availableStock <= 0 && (
                       <span className="vyapar-stock-badge unavailable">
                         Out of stock
                       </span>
@@ -919,7 +1071,8 @@ export function VyaparBilling({
                   </button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
 
           {/* TOTAL SUMMARY ROW */}
@@ -1091,15 +1244,6 @@ export function VyaparBilling({
             )}
           </div>
 
-          {heldBillsCount > 0 && onResumeHeld && (
-            <button
-              type="button"
-              className="button secondary vyapar-resume-held"
-              onClick={onResumeHeld}
-            >
-              Resume Saved / Held Bills ({heldBillsCount})
-            </button>
-          )}
         </div>
 
         {/* Right Side: Totals Summary & Requested "Save & Share" / "Save & New" Buttons */}
@@ -1126,25 +1270,26 @@ export function VyaparBilling({
             <button
               type="button"
               className="button secondary vyapar-btn-save-new"
-              disabled={saving || totals.totalAmount <= 0}
+              disabled={totals.totalAmount <= 0}
               onClick={() => handleSubmit('new')}
               title="Save bill and immediately open a new invoice form"
             >
-              <Plus size={16} /> {saving ? 'Saving…' : 'Save & New'}
+              <Plus size={16} /> {action === 'new' ? 'Saving…' : 'Save & New'}
             </button>
 
             <button
               type="button"
               className="button primary vyapar-btn-save-share"
-              disabled={saving || totals.totalAmount <= 0}
+              disabled={totals.totalAmount <= 0}
               onClick={() => handleSubmit('share')}
               title="Save bill and open WhatsApp / SMS / PDF receipt sharing"
             >
-              <Share2 size={16} /> {saving ? 'Saving…' : 'Save & Share'}
+              <Share2 size={16} /> {action === 'share' ? 'Saving…' : 'Save & Share'}
             </button>
           </div>
         </div>
       </div>
+      </fieldset>
     </div>
   );
 }
