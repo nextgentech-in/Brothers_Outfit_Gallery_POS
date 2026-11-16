@@ -4,7 +4,11 @@ The desktop app packages the existing POS interface and uses the same hosted API
 
 ## Build and install
 
-From the POS repository, run `npm ci`, `npm --prefix desktop ci`, and `npm --prefix desktop run package:win` on Windows. The installer goes in `artifacts/desktop`. The local build is unsigned and requires manual upgrades. Keep the same application identity for future installers so the Windows profile and local data stay in place.
+Download the installer from [GitHub Releases](https://github.com/nextgentech-in/Brothers_Outfit_Gallery_POS/releases/latest). Install version 0.2.0 or newer once on each PC that has an older installation. Run the installer under the same Windows account to keep the existing POS profile.
+
+The app checks for a stable release on startup and downloads a newer version in the background when online. Select **Updates → Check for Updates** to check manually. When the update is ready, save or hold the open bill and select **Restart and install**. The in-place upgrade keeps the local catalog, held bills and pending sales.
+
+For local builds, run `npm ci`, `npm --prefix desktop ci`, and `npm --prefix desktop run package:win` on Windows. The unsigned installer and update metadata go in `artifacts/desktop`. To publish an update, increment the desktop package version with `npm --prefix desktop version X.Y.Z --no-git-tag-version`, commit the package and lockfile, then push the matching `vX.Y.Z` tag. GitHub Actions builds and publishes the installer, blockmap and `latest.yml` together.
 
 On the shop PC, open **POS → Open device invitation**, paste a fresh owner-generated pairing link, and sign in online. Open Billing while connected to cache the catalog. The installer does not need Firebase credentials or API keys.
 

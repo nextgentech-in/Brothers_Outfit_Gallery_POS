@@ -1,8 +1,9 @@
-const { app, BrowserWindow, Menu, net, safeStorage, session, shell } = require('electron');
+const { app, BrowserWindow, dialog, Menu, net, safeStorage, session, shell } = require('electron');
 const { readFile, writeFile, rm } = require('node:fs/promises');
 const path = require('node:path');
 const { mkdtempSync } = require('node:fs');
 const { tmpdir } = require('node:os');
+const { createUpdates } = require('./updates.cjs');
 
 const origin = 'https://brothers-outfit-gallery-pos.vercel.app';
 const routes = new Set(['/', '/login', '/enroll', '/pos', '/dashboard', '/products',
@@ -101,11 +102,26 @@ else {
           target.protocol === 'sms:') void shell.openExternal(url).catch(() => {});
       return { action: 'deny' };
     });
-    Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: 'POS', submenu: [
-      { label: 'Open device invitation…', click: () => void window.loadURL(origin + '/login?desktop-pair=1') },
-      { role: 'reload' }, { role: 'quit' }
-    ] }]));
+    const currentVersion = app.getVersion();
+    const updates = app.isPackaged && process.platform === 'win32' ? createUpdates({
+      updater: require('electron-updater').autoUpdater, window, dialog, currentVersion, setMenuLabel: setMenu
+    }) : null;
+    function setMenu(updateLabel = 'Check for Updates…') {
+      Menu.setApplicationMenu(Menu.buildFromTemplate([
+        { label: 'POS', submenu: [
+          { label: 'Open device invitation…', click: () => void window.loadURL(origin + '/login?desktop-pair=1') },
+          { role: 'reload' }, { role: 'quit' }
+        ] },
+        { label: 'Updates', submenu: [
+          { label: updateLabel,
+            enabled: Boolean(updates), click: () => void updates?.checkFromMenu() },
+          { label: `Installed version ${currentVersion}`, enabled: false }
+        ] }
+      ]));
+    }
+    setMenu();
     await window.loadURL(origin + (smoke ? '/login?desktop-pair=1' : '/'));
+    void updates?.check().catch(() => {});
     if (smoke) {
       const csrf = await window.webContents.executeJavaScript(`(async () => {
         if (!document.querySelector('#desktop-invite')) throw Error('Bundled pairing screen did not render');
