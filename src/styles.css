@@ -240,9 +240,9 @@
 .vyapar-cell-input.text-right{text-align:right}
 .vyapar-cell-input.font-bold{font-weight:700}
 
-.vyapar-item-input-container{position:relative;display:flex;align-items:center}
-.item-name-input{padding-right:75px}
-.vyapar-stock-badge{position:absolute;right:8px;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;pointer-events:none}
+.vyapar-item-input-container{display:grid;justify-items:start;gap:4px;min-width:0}
+.item-name-input:not(:focus){text-overflow:ellipsis}
+.vyapar-stock-badge{max-width:100%;font-size:11px;font-weight:700;padding:2px 6px;border-radius:4px}
 .vyapar-stock-badge.available{background:#18804922;color:#188049}
 .vyapar-stock-badge.unavailable{background:#d9534f22;color:#d9534f}
 
@@ -358,7 +358,8 @@
 .vyapar-items-table tbody tr:hover{background:color-mix(in srgb,var(--accent-bg) 42%,transparent)}
 .vyapar-cell-input{min-height:40px;padding:8px 10px;border-radius:8px;font-size:14px}
 .vyapar-items-table input[type=number]{font-variant-numeric:tabular-nums}
-.vyapar-stock-badge{right:9px;font-size:10px;padding:3px 7px}
+.billing-quantity{appearance:textfield;padding-inline:4px}
+.billing-quantity::-webkit-inner-spin-button,.billing-quantity::-webkit-outer-spin-button{appearance:none;margin:0}
 .vyapar-totals-row td{height:auto;padding:14px 10px;font-size:14px}
 .vyapar-add-row-btn{margin:2px 8px 12px;min-height:40px;padding:9px 14px;font-size:12px}
 .vyapar-bottom-section{grid-template-columns:minmax(0,1.25fr) minmax(330px,.75fr);gap:18px;align-items:start;margin-top:0}
@@ -2082,7 +2083,7 @@
   align-items: start;
 }
 .vyapar-customer-box {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(140px, .85fr);
   padding: 12px;
 }
 .billing-extra-details summary {
@@ -2107,6 +2108,8 @@
   border-radius: 8px;
   background: var(--accent-bg);
 }
+.billing-coins-label, .billing-coins-status { display:flex; align-items:center; flex-wrap:wrap; gap:4px 12px; }
+.billing-coins-label { gap:6px; }
 .billing-rewards small { color: var(--muted); }
 .billing-rewards .check-row { margin: 0; }
 .customer-reward-settings {
@@ -2122,7 +2125,7 @@
   .vyapar-top-section { grid-template-columns: 1fr; }
   .vyapar-customer-box .vyapar-input-group:first-child { grid-column: auto; }
 }
-@media (max-width: 480px) {
+@media (max-width: 580px) {
   .vyapar-customer-box { grid-template-columns: 1fr; }
 }
 

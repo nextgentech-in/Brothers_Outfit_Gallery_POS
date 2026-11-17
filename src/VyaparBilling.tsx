@@ -3,7 +3,7 @@ import { readAdmin } from './adminApi';
 import { earnedPoints, redeemablePoints, type RewardRule } from '../shared/rewards';
 import { priceBillLine, setBillTotal } from '../shared/billPricing';
 import { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
-import { Plus, Trash2, Search, Share2, Check, Calendar, Clock, Phone, User, Banknote, QrCode, CreditCard, Pause } from 'lucide-react';
+import { Plus, Trash2, Search, Share2, Check, Calendar, Clock, Coins, Phone, User, Banknote, QrCode, CreditCard, Pause } from 'lucide-react';
 import { billingCustomerError, mobileNumber, shopDate } from '../shared/customers';
 import { validDueDate, dueDateAfter } from '../shared/credit';
 import type { BillingDraft, HeldBill, QueuedSale } from './offlineQueue';
@@ -654,7 +654,7 @@ export function VyaparBilling({
       return;
     }
     if (useRewards && !hasCreditPayment && !rewards) {
-      setError('Check the customer’s rewards balance before saving.');
+      setError('Check the customer’s coin balance before saving.');
       return;
     }
     if (manualInvoiceNumber && (!Number.isSafeInteger(invoiceNumber) || invoiceNumber < 1 || invoiceNumber > 999999)) {
@@ -861,7 +861,7 @@ export function VyaparBilling({
               maxLength={20}
               type="tel"
               className="vyapar-field"
-              placeholder="10-digit Mobile number"
+              placeholder="e.g. 9876543210"
               value={customerPhone}
               onChange={e => handlePhoneChange(e.target.value)}
               onKeyDown={event => {
@@ -888,7 +888,7 @@ export function VyaparBilling({
               maxLength={120}
               type="text"
               className="vyapar-field"
-              placeholder="Search or enter customer name"
+              placeholder="Search by name"
               value={customerName}
               onFocus={() => { setCustomerSearchQuery(customerName); setCustomerDropdownOpen(true); }}
               onBlur={() => setCustomerDropdownOpen(false)}
@@ -939,41 +939,47 @@ export function VyaparBilling({
             )}
           </div>
 
-          {phone && ((rewards && (rewards.rule.rate > 0 || rewards.balance > 0)) || rewardFailure === phone || useRewards) &&
-            <div className="billing-rewards" aria-live="polite">
-              {rewards ? <>
-                <strong>{rewards.balance} points available</strong>
-                {rewards.rule.rate > 0 && <small>{rewards.rule.rate}% on paid bills from ₹{rewards.rule.minimum.toLocaleString('en-IN')}</small>}
-                {maxPoints > 0 && <label className="check-row">
-                  <input type="checkbox" checked={useRewards} onChange={event => setUseRewards(event.target.checked)} />
-                  Use {maxPoints} points for ₹{maxPoints} off
-                </label>}
-                {useRewards && maxPoints === 0 && <button type="button" className="text-button" onClick={() => setUseRewards(false)}>Remove rewards selection</button>}
-                {pointsToEarn > 0 && <small>Earn {pointsToEarn} points on this bill</small>}
-              </> : <>
-                <span>{online ? 'Points balance unavailable' : 'Reconnect to use points'}</span>
-                {online && <button type="button" className="text-button" onClick={() => setRewardAttempt(value => value + 1)}>Refresh points</button>}
-                {useRewards && <button type="button" className="text-button" onClick={() => setUseRewards(false)}>Continue without points</button>}
-              </>}
-            </div>}
-        </div>
-
-        <details className="vyapar-invoice-meta-box billing-extra-details">
-          <summary>Bill details <small>{invoiceDate}</small></summary>
           <div className="vyapar-input-group">
             <label className="vyapar-label" htmlFor="billing-customer-dob">
-              <Calendar size={15} /> Date of birth <span>Optional</span>
+              <Calendar size={15} /> Birthdate <span>Optional</span>
             </label>
             <input
               id="billing-customer-dob"
               type="date"
               className="vyapar-field"
               value={customerDateOfBirth}
+              min="1900-01-01"
               max={shopDate()}
               onChange={e => setCustomerDateOfBirth(e.target.value)}
             />
           </div>
 
+          <div className="billing-rewards">
+            <strong className="billing-coins-label"><Coins size={16} aria-hidden="true" /> Coins</strong>
+            <div className="billing-coins-status" role="status">
+              {!phone ? <small>Enter the customer mobile number to see their balance.</small>
+                : rewards ? <>
+                  <strong>{rewards.balance.toLocaleString('en-IN')} available</strong>
+                  {rewards.rule.rate > 0
+                    ? <small>{rewards.rule.rate}% on paid bills from ₹{rewards.rule.minimum.toLocaleString('en-IN')}</small>
+                    : <small>Coin earning is off for this customer.</small>}
+                  {pointsToEarn > 0 && <small>Earn {pointsToEarn} {pointsToEarn === 1 ? 'coin' : 'coins'} on this bill</small>}
+                </> : <small>{!online ? 'Reconnect to check the balance.'
+                  : rewardFailure === phone ? 'Coin balance unavailable.' : 'Checking coin balance…'}</small>}
+            </div>
+            {maxPoints > 0 && <label className="check-row">
+              <input type="checkbox" checked={useRewards} onChange={event => setUseRewards(event.target.checked)} />
+              Use {maxPoints} {maxPoints === 1 ? 'coin' : 'coins'} for ₹{maxPoints} off
+            </label>}
+            {phone && online && !rewards && rewardFailure === phone &&
+              <button type="button" className="text-button" onClick={() => setRewardAttempt(value => value + 1)}>Refresh balance</button>}
+            {useRewards && maxPoints === 0 &&
+              <button type="button" className="text-button" onClick={() => setUseRewards(false)}>Continue without coins</button>}
+          </div>
+        </div>
+
+        <details className="vyapar-invoice-meta-box billing-extra-details">
+          <summary>Bill details <small>{invoiceDate}</small></summary>
           <div className="vyapar-meta-row">
             <span className="vyapar-meta-title">Bill number</span>
             <input type="number" className="vyapar-meta-value" aria-label="Bill number" min="1" max="999999"
@@ -1053,7 +1059,9 @@ export function VyaparBilling({
                       type="text"
                       className="vyapar-cell-input item-name-input"
                       aria-label={`Product for row ${index + 1}`}
-                      placeholder="Type or click to search items & stock..."
+                      aria-describedby={row.productId ? `billing-stock-${row.id}` : undefined}
+                      title={row.productId ? row.name : undefined}
+                      placeholder="Search product or SKU"
                       value={activeSearchRowId === row.id ? searchQuery : row.name}
                       role="combobox"
                       aria-autocomplete="list"
@@ -1089,18 +1097,11 @@ export function VyaparBilling({
                         }
                       }}
                     />
-                    {availableStock > 0 && (
-                      <span className="vyapar-stock-badge available">
-                        Stock: {availableStock}
-                      </span>
-                    )}
-                    {row.productId && availableStock <= 0 && (
-                      <span className="vyapar-stock-badge unavailable">
-                        Out of stock
-                      </span>
-                    )}
+                    {row.productId && <span id={`billing-stock-${row.id}`}
+                      className={`vyapar-stock-badge ${availableStock > 0 ? 'available' : 'unavailable'}`}>
+                      {availableStock > 0 ? `${availableStock} in stock` : 'Out of stock'}
+                    </span>}
                   </div>
-
                 </td>
 
                 {/* QUANTITY */}
@@ -1108,10 +1109,11 @@ export function VyaparBilling({
                   <input
                     type="number"
                     data-qty-row={row.id}
+                    inputMode="numeric"
                     aria-label={`Quantity for ${row.name || `row ${index + 1}`}`}
                     min="1"
                     step="1"
-                    className="vyapar-cell-input text-center"
+                    className="vyapar-cell-input text-center billing-quantity"
                     value={row.productId ? row.quantity : ''}
                     disabled={!row.productId}
                     onChange={e => updateRowField(row.id, 'quantity', Math.max(1, Number(e.target.value)))}
@@ -1390,7 +1392,7 @@ export function VyaparBilling({
               </div>
             )}
             <div className="vyapar-summary-line total-highlight">
-              <label htmlFor="billing-total">{pointsUsed ? 'Before rewards ₹' : 'Total Amount ₹'}</label>
+              <label htmlFor="billing-total">{pointsUsed ? 'Before coins ₹' : 'Total Amount ₹'}</label>
               <input id="billing-total" type="number" className="vyapar-field billing-total-input"
                 min="0" max={totals.totalGross} step="0.01" value={totals.totalAmount}
                 disabled={!totals.totalGross || role === 'cashier'}
@@ -1404,7 +1406,7 @@ export function VyaparBilling({
                 }} />
             </div>
             {pointsUsed > 0 && <>
-              <div className="vyapar-summary-line discount"><span>Rewards discount</span><span>− ₹{pointsUsed.toFixed(2)}</span></div>
+              <div className="vyapar-summary-line discount"><span>Coin discount</span><span>− ₹{pointsUsed.toFixed(2)}</span></div>
               <div className="vyapar-summary-line total-highlight"><strong>Amount due</strong><strong>₹{amountDue.toFixed(2)}</strong></div>
             </>}
           </div>

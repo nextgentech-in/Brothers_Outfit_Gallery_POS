@@ -117,14 +117,14 @@ export function invoicePdf(invoice: Invoice): Buffer {
   const redeemed = invoice.rewards?.redeemed ?? 0;
   const details = [
     ...(invoice.rewards && (invoice.rewards.earned || redeemed || invoice.rewards.balance)
-      ? [`Rewards: ${invoice.rewards.earned} points earned, ${redeemed} used, ${invoice.rewards.balance} available`] : []),
+      ? [`Coins: ${invoice.rewards.earned} earned, ${redeemed} used, ${invoice.rewards.balance} available`] : []),
     ...(Number(invoice.exchangeCreditUsed) > 0 ? [`Exchange credit applied: ${money(invoice.exchangeCreditUsed)}`] : []),
     ...(invoice.payments || []).map(payment => `${payment.method.toUpperCase()}: ${money(payment.amount)}`),
     ...(Number(invoice.change) > 0 ? [`Change: ${money(invoice.change)}`] : []),
     ...(credit ? [`Repayment due: ${invoice.creditDueDate || 'Not recorded'}`] : [])
   ];
   const totals = [['MRP total', money(subtotal)], ...(discount > redeemed ? [['Discount', '- ' + money(discount - redeemed)]] : []),
-    ...(redeemed ? [['Rewards discount', '- ' + money(redeemed)]] : []),
+    ...(redeemed ? [['Coin discount', '- ' + money(redeemed)]] : []),
     ...(Number(invoice.tax) > 0 ? [['GST', money(invoice.tax)]] : [])];
   if (y + 121 + 15 * (totals.length + details.length) > bottom) nextPage(false);
   y += 22;
