@@ -1,3 +1,4 @@
+import { configuredRewardRule } from './rewards.js';
 import { customerKey } from './customerIdentity.js';
 import { mobileNumber, validBirthDate, type Customer } from '../shared/customers.js';
 
@@ -35,6 +36,7 @@ export function customerDirectory(users: CustomerRecord[], profiles: CustomerRec
         fullName: text(data.fullName) || text(data.name) || existing?.fullName || '',
         phone: phone || existing?.phone || '',
         email: email || existing?.email || '',
+        rewardRule: source === 'pos' ? configuredRewardRule(data.rewardRule) : existing?.rewardRule,
         address: text(data.address) || text(data.customerAddress) || existing?.address || '',
         dateOfBirth: validBirthDate(data.dateOfBirth) ? data.dateOfBirth : existing?.dateOfBirth || '',
         birthdayOffersOptIn: source === 'pos' && typeof data.birthdayOffersOptIn === 'boolean'

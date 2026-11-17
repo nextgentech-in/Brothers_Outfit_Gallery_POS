@@ -1,3 +1,6 @@
+import { priceBillLine, setBillTotal } from '../shared/billPricing.js';
+import { earnedPoints, redeemablePoints } from '../shared/rewards.js';
+import { configuredRewardRule, readRewardBalance, rewardAccount, rewardDefaults, rewardRule, writeRewardBalance } from './rewards.js';
 import { paymentBreakdown } from '../shared/payments.js';
 import { createHash, randomBytes } from 'node:crypto';
 import express, { Router } from 'express';
@@ -11,7 +14,7 @@ import { deliverInvoice, whatsappReplyReady } from './whatsapp.js';
 import { customerBillUrl } from './billLink.js';
 import { customerKey } from './customerIdentity.js';
 import { customerDirectory, customerProfileFields } from './customers.js';
-import { customerDetailsError, mobileNumber } from '../shared/customers.js';
+import { billingCustomerError, customerDetailsError, mobileNumber } from '../shared/customers.js';
 import { config } from './config.js';
 import { idempotent } from './transactions.js';
 import { appendCreditEntry, readCreditState } from './creditLedger.js';
@@ -52,14 +55,17 @@ const saleSchema = z.object({
   payments: z.array(z.object({ method: z.enum(['cash','upi','card','credit']), amount: money }).strict()).max(4).optional(),
   cashTendered: money.optional(),
   discount: money.default(0),
+  redeemPoints: z.number().int().min(1).max(10_000_000).optional(),
   tax: money.optional(),
   paymentMethod: z.enum(['cash', 'upi', 'card', 'credit', 'split']),
   whatsappOptIn: z.boolean().default(false)
 }).strict().superRefine((input, ctx) => {
     if (Number(input.tax || 0) > 0 || input.lines.some(line => Number(line.tax || 0) > 0 || Number(line.taxPercent || 0) > 0))
       ctx.addIssue({ code: 'custom', message: 'GST is for stock valuation and tax reporting; it is not added to a retail bill.' });
-    const error = customerDetailsError(input.customerPhone || '', input.customerDateOfBirth || '');
-    if (error) ctx.addIssue({ code: 'custom', path: ['customerDateOfBirth'], message: error });
+    if (input.customerDateOfBirth || input.birthdayOffersOptIn) {
+      const error = customerDetailsError(input.customerPhone || '', input.customerDateOfBirth || '');
+      if (error) ctx.addIssue({ code: 'custom', path: ['customerDateOfBirth'], message: error });
+    }
     if (input.birthdayOffersOptIn && !input.customerPhone?.trim())
       ctx.addIssue({ code: 'custom', path: ['birthdayOffersOptIn'], message: 'A mobile number is required for birthday offers.' });
     if (input.paymentMethod === 'credit' || (input.paymentMethod === 'split' && input.payments?.some(p => p.method === 'credit' && p.amount > 0))) {
@@ -722,15 +728,34 @@ commerceRouter.post('/pos/recover',async(req,res)=>{
  const parsed=z.object({requestId:key}).strict().safeParse(req.body);if(!parsed.success){res.status(422).json({error:'Invalid provisional bill.'});return;}
  try{const db=firebase().db;res.json(await db.runTransaction(async tx=>{const ref=db.collection('erp_commands').doc(hash(`pos_sale:${parsed.data.requestId}`)),doc=await tx.get(ref);if(doc.exists&&!doc.data()?.cancelled)return {state:'posted',...doc.data()?.result};if(!doc.exists)tx.create(ref,{scope:'pos_sale',requestId:parsed.data.requestId,cancelled:true,createdAt:FieldValue.serverTimestamp()});return {state:'editable'};}));}catch(e){fail(res,e);}
 });
+commerceRouter.get('/pos/rewards', async (req, res) => {
+  const identity = customerKey(req.query.phone, '');
+  if (!identity) { res.status(422).json({ error: 'Enter a valid mobile number.' }); return; }
+  try {
+    const db = firebase().db;
+    const [profile, account] = await Promise.all([
+      db.collection('erp_customerProfiles').doc(identity).get(), rewardAccount(db, identity).get()
+    ]);
+    res.set('Cache-Control', 'private, no-store').json({
+      balance: Math.max(0, Number(account.data()?.balance || 0)),
+      rule: configuredRewardRule(profile.data()?.rewardRule) ?? rewardRule((await rewardDefaults(db).get()).data()?.rule)
+    });
+  } catch (error) { fail(res, error); }
+});
+
 commerceRouter.post('/pos/sale', async (req, res) => {
   const parsed = saleSchema.safeParse(req.body);
   if (!parsed.success) { res.status(422).json({ error: parsed.error.issues.find(issue => issue.code === 'custom')?.message || 'Invalid sale.' }); return; }
   try {
     const input = parsed.data, db = firebase().db;
     const result = await idempotent(db, 'pos_sale', input.requestId, input, async tx => {
-      const identity = customerKey(input.customerPhone, input.customerEmail);
+      const customerError = billingCustomerError(input.customerName || '', input.customerPhone || '');
+      if (customerError) throw Object.assign(new Error(customerError), { status: 422 });
+      const identity = customerKey(input.customerPhone, '');
       const creditState = (input.paymentMethod === 'credit' || (input.paymentMethod === 'split' && input.payments?.some(p => p.method === 'credit' && p.amount > 0))) ? await readCreditState(db, tx, identity) : null;
-      const creditProfile = creditState ? await tx.get(db.collection('erp_customerProfiles').doc(identity)) : null;
+      const profile = await tx.get(db.collection('erp_customerProfiles').doc(identity));
+      const rule = configuredRewardRule(profile.data()?.rewardRule) ?? rewardRule((await tx.get(rewardDefaults(db))).data()?.rule);
+      const rewardsAccount = await readRewardBalance(db, tx, identity);
       const issuedDate = input.invoiceDate && input.invoiceTime
         ? new Date(`${input.invoiceDate}T${input.invoiceTime}:00+05:30`)
         : new Date();
@@ -747,7 +772,7 @@ commerceRouter.post('/pos/sale', async (req, res) => {
         throw Object.assign(new Error('That bill number is already used. Choose another number.'), { status: 409 });
       let subtotalPaise = 0;
       let totalLineDiscountPaise = 0;
-      const lineSnapshots: Record<string, unknown>[] = [];
+      const lineSnapshots: DocumentData[] = [];
       input.lines.forEach((line, index) => {
         const product = products.get(line.productId)!;
         const current = stockFor(product, line.sku);
@@ -803,16 +828,29 @@ commerceRouter.post('/pos/sale', async (req, res) => {
         });
       });
       const overallDiscountPaise = rupees(input.discount || 0);
-      const discountPaise = totalLineDiscountPaise > 0 ? totalLineDiscountPaise : overallDiscountPaise;
+      const baseDiscount = Math.min(subtotalPaise, totalLineDiscountPaise || overallDiscountPaise);
+      const beforeRewards = (subtotalPaise - baseDiscount) / 100;
+      const redeemed = input.redeemPoints ?? 0;
+      if (redeemed && (creditState || redeemed > redeemablePoints(rewardsAccount.balance, beforeRewards))) {
+        throw Object.assign(new Error('Rewards changed or are unavailable for this payment. Review the customer points and retry.'), { status: 409 });
+      }
+      const total = (subtotalPaise - baseDiscount - redeemed * 100) / 100;
+      const earned = creditState ? 0 : earnedPoints(total, rule);
+      const rewards = { earned, redeemed, balance: writeRewardBalance(tx, rewardsAccount, earned - redeemed), rule };
+      const discountPaise = baseDiscount + redeemed * 100;
       const taxPaise = 0;
-      const totalPaise = Math.max(0, subtotalPaise - discountPaise + taxPaise);
-      const total = totalPaise / 100;
+      const pricedLines = setBillTotal(lineSnapshots.map(line => ({
+        ...priceBillLine(line.quantity, line.price, line.amount, 'amount'),
+        snapshot: line
+      })), total).map(({ snapshot, amount, discount, discountPercent }) => ({
+        ...snapshot, amount, discount, discountPercent, netRevenue: amount
+      }));
       if(input.expectedTotal !== undefined && Math.round(input.expectedTotal*100)!==Math.round(total*100)) throw Object.assign(new Error('Prices changed. Restore this bill for review before collecting payment.'),{status:409});
       let settlement; try { settlement = paymentBreakdown(total, input.paymentMethod, input.payments, input.cashTendered); } catch (e) { throw Object.assign(e as Error, { status: 422 }); }
       for (const ref of refs) tx.update(ref, { ...products.get(ref.id), updatedAt: FieldValue.serverTimestamp() });
       tx.set(counterRef, { lastNumber: Math.max(Number(counter.data()?.lastNumber || 0), invoiceNumber), updatedAt: FieldValue.serverTimestamp() });
       tx.create(db.collection('orders').doc(orderId), {
-        items: lineSnapshots, subtotal: subtotalPaise / 100, discount: discountPaise / 100, tax: taxPaise / 100, totalAmount: total,
+        items: pricedLines, rewards, subtotal: subtotalPaise / 100, discount: discountPaise / 100, tax: taxPaise / 100, totalAmount: total,
         ...settlement, status: 'Delivered', paymentStatus: settlement.creditAmount ? (settlement.creditAmount === total ? 'Credit' : 'Part paid') : 'Paid',
         paymentMethod: input.paymentMethod, customerName: input.customerName || '', customerPhone: input.customerPhone || '',
         customerAddress: input.customerAddress || '',
@@ -831,7 +869,7 @@ commerceRouter.post('/pos/sale', async (req, res) => {
             orderId, invoiceId, dueDate: input.creditDueDate!, note: `POS bill ${invoiceId}`, paymentMethod: 'credit' });
           queueCustomerMessage(db, tx, `credit_${hash(input.requestId)}`, { customerKey: identity, name: input.customerName!, phone: mobileNumber(input.customerPhone!),
             action: 'Credit sale recorded', amount: settlement.creditAmount, balance: summary.balance, dueDate: input.creditDueDate!,
-            consent: input.creditWhatsAppOptIn ?? creditProfile?.data()?.creditWhatsAppOptIn === true });
+            consent: input.creditWhatsAppOptIn ?? profile.data()?.creditWhatsAppOptIn === true });
         } else tx.create(db.collection('erp_customerLedger').doc(orderId), {
           customerKey: identity, orderId, invoiceId, channel: 'POS',
           creditDelta: input.paymentMethod === 'credit' ? total : 0,
@@ -843,7 +881,7 @@ commerceRouter.post('/pos/sale', async (req, res) => {
         customerName: input.customerName || '', customerPhone: input.customerPhone || '', customerEmail: input.customerEmail || '',
         customerAddress: input.customerAddress || '',
         customerDateOfBirth: input.customerDateOfBirth || '',
-        customerKey: identity || null, lines: lineSnapshots,
+        customerKey: identity || null, lines: pricedLines, rewards,
         ...settlement, subtotal: subtotalPaise / 100, discount: discountPaise / 100, tax: taxPaise / 100, total, paymentMethod: input.paymentMethod,
         channel: 'POS', kind: 'sales_receipt', whatsappOptIn: input.whatsappOptIn,
         issuedAt: Timestamp.fromDate(issuedDate), createdAt: FieldValue.serverTimestamp(),
@@ -853,7 +891,7 @@ commerceRouter.post('/pos/sale', async (req, res) => {
         source: 'pos', status: input.whatsappOptIn && input.customerPhone ? 'awaiting_provider' : 'consent_missing',
         invoiceId, retryCount: 0, createdAt: FieldValue.serverTimestamp()
       });
-      return { orderId, invoiceId, issuedAt: issuedDate.toISOString(), total, channel: 'POS', ...settlement };
+      return { orderId, invoiceId, issuedAt: issuedDate.toISOString(), total, channel: 'POS', rewards, lines: pricedLines, ...settlement };
     });
     if (input.whatsappOptIn && input.customerPhone) await deliverInvoice(db, `invoice_${hash(input.requestId)}`).catch(() => {});
     if (result.creditAmount > 0) await deliverCustomerMessage(db, `credit_${hash(input.requestId)}`).catch(() => {});
@@ -863,7 +901,7 @@ commerceRouter.post('/pos/sale', async (req, res) => {
 
 const billEditSchema = z.object({
   requestId: key, orderId: id, invoiceId: id, revision: z.number().int().nonnegative(),
-  customerName: z.string().trim().max(120),
+  customerName: z.string().trim().min(1).max(120),
   lines: z.array(z.object({ mrp: money, amount: money }).strict()).min(1).max(100)
 }).strict();
 
@@ -928,11 +966,24 @@ commerceRouter.post('/orders/edit-bill', async (req, res) => {
         ...settlement, subtotal: gross / 100, discount: (gross - net) / 100,
         customerName: input.customerName, updatedAt: FieldValue.serverTimestamp()
       };
+      const originalRewards = order.rewards;
+      let rewards = originalRewards;
+      if (originalRewards) {
+        if (gross - net < Number(originalRewards.redeemed || 0) * 100) {
+          throw Object.assign(new Error('Keep the redeemed rewards discount on this bill.'), { status: 422 });
+        }
+        if (amountChanged && invoice.customerKey) {
+          const earned = earnedPoints(total, rewardRule(originalRewards.rule));
+          const account = await readRewardBalance(db, tx, invoice.customerKey);
+          rewards = { ...originalRewards, earned, balance: writeRewardBalance(tx, account, earned - originalRewards.earned) };
+        }
+      }
+      const rewardChanges = rewards ? { rewards } : {};
       const lines = invoice.lines.map((line, index) => ({ ...line, ...prices[index] }));
       const items = order.items.map((item, index) => ({ ...item, ...prices[index] }));
       const revision = input.revision + 1;
-      tx.update(invoiceRef, { ...details, revision, total, lines });
-      tx.update(orderRef, { ...details, totalAmount: total, items });
+      tx.update(invoiceRef, { ...details, ...rewardChanges, revision, total, lines });
+      tx.update(orderRef, { ...details, ...rewardChanges, totalAmount: total, items });
       if (amountChanged && ledgerDoc.exists && typeof ledgerDoc.data()?.loyaltyDelta === 'number') {
         tx.update(ledgerRef, { loyaltyDelta: Math.floor(total / 100) });
       }

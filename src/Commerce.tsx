@@ -1,6 +1,7 @@
+import type { BillRewards } from '../shared/rewards';
 import { createPortal } from 'react-dom';
 import { StockCount } from './StockCount';
-import { CustomerEditor } from './CustomerEditor';
+import { CustomerEditor, CustomerRewardsSettings } from './CustomerEditor';
 import { BillHistory } from './BillHistory';
 import { SupplierPayments } from './DailyOperations';
 import { paymentBreakdown, type PaymentPart } from '../shared/payments';
@@ -33,7 +34,7 @@ type Supplier = { id: string; name: string; phone: string; email: string; gstin:
 type Purchase = { id: string; supplierName: string; supplierInvoice: string; total: number; amountPaid: number; payable: number; lines?: { name?: string; sku?: string; quantity?: number; unitCost?: number; salePrice?: number; mrp?: number; stockValue?: number }[]; createdAt?: { _seconds?: number; seconds?: number } };
 type PurchaseOrder = { supplierInvoiceDate?: string; id: string; supplierId?: string; supplierName: string; supplierInvoice: string; total: number; status: string; lines?: { name?: string; sku?: string; quantity?: number; unitCost?: number; salePrice?: number; mrp?: number }[]; createdAt?: { _seconds?: number; seconds?: number }; receivedAt?: { _seconds?: number; seconds?: number }; purchaseId?: string };
 type Movement = { id: string; productId?: string; sku?: string; deltaChange?: number; reason?: string; source?: string; stockAfter?: number };
-type Invoice = { id: string; orderId: string; total: number; lines: { name?: string; sku?: string; quantity?: number; price?: number; discount?: number; discountPercent?: number; tax?: number; amount?: number; taxPercent?: number }[];
+type Invoice = { rewards?: BillRewards; id: string; orderId: string; total: number; lines: { name?: string; sku?: string; quantity?: number; price?: number; discount?: number; discountPercent?: number; tax?: number; amount?: number; taxPercent?: number }[];
   exchangeCreditUsed?: number; payments?: PaymentPart[]; creditAmount?: number; cashTendered?: number; change?: number; creditDueDate?: string;
   customerName?: string; customerPhone?: string; customerDateOfBirth?: string; channel: string; paymentMethod: string; kind?: string; subtotal?: number; discount?: number; tax?: number; billUrl?: string; createdAt?: { _seconds?: number; seconds?: number }; issuedAt?: { _seconds?: number; seconds?: number } };
 type SyncRecord = { id: string; event?: string; status?: string; invoiceId?: string; source?: string; retryCount?: number; error?: string; providerMessageId?: string };
@@ -63,6 +64,7 @@ export function ReceiptDialog({ invoice, shop, preview = false, onClose }: { inv
   const [paper, setPaper] = useState(() => localStorage.getItem('receipt-paper') || 'a4');
   const subtotal = invoice.subtotal ?? invoice.lines.reduce((sum, line) => sum + Number(line.price || 0) * Number(line.quantity || 0), 0);
   const discount = invoice.discount ?? Math.max(0, subtotal - invoice.total);
+  const redeemed = invoice.rewards?.redeemed ?? 0;
   const units = invoice.lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
   const showHistoricalTax = Number(invoice.tax || 0) > 0 || invoice.lines.some(line => Number(line.tax || 0) > 0);
   const timestamp = invoice.issuedAt?._seconds || invoice.issuedAt?.seconds || invoice.createdAt?._seconds || invoice.createdAt?.seconds;
@@ -85,7 +87,10 @@ export function ReceiptDialog({ invoice, shop, preview = false, onClose }: { inv
     <div className="invoice-title"><div><small>RETAIL SALES RECEIPT</small><h1>{preview ? 'Bill preview' : 'Thank you for shopping'}</h1></div><span>{preview ? 'Draft' : (invoice.paymentMethod === 'credit' || Number(invoice.creditAmount) > 0) ? 'Credit' : 'Paid'}</span></div>
     <div className="invoice-meta"><div><small>Receipt number</small><strong>{preview ? 'Assigned after sale' : invoice.id}</strong></div><div><small>Date</small><strong>{issuedAt || '—'}</strong></div><div><small>Customer</small><strong>{invoice.customerName || 'Walk-in'}{invoice.customerPhone ? ` · ${invoice.customerPhone}` : ''}</strong>{invoice.customerDateOfBirth && <small>DOB: {invoice.customerDateOfBirth}</small>}</div><div><small>Payment</small><strong>{invoice.paymentMethod.toUpperCase()}</strong></div></div>
     <table><thead><tr><th>Item / SKU</th><th>Qty</th><th>MRP</th><th>Discount</th>{showHistoricalTax && <th>GST</th>}<th>Total</th></tr></thead><tbody>{invoice.lines.map((line, index) => <tr key={`${line.sku || index}:${index}`}><td><strong>{line.name || line.sku || 'Item'}</strong><small>{line.sku || ''}</small></td><td>{line.quantity}</td><td>{money(line.price)}</td><td>{money(line.discount)}{Number(line.discountPercent) > 0 && <small>{line.discountPercent}% off</small>}</td>{showHistoricalTax && <td>{money(line.tax)}</td>}<td>{money(line.amount ?? (Number(line.price || 0) * Number(line.quantity || 0) - Number(line.discount || 0) + Number(line.tax || 0)))}</td></tr>)}</tbody></table>
-    <div className="invoice-summary"><span>{units} item{units === 1 ? '' : 's'} · {invoice.channel} sale</span><div><div><span>MRP total</span><strong>{money(subtotal)}</strong></div>{discount > 0 && <div><span>Discount</span><strong>− {money(discount)}</strong></div>}{Number(invoice.tax) > 0 && <div><span>GST</span><strong>{money(invoice.tax)}</strong></div>}<div className="invoice-grand-total"><span>Total</span><strong>{money(invoice.total)}</strong></div></div></div>
+    {invoice.rewards && (invoice.rewards.earned > 0 || invoice.rewards.redeemed > 0 || invoice.rewards.balance > 0) && <p className="invoice-rewards">
+      Rewards · {invoice.rewards.earned} earned · {invoice.rewards.redeemed} used · {invoice.rewards.balance} available
+    </p>}
+    <div className="invoice-summary"><span>{units} item{units === 1 ? '' : 's'} · {invoice.channel} sale</span><div><div><span>MRP total</span><strong>{money(subtotal)}</strong></div>{discount > redeemed && <div><span>Discount</span><strong>− {money(discount - redeemed)}</strong></div>}{redeemed > 0 && <div><span>Rewards discount</span><strong>− {money(redeemed)}</strong></div>}{Number(invoice.tax) > 0 && <div><span>GST</span><strong>{money(invoice.tax)}</strong></div>}<div className="invoice-grand-total"><span>Total</span><strong>{money(invoice.total)}</strong></div></div></div>
     {Number(invoice.exchangeCreditUsed) > 0 && <p>Exchange credit applied: {money(invoice.exchangeCreditUsed)}</p>}
     {invoice.payments && <p>{invoice.payments.map(p => `${p.method.toUpperCase()}: ${money(p.amount)}`).join(' · ')}{Number(invoice.change) > 0 ? ` · Change: ${money(invoice.change)}` : ''}</p>}
     {(invoice.paymentMethod === 'credit' || Number(invoice.creditAmount) > 0) && <p className="credit-red"><strong>Repayment due: {invoice.creditDueDate || 'Not recorded'}</strong></p>}<div className="invoice-footer"><strong>Thank you for visiting.</strong><span>Keep this receipt for your records. For assistance, contact {shop?.phone || '+91 84602 33020'}.</span><small>Sales receipt · GST tax invoice not issued</small></div>
@@ -116,7 +121,7 @@ const salePayload = (sale: QueuedSale) => ({ expectedTotal:sale.expectedTotal, r
   customerDateOfBirth: sale.customerDateOfBirth || undefined, birthdayOffersOptIn: sale.birthdayOffersOptIn,
   payments: sale.payments, cashTendered: sale.cashTendered,
   ...((sale.paymentMethod === 'credit' || sale.payments?.some(p => p.method === 'credit' && p.amount > 0)) ? { creditDueDate: sale.creditDueDate, creditWhatsAppOptIn: sale.creditWhatsAppOptIn } : {}),
-  whatsappOptIn: sale.whatsappOptIn === true, discount: sale.discount, tax: sale.tax, paymentMethod: sale.paymentMethod });
+  whatsappOptIn: sale.whatsappOptIn === true, redeemPoints: sale.redeemPoints, discount: sale.discount, tax: sale.tax, paymentMethod: sale.paymentMethod });
 
 export function AddSupplierDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState('');
@@ -506,7 +511,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
       void refreshOffline();
       if (result.sent || reload) await load();
       if (result.sent) setNotice(`${result.sent} queued bill(s) synced.`);
-      if (result.review) setError(`${result.review} offline bill(s) need stock review.`);
+      if (result.review) setError(`${result.review} offline bill(s) need review.`);
     }).catch(() => {});
     const reconnect = () => sync(true);
     window.addEventListener('online', reconnect);
@@ -792,6 +797,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
         role={role}
         initialInvoiceNumber={invoices.length ? Number(invoices[0].id.split('-').pop() || '0') + 1 : 1}
         heldBills={held}
+        online={online}
         onHoldBill={async bill => {
           await holdBill(bill);
           setHeld(previous => [...previous.filter(item => item.requestId !== bill.requestId), bill]);
@@ -801,6 +807,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
           setHeld(previous => previous.filter(item => item.requestId !== id));
         }}
         onSaveBill={async (sale, action) => {
+          if (sale.redeemPoints && !navigator.onLine) throw new Error('Reconnect to redeem rewards.');
           const payload = salePayload(sale);
           type SaleResult = {
             invoiceId: string;
@@ -812,6 +819,8 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
             creditAmount: number;
             cashTendered: number;
             change: number;
+            rewards?: BillRewards;
+            lines?: Invoice['lines'];
           };
           const result = await navigator.locks.request('brothers-pos-sale-sync', async () => {
             await queueSale(sale);
@@ -837,7 +846,8 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
             creditAmount: result?.creditAmount ?? sale.payments?.find(part => part.method === 'credit')?.amount,
             cashTendered: result?.cashTendered ?? sale.cashTendered,
             change: result?.change,
-            lines: sale.lines.map(l => ({
+            rewards: result?.rewards,
+            lines: result?.lines ?? sale.lines.map(l => ({
               name: l.name || l.sku,
               sku: l.sku,
               quantity: l.quantity,
@@ -854,14 +864,14 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
             paymentMethod: sale.paymentMethod,
             kind: 'sales_receipt',
             subtotal: sale.lines.reduce((sum, l) => sum + (l.price || 0) * l.quantity, 0),
-            discount: sale.discount,
+            discount: sale.discount + (result?.rewards?.redeemed ?? 0),
             tax: sale.tax,
             billUrl: result?.billUrl,
             issuedAt: { seconds: Math.floor(new Date(result?.issuedAt ?? sale.queuedAt).getTime() / 1000) },
             creditDueDate: sale.creditDueDate
           };
 
-          if (action === 'share') {
+          if (action === 'share' && (!sale.redeemPoints || result)) {
             setLastInvoice(inv);
           }
           if (result) {
@@ -880,18 +890,20 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
       <label>Note<input name="note" maxLength={500} placeholder="Why this changed" /></label><button className="button primary">Record movement</button></form></div>
       <div className="glass table-panel"><h2>Recent stock movements</h2><div className="table-wrap"><table><thead><tr><th>SKU</th><th>Change</th><th>Reason</th><th>Source</th><th>After</th></tr></thead><tbody>{movements.map(row => <tr key={row.id}><td>{row.sku || '—'}</td><td className={Number(row.deltaChange) < 0 ? 'unavailable' : 'available'}>{Number(row.deltaChange) > 0 ? '+' : ''}{row.deltaChange}</td><td>{row.reason || '—'}</td><td>{row.source || '—'}</td><td>{row.stockAfter ?? '—'}</td></tr>)}</tbody></table></div></div></>}
     {tab === 'orders' && <BillHistory onInvoice={invoice => setLastInvoice(invoice)} />}
+    {tab === 'customers' && role !== 'cashier' && <CustomerRewardsSettings />}
     {tab === 'customers' && <div className="glass table-panel"><div className="commerce-toolbar customer-toolbar">
       <label className="field-search"><Search size={16} /><input placeholder="Search customer" value={query} onChange={e => setQuery(e.target.value)} /></label>
       <label className="birthday-filter">Source<select value={customerSource} onChange={event => setCustomerSource(event.target.value as typeof customerSource)}><option value="all">All sources</option><option value="website">Website</option><option value="pos">POS</option></select></label>
       <label className="birthday-filter">Birthdays<select aria-label="Birthday filter" value={birthdayFilter} onChange={event => setBirthdayFilter(event.target.value)}><option value="all">All customers</option><option value="today">Today</option><option value="month">This month</option></select></label>
       <span>{shownCustomers.length} of {customers.length} profiles</span></div>
       <p className="microcopy">Choose WhatsApp in the Action column to prepare a message. You review the draft and send it from your own WhatsApp account.</p>
-      <div className="table-wrap"><table><thead><tr><th>Name</th><th>Mobile number</th><th>Email</th><th>Date of birth</th><th>Birthday offers</th><th>Action</th></tr></thead><tbody>{shownCustomers.map(customer => <tr key={customer.id}>
+      <div className="table-wrap"><table><thead><tr><th>Name</th><th>Mobile number</th><th>Email</th><th>Date of birth</th><th>Birthday offers</th><th>Rewards</th><th>Action</th></tr></thead><tbody>{shownCustomers.map(customer => <tr key={customer.id}>
         <td>{customer.fullName || '—'}</td><td>{customer.phone || '—'}</td><td>{customer.email || '—'}</td>
         <td>{displayBirthDate(customer.dateOfBirth)}{customer.dateOfBirth && customer.dateOfBirth.slice(5) === today.slice(5) && <small className="birthday-today">Birthday today</small>}</td>
         <td><span className={customer.birthdayOffersOptIn ? 'credit-green' : 'muted'}>{customer.birthdayOffersOptIn ? 'Opted in' : 'Not opted in'}</span></td>
+        <td>{customer.rewardRule ? `${customer.rewardRule.rate}% from ${money(customer.rewardRule.minimum)}` : 'Default rule'}</td>
         <td><button type="button" className="button secondary" onClick={()=>{history.pushState(null,'',`/orders?phone=${encodeURIComponent(customer.phone)}`);window.dispatchEvent(new PopStateEvent('popstate'));}}>Bills</button><button type="button" className="button secondary" disabled={role==='cashier' || !mobileNumber(customer.phone)} onClick={() => setEditCustomer(customer)}>Edit</button><button type="button" className="button secondary customer-whatsapp-action" disabled={!mobileNumber(customer.phone)} onClick={() => setMessageCustomer(customer)} aria-label={`WhatsApp ${customer.fullName || customer.phone || 'customer'}`}><MessageCircle size={16} />WhatsApp</button>{!mobileNumber(customer.phone) && <small>Valid mobile number needed</small>}</td>
-      </tr>)}{shownCustomers.length === 0 && <tr><td colSpan={6}>No customers match the selected filters.</td></tr>}</tbody></table></div></div>}
+      </tr>)}{shownCustomers.length === 0 && <tr><td colSpan={7}>No customers match the selected filters.</td></tr>}</tbody></table></div></div>}
     {tab === 'purchase-orders' && <>
       <PurchaseReceive mode="order" products={products} suppliers={suppliers} receive={async input => {
         await send('purchases/receive', input);

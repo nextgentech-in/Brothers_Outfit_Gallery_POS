@@ -207,7 +207,7 @@ export function createApp(options: AppOptions = {}) {
       '/inventory/adjust', '/inventory/adjust-batch', '/suppliers/create', '/pos/recover', '/pos/sale',
       '/orders/status', '/orders/invoice', '/orders/edit-bill', '/orders/return', '/orders/refund', '/credit/customers',
       '/credit/entries', '/credit/preferences', '/whatsapp/process', '/whatsapp/retry', '/expenses/create',
-      '/day/close', '/suppliers/payment', '/customers/update', '/inventory/count', '/purchases/receive',
+      '/day/close', '/suppliers/payment', '/customers/update', '/customers/reward-settings', '/inventory/count', '/purchases/receive',
       '/purchases/receive-order', '/purchases/return', '/purchases/return/apply-credit', '/purchases/return/refund', '/staff/save']);
     if (req.method !== 'POST' || !writes.has(req.path)) { next(); return; }
     next();

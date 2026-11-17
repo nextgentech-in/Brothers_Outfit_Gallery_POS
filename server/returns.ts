@@ -1,3 +1,6 @@
+import { billingCustomerError } from '../shared/customers.js';
+import { earnedPoints } from '../shared/rewards.js';
+import { readRewardBalance, rewardRule, writeRewardBalance } from './rewards.js';
 import { Router } from 'express';
 import { createHash } from 'node:crypto';
 import { FieldValue, type DocumentData } from 'firebase-admin/firestore';
@@ -28,10 +31,19 @@ returnsRouter.post('/orders/return',async(req,res)=>{
   const items=order.items as any[],previous=order.returnedQuantities||{};
   const selected=input.lines||items.flatMap((item,index)=>item.quantity>(previous[index]||0)?[{index,quantity:item.quantity-(previous[index]||0),restock:true}]:[]);
   let amount;try{amount=returnAmounts(items,Number(order.totalAmount),previous,selected);}catch(e){throw Object.assign(e as Error,{status:422});}
+  const customerName = String(order.customerName || order.shippingAddress?.fullName || '');
+  const customerPhone = String(order.customerPhone || order.shippingAddress?.phone || order.userPhone || '');
+  if (input.replacements.length && billingCustomerError(customerName, customerPhone)) {
+    reject('A customer name and valid mobile number are required for a replacement bill.');
+  }
   const creditSale=order.paymentMethod==='credit'||Number(order.creditAmount)>0;
   if(creditSale&&input.replacements.length)reject('For a credit bill, record the return and settle its balance before creating a separate replacement bill.');
-  const meta=creditSale?await tx.get(db.collection('erp_orderMeta').doc(input.orderId)):null;
-  const state=meta?.data()?.customerKey?await readCreditState(db,tx,meta.data()!.customerKey):null;
+  const hasRewards = Number(order.rewards?.earned || 0) > 0 || Number(order.rewards?.redeemed || 0) > 0;
+  const meta = creditSale || hasRewards ? await tx.get(db.collection('erp_orderMeta').doc(input.orderId)) : null;
+  const identity = meta?.data()?.customerKey;
+  if (hasRewards && !identity) reject('The bill’s rewards account link is missing.', 409);
+  const rewardsState = hasRewards && identity ? await readRewardBalance(db, tx, identity) : null;
+  const state = creditSale && identity ? await readCreditState(db, tx, identity) : null;
   if(creditSale&&!state)reject('Credit customer link is missing. Restore the account link before returning this bill.',409);
   const creditCancelled=Math.min(amount,state?.summary.debts.find(d=>d.id===input.orderId)?.remaining||0);
   const invoiceCounter=db.collection('erp_invoiceSequences').doc(fy),invoiceSequence=input.replacements.length?await tx.get(invoiceCounter):null;
@@ -58,7 +70,19 @@ returnsRouter.post('/orders/return',async(req,res)=>{
   for(const ref of refs)tx.update(ref,{...working.get(ref.id),updatedAt:FieldValue.serverTimestamp()});
   for(const movement of movements)tx.create(db.collection('stockMovements').doc(movement.movementId),{...movement,source:'pos',orderId:input.orderId,returnId,createdAt:FieldValue.serverTimestamp()});
   const completed=items.every((item,index)=>returnedQuantities[index]===item.quantity);
-  tx.update(orderRef,{status:completed?'Returned':'Partially returned',returnedQuantities,returnedAmount:(Math.round(Number(order.returnedAmount||0)*100)+Math.round(amount*100))/100,inventoryRestored:completed,updatedAt:FieldValue.serverTimestamp(),...(completed?{stockRestoredAt:FieldValue.serverTimestamp()}:{}),returnCreditNoteId:creditNoteId});
+  const returnedPaise = Math.round(Number(order.returnedAmount || 0) * 100) + Math.round(amount * 100);
+  const totalPaise = Math.round(Number(order.totalAmount) * 100);
+  let rewardsReturned;
+  if (rewardsState) {
+    const { earned, redeemed, rule } = order.rewards;
+    const remaining = Math.max(0, totalPaise - returnedPaise);
+    const restored = completed ? redeemed : totalPaise > 0 ? Math.round(redeemed * returnedPaise / totalPaise) : 0;
+    const reversed = completed ? earned : Math.max(0, earned - earnedPoints(remaining / 100, rewardRule(rule)));
+    const previousRewards = order.rewardsReturned ?? { restored: 0, reversed: 0 };
+    const balance = writeRewardBalance(tx, rewardsState, restored - previousRewards.restored - reversed + previousRewards.reversed);
+    rewardsReturned = { restored, reversed, balance };
+  }
+  tx.update(orderRef,{...(rewardsReturned ? { rewardsReturned } : {}),status:completed?'Returned':'Partially returned',returnedQuantities,returnedAmount:returnedPaise/100,inventoryRestored:completed,updatedAt:FieldValue.serverTimestamp(),...(completed?{stockRestoredAt:FieldValue.serverTimestamp()}:{}),returnCreditNoteId:creditNoteId});
   tx.set(counterRef,{lastNumber:number},{merge:true});
   const refundAmountToReview=Math.max(0,-difference);
   tx.create(returnRef,{orderId:input.orderId,creditNoteId,reason:input.reason,lines:selected,total:amount,creditCancelled,refundAmountToReview,refundedAmount:0,refundStatus:refundAmountToReview?'review_required':'not_required',createdAt:FieldValue.serverTimestamp()});
@@ -66,7 +90,7 @@ returnsRouter.post('/orders/return',async(req,res)=>{
   let exchangeInvoiceId='';
   if(replacementItems.length){const sequence=Number(invoiceSequence?.data()?.lastNumber||0)+1;exchangeInvoiceId=`BOG-${fy}-${String(sequence).padStart(5,'0')}`;const exchangeOrderId=`EX-${hash(input.requestId).slice(0,24)}`,exchangeCreditUsed=Math.min(replacementPaise/100,amount-creditCancelled),payments=difference>0?[{method:input.differenceMethod,amount:difference}]:[];
     tx.set(invoiceCounter,{lastNumber:sequence},{merge:true});
-    const common={customerName:order.customerName||'',customerPhone:order.customerPhone||'',total:replacementPaise/100,subtotal:replacementPaise/100,discount:0,paymentMethod:input.differenceMethod,payments,exchangeCreditUsed,exchangeReturnId:returnId,createdAt:FieldValue.serverTimestamp()};
+    const common={customerName,customerPhone,total:replacementPaise/100,subtotal:replacementPaise/100,discount:0,paymentMethod:input.differenceMethod,payments,exchangeCreditUsed,exchangeReturnId:returnId,createdAt:FieldValue.serverTimestamp()};
     tx.create(db.collection('orders').doc(exchangeOrderId),{...common,totalAmount:replacementPaise/100,items:replacementItems,status:'Delivered',paymentStatus:'Paid',createdBy:'admin-pos',inventoryDeducted:true});
     tx.create(db.collection('erp_invoices').doc(exchangeInvoiceId),{...common,orderId:exchangeOrderId,lines:replacementItems,channel:'POS',kind:'sales_receipt',invoiceNumber:sequence,fiscalYear:fy});
   }

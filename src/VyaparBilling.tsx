@@ -1,7 +1,10 @@
+import { createPortal } from 'react-dom';
+import { readAdmin } from './adminApi';
+import { earnedPoints, redeemablePoints, type RewardRule } from '../shared/rewards';
 import { priceBillLine, setBillTotal } from '../shared/billPricing';
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { Plus, Trash2, Search, Share2, Check, Calendar, Clock, Phone, User, Banknote, QrCode, CreditCard, Pause } from 'lucide-react';
-import { mobileNumber, shopDate } from '../shared/customers';
+import { billingCustomerError, mobileNumber, shopDate } from '../shared/customers';
 import { validDueDate, dueDateAfter } from '../shared/credit';
 import type { BillingDraft, HeldBill, QueuedSale } from './offlineQueue';
 import { paymentBreakdown } from '../shared/payments';
@@ -83,6 +86,7 @@ export function VyaparBilling({
   initialInvoiceNumber = 1,
   onSaveBill,
   heldBills,
+  online,
   onHoldBill,
   onRemoveHeldBill
 }: {
@@ -92,12 +96,33 @@ export function VyaparBilling({
   initialInvoiceNumber?: number;
   onSaveBill: (sale: QueuedSale, action: 'share' | 'new') => Promise<string>;
   heldBills: HeldBill[];
+  online: boolean;
   onHoldBill: (bill: HeldBill) => Promise<void>;
   onRemoveHeldBill: (id: string) => Promise<void>;
 }) {
   // Customer info & Auto-lookup state
+  const [useRewards, setUseRewards] = useState(false);
+  const [rewardAttempt, setRewardAttempt] = useState(0);
+  const [rewardResult, setRewardResult] = useState<{ phone: string; attempt: number; balance: number; rule: RewardRule }>();
+  const [rewardFailure, setRewardFailure] = useState('');
+  const phoneInputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const knownPhone = useRef('');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const phone = mobileNumber(customerPhone);
+  const rewards = online && rewardResult?.phone === phone && rewardResult.attempt === rewardAttempt ? rewardResult : undefined;
+  useEffect(() => {
+    if (!phone || !online) return;
+    let active = true;
+    setRewardFailure('');
+    const timer = window.setTimeout(() => {
+      void readAdmin<{ balance: number; rule: RewardRule }>(`pos/rewards?phone=${encodeURIComponent(phone)}`)
+        .then(result => { if (active) setRewardResult({ ...result, phone, attempt: rewardAttempt }); })
+        .catch(() => { if (active) setRewardFailure(phone); });
+    }, 180);
+    return () => { active = false; clearTimeout(timer); };
+  }, [phone, online, rewardAttempt]);
   const [customerDateOfBirth, setCustomerDateOfBirth] = useState('');
   const [customerExtras, setCustomerExtras] = useState<Pick<QueuedSale, 'customerEmail' | 'birthdayOffersOptIn'>>({});
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
@@ -120,7 +145,6 @@ export function VyaparBilling({
   const [creditWhatsAppOptIn, setCreditWhatsAppOptIn] = useState(false);
   const [whatsappOptIn, setWhatsAppOptIn] = useState(true);
   const [cashTendered, setCashTendered] = useState('');
-  const [terms] = useState('Goods once sold can be exchanged within 7 days with bill tag intact.');
 
   // Table rows
   const [rows, setRows] = useState<BillRow[]>([createEmptyRow('row-1')]);
@@ -128,6 +152,10 @@ export function VyaparBilling({
   // Active search dropdown tracking: rowId
   const [activeSearchRowId, setActiveSearchRowId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [highlightedProduct, setHighlightedProduct] = useState(0);
+  const [pickerPosition, setPickerPosition] = useState<{ left: number; top?: number; bottom?: number; width: number; maxHeight: number }>();
+  const productAnchor = useRef<HTMLInputElement | null>(null);
+  const productPopup = useRef<HTMLDivElement>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [heldOpen, setHeldOpen] = useState(false);
@@ -199,7 +227,7 @@ export function VyaparBilling({
   const searchResults = useMemo(() => {
     const raw = searchQuery.trim();
     const q = raw.toLowerCase();
-    if (!q) return searchableItems.slice(0, 30);
+    if (!q) return searchableItems.filter(item => item.stock > 0).slice(0, 30);
 
     const cleanNum = raw.replace(/^#/, '').trim();
     const isNum = /^\d+$/.test(cleanNum);
@@ -220,7 +248,7 @@ export function VyaparBilling({
       }
       if (a.barcode?.toLowerCase() === q && b.barcode?.toLowerCase() !== q) return -1;
       if (b.barcode?.toLowerCase() === q && a.barcode?.toLowerCase() !== q) return 1;
-      return 0;
+      return Number(b.stock > 0) - Number(a.stock > 0);
     });
 
     return matches.slice(0, 30);
@@ -242,12 +270,18 @@ export function VyaparBilling({
     setWhatsAppOptIn(true);
     setCreditWhatsAppOptIn(false);
     setCustomerExtras({});
+    const selectedPhone = mobileNumber(cust.phone || '');
+    if (selectedPhone !== phone) setRewardAttempt(attempt => attempt + 1);
+    knownPhone.current = selectedPhone;
+    setUseRewards(false);
     setCustomerName(cust.fullName || '');
     const rawPhone = cust.phone ? cust.phone.replace(/\D/g, '') : '';
     const cleanPhone = rawPhone.length === 12 && rawPhone.startsWith('91') ? rawPhone.slice(2) : (cust.phone || '');
     setCustomerPhone(cleanPhone);
     setCustomerDateOfBirth(cust.dateOfBirth || '');
     setCustomerDropdownOpen(false);
+    if (selectedPhone) scanInputRef.current?.focus();
+    else phoneInputRef.current?.focus();
   }
 
   function handleNameChange(nameVal: string) {
@@ -255,53 +289,79 @@ export function VyaparBilling({
     setCustomerName(nameVal);
     setCustomerSearchQuery(nameVal);
     setCustomerDropdownOpen(true);
-    // If name matches an existing customer, auto-fill all customer information
-    const match = customers.find(c => c.fullName.trim().toLowerCase() === nameVal.trim().toLowerCase());
-    if (match) {
-      if (!customerPhone && match.phone) {
-        const rawPhone = match.phone.replace(/\D/g, '');
-        const cleanPhone = rawPhone.length === 12 && rawPhone.startsWith('91') ? rawPhone.slice(2) : match.phone;
-        setCustomerPhone(cleanPhone);
-      }
-      if (!customerDateOfBirth && match.dateOfBirth) {
-        setCustomerDateOfBirth(match.dateOfBirth);
-      }
-    }
   }
 
-  function handlePhoneChange(phoneVal: string) {
+  function handlePhoneChange(value: string) {
     setWhatsAppOptIn(true);
     setCreditWhatsAppOptIn(false);
+    setUseRewards(false);
     setCustomerExtras({});
-    setCustomerPhone(phoneVal);
-    const digits = phoneVal.replace(/\D/g, '');
-    if (digits.length === 10) {
-      const match = customers.find(c => {
-        const cDigits = (c.phone || '').replace(/\D/g, '');
-        return cDigits === digits || cDigits.endsWith(digits);
-      });
-      if (match) {
-        if (!customerName || customerName.trim() === '') {
-          setCustomerName(match.fullName || '');
-        }
-        if (!customerDateOfBirth && match.dateOfBirth) {
-          setCustomerDateOfBirth(match.dateOfBirth);
-        }
-      }
+    setCustomerPhone(value);
+    const normalized = mobileNumber(value);
+    if (normalized !== phone) setRewardAttempt(attempt => attempt + 1);
+    if (knownPhone.current && normalized !== knownPhone.current) {
+      setCustomerName('');
+      setCustomerDateOfBirth('');
+      knownPhone.current = '';
+    }
+    const match = normalized && customers.find(customer => mobileNumber(customer.phone) === normalized);
+    if (match) {
+      setCustomerName(match.fullName);
+      setCustomerDateOfBirth(match.dateOfBirth ?? '');
+      knownPhone.current = normalized;
     }
   }
 
+  function openProductPicker(row: BillRow, anchor: HTMLInputElement) {
+    productAnchor.current = anchor;
+    setSearchQuery(row.name);
+    setHighlightedProduct(0);
+    setActiveSearchRowId(row.id);
+  }
+
+  useLayoutEffect(() => {
+    if (!activeSearchRowId) return;
+    function reposition() {
+      const anchor = productAnchor.current;
+      if (!anchor?.isConnected) return;
+      const rect = anchor.getBoundingClientRect();
+      if (rect.bottom < 0 || rect.top >= window.innerHeight) {
+        setPickerPosition(undefined);
+        return;
+      }
+      const below = window.innerHeight - rect.bottom - 12;
+      const spaceAbove = rect.top - 12;
+      const above = below < 210 && spaceAbove > below;
+      const maxHeight = Math.max(52, Math.min(300, above ? spaceAbove : below));
+      const width = Math.min(Math.max(rect.width, 300), window.innerWidth - 24);
+      setPickerPosition({
+        ...(above ? { bottom: window.innerHeight - rect.top + 5 } : { top: rect.bottom + 5 }),
+        left: Math.max(12, Math.min(rect.left, window.innerWidth - width - 12)),
+        width, maxHeight
+      });
+    }
+    reposition();
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    return () => {
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+    };
+  }, [activeSearchRowId, searchResults.length]);
+
+  useEffect(() => {
+    productPopup.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+  }, [highlightedProduct]);
+
   // Row update helpers
-  function updateRowField(id: string, field: 'name' | 'quantity' | 'mrp' | 'discountPercent' | 'salePrice' | 'amount', value: string | number) {
+  function updateRowField(id: string, field: 'quantity' | 'mrp' | 'discountPercent' | 'salePrice' | 'amount', value: number) {
     setRows(previous => previous.map(row => {
       if (row.id !== id) return row;
-      if (field === 'name') return { ...row, name: String(value) };
-      const next = Number(value);
-      const quantity = field === 'quantity' ? next : row.quantity;
-      const mrp = field === 'mrp' ? next : row.mrp;
-      const pricing = field === 'amount' ? priceBillLine(quantity, mrp, next, 'amount')
-        : field === 'discountPercent' ? priceBillLine(quantity, mrp, next, 'percent')
-        : field === 'salePrice' ? priceBillLine(quantity, mrp, next, 'price')
+      const quantity = field === 'quantity' ? value : row.quantity;
+      const mrp = field === 'mrp' ? value : row.mrp;
+      const pricing = field === 'amount' ? priceBillLine(quantity, mrp, value, 'amount')
+        : field === 'discountPercent' ? priceBillLine(quantity, mrp, value, 'percent')
+        : field === 'salePrice' ? priceBillLine(quantity, mrp, value, 'price')
         : priceBillLine(quantity, mrp, row.quantity ? row.amount * quantity / row.quantity : 0, 'amount');
       return { ...row, ...pricing, price: pricing.mrp };
     }));
@@ -326,6 +386,8 @@ export function VyaparBilling({
   }
 
   function handleSelectItem(rowId: string, item: typeof searchableItems[0]) {
+    if (item.stock <= 0) { setError(`${item.productName} is out of stock.`); return; }
+    setError('');
     setRows(prev => withEntryRow(prev.map(row => row.id === rowId ? productRow(row, item) : row)));
     setActiveSearchRowId(null);
     setSearchQuery('');
@@ -353,9 +415,19 @@ export function VyaparBilling({
     }
 
     setError('');
-    const emptyRow = rows.find(r => !r.productId && !r.name.trim());
+    const existing = rows.find(row => itemKey(row) === itemKey(match!));
+    if (existing) {
+      if (rows.filter(row => itemKey(row) === itemKey(match!)).reduce((sum, row) => sum + row.quantity, 0) >= match.stock) {
+        setError(`Only ${match.stock} in stock for ${match.productName}.`);
+        return;
+      }
+      updateRowField(existing.id, 'quantity', existing.quantity + 1);
+      return;
+    }
+    if (match.stock <= 0) { setError(`${match.productName} is out of stock.`); return; }
+    const emptyRow = rows.find(row => !row.productId);
     if (emptyRow) {
-      handleSelectItem(emptyRow.id, match);
+      setRows(previous => withEntryRow(previous.map(row => row.id === emptyRow.id ? productRow(row, match) : row)));
     } else {
       const row = productRow(createEmptyRow(), match);
       setRows(prev => withEntryRow([...prev, row]));
@@ -402,12 +474,17 @@ export function VyaparBilling({
     credit: Number(splitCredit || 0)
   };
   const splitAllocated = Math.round(Object.values(splitAmounts).reduce((sum, amount) => sum + amount, 0) * 100) / 100;
-  const splitRemaining = Math.round((totals.totalAmount - splitAllocated) * 100) / 100;
   const hasCreditPayment = paymentMethod === 'credit' || (paymentMethod === 'split' && splitAmounts.credit > 0);
+  const maxPoints = rewards && !hasCreditPayment ? redeemablePoints(rewards.balance, totals.totalAmount) : 0;
+  const pointsUsed = useRewards ? maxPoints : 0;
+  const amountDue = Math.round((totals.totalAmount - pointsUsed) * 100) / 100;
+  const pointsToEarn = rewards && !hasCreditPayment ? earnedPoints(amountDue, rewards.rule) : 0;
+  const splitRemaining = Math.round((amountDue - splitAllocated) * 100) / 100;
+  const cashPortion = paymentMethod === 'split' ? splitAmounts.cash : amountDue;
 
   function fillSplitBalance(method: keyof typeof splitAmounts) {
     const otherTotal = Object.entries(splitAmounts).reduce((sum, [key, amount]) => key === method ? sum : sum + amount, 0);
-    const balance = Math.max(0, Math.round((totals.totalAmount - otherTotal) * 100) / 100).toFixed(2);
+    const balance = Math.max(0, Math.round((amountDue - otherTotal) * 100) / 100).toFixed(2);
     if (method === 'cash') setSplitCash(balance);
     if (method === 'upi') setSplitUpi(balance);
     if (method === 'card') setSplitCard(balance);
@@ -426,6 +503,9 @@ export function VyaparBilling({
     setRows([createEmptyRow()]);
     setCustomerName('');
     setCustomerPhone('');
+    knownPhone.current = '';
+    setUseRewards(false);
+    setRewardAttempt(attempt => attempt + 1);
     setCustomerDateOfBirth('');
     setCustomerExtras({});
     setCustomerDropdownOpen(false);
@@ -465,7 +545,7 @@ export function VyaparBilling({
         rows: rows.filter(row => row.productId), customerName, customerPhone, customerDateOfBirth, ...customerExtras,
         invoiceNumber: manualInvoiceNumber ? invoiceNumber : undefined, invoiceDate, invoiceTime,
         paymentMethod, split: { cash: splitCash, upi: splitUpi, card: splitCard, credit: splitCredit },
-        cashTendered, creditDueDate, creditWhatsAppOptIn, whatsappOptIn
+        cashTendered, creditDueDate, creditWhatsAppOptIn, whatsappOptIn, useRewards
       };
       await onHoldBill({ requestId, queuedAt: new Date().toISOString(), draft });
       resetBill(true);
@@ -538,6 +618,8 @@ export function VyaparBilling({
     setActiveHeldId(bill.requestId);
     setCustomerName(saved.customerName || '');
     setCustomerPhone(saved.customerPhone || '');
+    knownPhone.current = mobileNumber(saved.customerPhone || '');
+    setUseRewards('draft' in bill && bill.draft.useRewards === true);
     setCustomerDateOfBirth(saved.customerDateOfBirth || '');
     setCustomerExtras({ customerEmail: saved.customerEmail, birthdayOffersOptIn: saved.birthdayOffersOptIn });
     setInvoiceNumber(saved.invoiceNumber ?? initialInvoiceNumber);
@@ -564,6 +646,17 @@ export function VyaparBilling({
     if (actionPending.current) return;
     setError('');
     setSuccess('');
+    const customerError = billingCustomerError(customerName, customerPhone, customerDateOfBirth, customerExtras.birthdayOffersOptIn);
+    if (customerError) {
+      setError(customerError);
+      if (!phone) phoneInputRef.current?.focus();
+      else if (!customerName.trim()) nameInputRef.current?.focus();
+      return;
+    }
+    if (useRewards && !hasCreditPayment && !rewards) {
+      setError('Check the customer’s rewards balance before saving.');
+      return;
+    }
     if (manualInvoiceNumber && (!Number.isSafeInteger(invoiceNumber) || invoiceNumber < 1 || invoiceNumber > 999999)) {
       setError('Enter a bill number from 1 to 999999.');
       return;
@@ -599,27 +692,18 @@ export function VyaparBilling({
       { method: 'card' as const, amount: splitAmounts.card },
       { method: 'credit' as const, amount: splitAmounts.credit }
     ].filter(part => part.amount > 0) : undefined;
-    try { paymentBreakdown(totals.totalAmount, paymentMethod, payments, cashTendered ? Number(cashTendered) : undefined); }
+    try { paymentBreakdown(amountDue, paymentMethod, payments, cashTendered ? Number(cashTendered) : undefined); }
     catch (cause) { setError((cause as Error).message); return; }
 
-    if (hasCreditPayment) {
-      if (!customerName.trim()) {
-        setError('Billing Name is required for Credit / Udhar.');
-        return;
-      }
-      if (!customerPhone.trim() || !mobileNumber(customerPhone)) {
-        setError('A valid 10-digit Phone No. is required for Credit / Udhar.');
-        return;
-      }
-      if (!validDueDate(creditDueDate) || creditDueDate < shopDate()) {
-        setError('Please select a repayment due date today or in the future.');
-        return;
-      }
+    if (hasCreditPayment && (!validDueDate(creditDueDate) || creditDueDate < shopDate())) {
+      setError('Please select a repayment due date today or in the future.');
+      return;
     }
 
     const id = draftId.current ??= crypto.randomUUID();
     const payload: QueuedSale = {
-      expectedTotal: totals.totalAmount,
+      expectedTotal: amountDue,
+      ...(pointsUsed ? { redeemPoints: pointsUsed } : {}),
       requestId: `bill:${id.slice(0, 123)}`,
       ...(manualInvoiceNumber ? { invoiceNumber } : {}),
       invoiceDate,
@@ -659,6 +743,7 @@ export function VyaparBilling({
         });
       }
     } catch (err) {
+      if ((err as { status?: number }).status === 409 && useRewards) setRewardAttempt(attempt => attempt + 1);
       setError((err as Error).message || 'Failed to record bill.');
     } finally {
       actionPending.current = false;
@@ -667,12 +752,11 @@ export function VyaparBilling({
   }
 
   // Handle outside click to close product item search dropdown and customer dropdown
-  const dropdownRef = useRef<HTMLDivElement>(null);
   const customerBoxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+      if (!productAnchor.current?.contains(e.target as Node) && !productPopup.current?.contains(e.target as Node)) {
         setActiveSearchRowId(null);
       }
       if (customerBoxRef.current && !customerBoxRef.current.contains(e.target as Node)) {
@@ -685,6 +769,12 @@ export function VyaparBilling({
 
   return (
     <div className="vyapar-billing-container glass" onKeyDown={event => {
+      if (event.key === 'F4') {
+        event.preventDefault();
+        phoneInputRef.current?.focus();
+        phoneInputRef.current?.select();
+        return;
+      }
       if (event.key === 'F2') {
         event.preventDefault();
         scanInputRef.current?.focus();
@@ -705,13 +795,11 @@ export function VyaparBilling({
     }}>
       <header className="billing-workspace-header">
         <div>
-          <span className="eyebrow">QUICK BILLING</span>
           <h1>{activeHeldId ? 'Resumed retail bill' : 'New retail bill'}</h1>
-          <p>Scan a product, confirm quantity and payment, then save. Customer details are optional for walk-in sales.</p>
         </div>
         <div className="billing-shortcuts" aria-label="Billing keyboard shortcuts">
           <span><kbd>F2</kbd> Scan product</span>
-          <span><kbd>Enter</kbd> Next field</span>
+          <span><kbd>F4</kbd> Customer</span>
           <span><kbd>Ctrl</kbd> + <kbd>Enter</kbd> Save &amp; new</span>
         </div>
       </header>
@@ -761,18 +849,57 @@ export function VyaparBilling({
       {/* Customer and bill details */}
       <div className="vyapar-top-section">
         <div className="vyapar-customer-box" ref={customerBoxRef}>
-          <div className="vyapar-input-group" style={{ position: 'relative' }}>
-            <label className="vyapar-label" htmlFor="billing-customer-name">
-              <User size={15} /> Customer name <span>Optional</span>
+          <div className="vyapar-input-group">
+            <label className="vyapar-label" htmlFor="billing-customer-phone">
+              <Phone size={15} /> Mobile number
             </label>
             <input
+              ref={phoneInputRef}
+              id="billing-customer-phone"
+              required
+              inputMode="tel"
+              maxLength={20}
+              type="tel"
+              className="vyapar-field"
+              placeholder="10-digit Mobile number"
+              value={customerPhone}
+              onChange={e => handlePhoneChange(e.target.value)}
+              onKeyDown={event => {
+                if (event.key !== 'Enter' || event.ctrlKey || event.metaKey) return;
+                event.preventDefault();
+                if (customerName.trim() && phone) scanInputRef.current?.focus();
+                else nameInputRef.current?.focus();
+              }}
+            />
+            {mobileNumber(customerPhone) && <label className="check-row">
+              <input type="checkbox" checked={whatsappOptIn} onChange={e => setWhatsAppOptIn(e.target.checked)} />
+              Send receipt by WhatsApp
+            </label>}
+          </div>
+
+          <div className="vyapar-input-group" style={{ position: 'relative' }}>
+            <label className="vyapar-label" htmlFor="billing-customer-name">
+              <User size={15} /> Customer name
+            </label>
+            <input
+              ref={nameInputRef}
               id="billing-customer-name"
+              required
+              maxLength={120}
               type="text"
               className="vyapar-field"
               placeholder="Search or enter customer name"
               value={customerName}
-              onFocus={() => setCustomerDropdownOpen(true)}
+              onFocus={() => { setCustomerSearchQuery(customerName); setCustomerDropdownOpen(true); }}
+              onBlur={() => setCustomerDropdownOpen(false)}
               onChange={e => handleNameChange(e.target.value)}
+              onKeyDown={event => {
+                if (event.key !== 'Enter' || event.ctrlKey || event.metaKey) return;
+                event.preventDefault();
+                setCustomerDropdownOpen(false);
+                if (phone) scanInputRef.current?.focus();
+                else phoneInputRef.current?.focus();
+              }}
             />
 
             {/* AUTOCOMPLETE POPUP FOR EXISTING CUSTOMERS */}
@@ -812,24 +939,27 @@ export function VyaparBilling({
             )}
           </div>
 
-          <div className="vyapar-input-group">
-            <label className="vyapar-label" htmlFor="billing-customer-phone">
-              <Phone size={15} /> Phone number <span>Optional</span>
-            </label>
-            <input
-              id="billing-customer-phone"
-              type="tel"
-              className="vyapar-field"
-              placeholder="10-digit Mobile number"
-              value={customerPhone}
-              onChange={e => handlePhoneChange(e.target.value)}
-            />
-            {mobileNumber(customerPhone) && <label className="check-row">
-              <input type="checkbox" checked={whatsappOptIn} onChange={e => setWhatsAppOptIn(e.target.checked)} />
-              Send receipt by WhatsApp
-            </label>}
-          </div>
+          {phone && ((rewards && (rewards.rule.rate > 0 || rewards.balance > 0)) || rewardFailure === phone || useRewards) &&
+            <div className="billing-rewards" aria-live="polite">
+              {rewards ? <>
+                <strong>{rewards.balance} points available</strong>
+                {rewards.rule.rate > 0 && <small>{rewards.rule.rate}% on paid bills from ₹{rewards.rule.minimum.toLocaleString('en-IN')}</small>}
+                {maxPoints > 0 && <label className="check-row">
+                  <input type="checkbox" checked={useRewards} onChange={event => setUseRewards(event.target.checked)} />
+                  Use {maxPoints} points for ₹{maxPoints} off
+                </label>}
+                {useRewards && maxPoints === 0 && <button type="button" className="text-button" onClick={() => setUseRewards(false)}>Remove rewards selection</button>}
+                {pointsToEarn > 0 && <small>Earn {pointsToEarn} points on this bill</small>}
+              </> : <>
+                <span>{online ? 'Points balance unavailable' : 'Reconnect to use points'}</span>
+                {online && <button type="button" className="text-button" onClick={() => setRewardAttempt(value => value + 1)}>Refresh points</button>}
+                {useRewards && <button type="button" className="text-button" onClick={() => setUseRewards(false)}>Continue without points</button>}
+              </>}
+            </div>}
+        </div>
 
+        <details className="vyapar-invoice-meta-box billing-extra-details">
+          <summary>Bill details <small>{invoiceDate}</small></summary>
           <div className="vyapar-input-group">
             <label className="vyapar-label" htmlFor="billing-customer-dob">
               <Calendar size={15} /> Date of birth <span>Optional</span>
@@ -844,9 +974,6 @@ export function VyaparBilling({
             />
           </div>
 
-        </div>
-
-        <div className="vyapar-invoice-meta-box">
           <div className="vyapar-meta-row">
             <span className="vyapar-meta-title">Bill number</span>
             <input type="number" className="vyapar-meta-value" aria-label="Bill number" min="1" max="999999"
@@ -874,7 +1001,7 @@ export function VyaparBilling({
               <Clock size={16} aria-hidden="true" />
             </div>
           </div>
-        </div>
+        </details>
       </div>
 
       <div className="billing-scan-compact">
@@ -883,9 +1010,9 @@ export function VyaparBilling({
           type="text"
           autoFocus
           aria-label="Scan barcode or enter product number"
-          placeholder="Scan barcode or SKU · F2"
+          placeholder="Scan barcode or enter SKU · F2"
           onKeyDown={e => {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) {
               e.preventDefault();
               handleBarcodeScan((e.target as HTMLInputElement).value);
               (e.target as HTMLInputElement).value = '';
@@ -895,18 +1022,18 @@ export function VyaparBilling({
       </div>
 
       {/* Bill totals use MRP and the item discount; GST stays in stock reporting. */}
-      <div className="vyapar-table-wrapper" ref={dropdownRef}>
+      <div className="vyapar-table-wrapper">
         <table className="vyapar-items-table">
           <thead>
             <tr>
-              <th style={{ width: 42, textAlign: 'center' }}>#</th>
-              <th style={{ minWidth: 260 }}>ITEM</th>
-              <th style={{ width: 85, textAlign: 'center' }}>QTY</th>
-              <th style={{ width: 110, textAlign: 'right' }}>MRP / PIECE</th>
-              <th style={{ width: 110, textAlign: 'right' }}>CUSTOMER PRICE / PIECE</th>
-              <th style={{ width: 100, textAlign: 'right' }}>DISCOUNT %</th>
-              <th style={{ width: 120, textAlign: 'right' }}>AMOUNT (₹)</th>
-              <th style={{ width: 40, textAlign: 'center' }}></th>
+              <th scope="col">#</th>
+              <th scope="col">ITEM</th>
+              <th scope="col">QTY</th>
+              <th scope="col">MRP / PIECE</th>
+              <th scope="col">CUSTOMER PRICE / PIECE</th>
+              <th scope="col">DISCOUNT %</th>
+              <th scope="col">AMOUNT (₹)</th>
+              <th scope="col"><span className="sr-only">Remove</span></th>
             </tr>
           </thead>
           <tbody>
@@ -928,28 +1055,37 @@ export function VyaparBilling({
                       aria-label={`Product for row ${index + 1}`}
                       placeholder="Type or click to search items & stock..."
                       value={activeSearchRowId === row.id ? searchQuery : row.name}
-                      onFocus={() => {
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-expanded={activeSearchRowId === row.id && Boolean(pickerPosition)}
+                      aria-controls={activeSearchRowId === row.id && pickerPosition ? 'billing-product-results' : undefined}
+                      aria-activedescendant={activeSearchRowId === row.id && pickerPosition && searchResults[highlightedProduct] ? `billing-product-${highlightedProduct}` : undefined}
+                      onFocus={event => openProductPicker(row, event.currentTarget)}
+                      onClick={event => { if (activeSearchRowId !== row.id) openProductPicker(row, event.currentTarget); }}
+                      onBlur={event => { if (!productPopup.current?.contains(event.relatedTarget)) setActiveSearchRowId(null); }}
+                      onChange={event => {
+                        const name = event.target.value;
+                        productAnchor.current = event.currentTarget;
+                        if (!row.productId) {
+                          setRows(previous => previous.map(entry => entry.id === row.id ? { ...entry, name } : entry));
+                        }
+                        setSearchQuery(name);
+                        setHighlightedProduct(0);
                         setActiveSearchRowId(row.id);
-                        setSearchQuery(row.name);
                       }}
-                      onChange={e => {
-                        if (!row.productId) updateRowField(row.id, 'name', e.target.value);
-                        setSearchQuery(e.target.value);
-                        setActiveSearchRowId(row.id);
-                      }}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          const exact = searchableItems.find(
-                            item => item.barcode && item.barcode.toLowerCase() === searchQuery.trim().toLowerCase()
-                          );
-                          if (exact) {
-                            handleSelectItem(row.id, exact);
-                            return;
-                          }
-                          if (searchResults.length > 0) {
-                            handleSelectItem(row.id, searchResults[0]);
-                          }
+                      onKeyDown={event => {
+                        if (event.ctrlKey || event.metaKey) return;
+                        if (event.key === 'Escape') { setActiveSearchRowId(null); return; }
+                        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                          event.preventDefault();
+                          if (activeSearchRowId !== row.id) { openProductPicker(row, event.currentTarget); return; }
+                          const direction = event.key === 'ArrowDown' ? 1 : -1;
+                          setHighlightedProduct(index => Math.max(0, Math.min(searchResults.length - 1, index + direction)));
+                        }
+                        if (event.key === 'Enter' && activeSearchRowId === row.id) {
+                          event.preventDefault();
+                          const result = searchResults[highlightedProduct];
+                          if (result) handleSelectItem(row.id, result);
                         }
                       }}
                     />
@@ -965,46 +1101,6 @@ export function VyaparBilling({
                     )}
                   </div>
 
-                  {/* AUTOCOMPLETE POPUP DROPDOWN WITH STOCK */}
-                  {activeSearchRowId === row.id && (
-                    <div className="vyapar-search-dropdown glass">
-                      <div className="vyapar-dropdown-header">
-                        <Search size={14} />
-                        <span>Select product (showing stock & rates):</span>
-                      </div>
-                      <div className="vyapar-dropdown-list">
-                        {searchResults.map(item => (
-                          <button
-                            key={`${item.productId}-${item.sku}`}
-                            type="button"
-                            className="vyapar-dropdown-item"
-                            onMouseDown={event => event.preventDefault()}
-                            onClick={() => handleSelectItem(row.id, item)}
-                          >
-                            <div className="vyapar-dropdown-item-title">
-                              {item.productNumber && (
-                                <span className="product-no-badge">#{item.productNumber}</span>
-                              )}
-                              <strong>{item.productName}</strong>
-                              <span className="variant-tag">{item.variantText || 'Standard'}</span>
-                              <small>{item.barcode ? `Barcode: ${item.barcode}` : `SKU: ${item.sku}`}</small>
-                            </div>
-                            <div className="vyapar-dropdown-item-meta">
-                              <span className={`stock-pill ${item.stock > 0 ? 'in-stock' : 'no-stock'}`}>
-                                {item.stock > 0 ? `${item.stock} in stock` : '0 Out of stock'}
-                              </span>
-                              <strong className="rate-pill">₹{item.price}</strong>
-                            </div>
-                          </button>
-                        ))}
-                        {searchResults.length === 0 && (
-                          <div className="vyapar-dropdown-empty">
-                            No matching products found.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
                 </td>
 
                 {/* QUANTITY */}
@@ -1016,7 +1112,8 @@ export function VyaparBilling({
                     min="1"
                     step="1"
                     className="vyapar-cell-input text-center"
-                    value={row.quantity}
+                    value={row.productId ? row.quantity : ''}
+                    disabled={!row.productId}
                     onChange={e => updateRowField(row.id, 'quantity', Math.max(1, Number(e.target.value)))}
                   />
                 </td>
@@ -1064,7 +1161,7 @@ export function VyaparBilling({
                     placeholder="0"
                     onChange={e => updateRowField(row.id, 'discountPercent', Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
                   />
-                  <small className="vyapar-line-discount">−₹{row.discount.toFixed(2)} for {row.quantity}</small>
+                  {row.discount > 0 && <small className="vyapar-line-discount">−₹{row.discount.toFixed(2)}</small>}
                 </td>
 
                 {/* AMOUNT (Calculated & Editable) */}
@@ -1112,23 +1209,60 @@ export function VyaparBilling({
         </table>
       </div>
 
+      {!action && activeSearchRowId && pickerPosition && createPortal(
+        <div ref={productPopup} className="vyapar-search-dropdown billing-product-picker" style={pickerPosition}>
+          <div className="vyapar-dropdown-header">
+            <Search size={14} />
+            <span>Select a product</span>
+          </div>
+          <div className="vyapar-dropdown-list" id="billing-product-results" role="listbox" aria-label="Products">
+            {searchResults.map((item, index) => (
+              <button
+                key={`${item.productId}-${item.sku}`}
+                type="button"
+                role="option"
+                id={`billing-product-${index}`}
+                aria-selected={highlightedProduct === index}
+                aria-disabled={item.stock <= 0}
+                tabIndex={-1}
+                className="vyapar-dropdown-item"
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => handleSelectItem(activeSearchRowId, item)}
+              >
+                <div className="vyapar-dropdown-item-title">
+                  {item.productNumber && (
+                    <span className="product-no-badge">#{item.productNumber}</span>
+                  )}
+                  <strong>{item.productName}</strong>
+                  <span className="variant-tag">{item.variantText || 'Standard'}</span>
+                  <small>{item.barcode ? `Barcode: ${item.barcode}` : `SKU: ${item.sku}`}</small>
+                </div>
+                <div className="vyapar-dropdown-item-meta">
+                  <span className={`stock-pill ${item.stock > 0 ? 'in-stock' : 'no-stock'}`}>
+                    {item.stock > 0 ? `${item.stock} in stock` : '0 Out of stock'}
+                  </span>
+                  <strong className="rate-pill">₹{item.price}</strong>
+                </div>
+              </button>
+            ))}
+            {searchResults.length === 0 && (
+              <div className="vyapar-dropdown-empty">
+                No matching products found.
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
+
       {/* BOTTOM SECTION: NOTES, PAYMENT MODE, GRAND TOTAL & ACTION BUTTONS */}
       <div className="vyapar-bottom-section">
         {/* Left Side: Terms, Payment Mode down side of Terms, Resume Held */}
         <div className="vyapar-bottom-left">
-          {/* Terms & Conditions */}
-          <div className="vyapar-notes-box">
-            <span className="vyapar-subhead">Terms & Conditions</span>
-            <p className="vyapar-terms-text">{terms}</p>
-          </div>
-
           {/* Payment Mode Option Down Side of Terms & Conditions */}
           <div className="vyapar-payment-panel">
             <div className="vyapar-payment-header">
               <span className="vyapar-subhead">Payment Mode</span>
-              <span className="vyapar-payment-selected-tag">
-                Selected: <strong>{paymentMethod === 'credit' ? 'Credit / Udhar' : paymentMethod === 'split' ? 'Split payment' : paymentMethod.toUpperCase()}</strong>
-              </span>
             </div>
 
             <div className="vyapar-payment-modes-grid">
@@ -1175,12 +1309,12 @@ export function VyaparBilling({
 
             {paymentMethod === 'split' && <div className="vyapar-mode-detail-box split-payment-fields">
               <div className="split-payment-heading"><strong>Split the total across any combination</strong><small>Use two, three, or all four payment methods.</small></div>
-              <label><span>Cash ₹</span><div><input aria-label="Split cash amount" className="vyapar-field" type="number" min="0" max={totals.totalAmount} step="0.01" value={splitCash} onChange={e => setSplitCash(e.target.value)} /><button type="button" onClick={() => fillSplitBalance('cash')}>Use balance</button></div></label>
-              <label><span>UPI ₹</span><div><input aria-label="Split UPI amount" className="vyapar-field" type="number" min="0" max={totals.totalAmount} step="0.01" value={splitUpi} onChange={e => setSplitUpi(e.target.value)} /><button type="button" onClick={() => fillSplitBalance('upi')}>Use balance</button></div></label>
-              <label><span>Card ₹</span><div><input aria-label="Split card amount" className="vyapar-field" type="number" min="0" max={totals.totalAmount} step="0.01" value={splitCard} onChange={e => setSplitCard(e.target.value)} /><button type="button" onClick={() => fillSplitBalance('card')}>Use balance</button></div></label>
-              <label><span>Udhar ₹</span><div><input aria-label="Split udhar amount" className="vyapar-field" type="number" min="0" max={totals.totalAmount} step="0.01" value={splitCredit} onChange={e => setSplitCredit(e.target.value)} /><button type="button" onClick={() => fillSplitBalance('credit')}>Use balance</button></div></label>
-              <div className={`split-payment-balance ${splitRemaining < 0 ? 'over' : splitRemaining === 0 && totals.totalAmount > 0 ? 'complete' : ''}`}>
-                <span>{splitRemaining < 0 ? 'Over allocated' : splitRemaining === 0 && totals.totalAmount > 0 ? 'Fully allocated' : 'Still to allocate'}</span>
+              <label><span>Cash ₹</span><div><input aria-label="Split cash amount" className="vyapar-field" type="number" min="0" max={amountDue} step="0.01" value={splitCash} onChange={e => setSplitCash(e.target.value)} /><button type="button" onClick={() => fillSplitBalance('cash')}>Use balance</button></div></label>
+              <label><span>UPI ₹</span><div><input aria-label="Split UPI amount" className="vyapar-field" type="number" min="0" max={amountDue} step="0.01" value={splitUpi} onChange={e => setSplitUpi(e.target.value)} /><button type="button" onClick={() => fillSplitBalance('upi')}>Use balance</button></div></label>
+              <label><span>Card ₹</span><div><input aria-label="Split card amount" className="vyapar-field" type="number" min="0" max={amountDue} step="0.01" value={splitCard} onChange={e => setSplitCard(e.target.value)} /><button type="button" onClick={() => fillSplitBalance('card')}>Use balance</button></div></label>
+              <label><span>Udhar ₹</span><div><input aria-label="Split udhar amount" className="vyapar-field" type="number" min="0" max={amountDue} step="0.01" value={splitCredit} onChange={e => setSplitCredit(e.target.value)} /><button type="button" onClick={() => fillSplitBalance('credit')}>Use balance</button></div></label>
+              <div className={`split-payment-balance ${splitRemaining < 0 ? 'over' : splitRemaining === 0 && amountDue > 0 ? 'complete' : ''}`}>
+                <span>{splitRemaining < 0 ? 'Over allocated' : splitRemaining === 0 && amountDue > 0 ? 'Fully allocated' : 'Still to allocate'}</span>
                 <strong>₹{Math.abs(splitRemaining).toFixed(2)}</strong>
               </div>
             </div>}
@@ -1189,21 +1323,22 @@ export function VyaparBilling({
             {(paymentMethod === 'cash' || (paymentMethod === 'split' && splitAmounts.cash > 0)) && (
               <div className="vyapar-mode-detail-box">
                 <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                  <label style={{ fontSize: 13, fontWeight: 600 }}>Cash received ₹</label>
+                  <label htmlFor="billing-cash-received">Cash received ₹</label>
                   <input
                     type="number"
                     min="0"
                     step="0.01"
                     className="vyapar-field"
+                    id="billing-cash-received"
                     placeholder="Exact if blank"
                     value={cashTendered}
                     onChange={e => setCashTendered(e.target.value)}
                     style={{ maxWidth: 180 }}
                   />
                 </div>
-                {cashTendered && Number(cashTendered) > totals.totalAmount && (
+                {cashTendered && Number(cashTendered) > cashPortion && (
                   <p style={{ margin: '8px 0 0', color: 'var(--accent)', fontWeight: 700, fontSize: 13 }}>
-                    Return Change: ₹{(Number(cashTendered) - totals.totalAmount).toFixed(2)}
+                    Return Change: ₹{(Number(cashTendered) - cashPortion).toFixed(2)}
                   </p>
                 )}
               </div>
@@ -1237,23 +1372,6 @@ export function VyaparBilling({
               </div>
             )}
 
-            {/* Context details for UPI */}
-            {paymentMethod === 'upi' && (
-              <div className="vyapar-mode-detail-box">
-                <small style={{ color: 'var(--muted)', display: 'block' }}>
-                  ✓ Direct UPI / QR Code payment mode selected. Instant settlement.
-                </small>
-              </div>
-            )}
-
-            {/* Context details for Card */}
-            {paymentMethod === 'card' && (
-              <div className="vyapar-mode-detail-box">
-                <small style={{ color: 'var(--muted)', display: 'block' }}>
-                  ✓ Card swipe / tap POS terminal payment mode selected.
-                </small>
-              </div>
-            )}
           </div>
 
         </div>
@@ -1272,7 +1390,7 @@ export function VyaparBilling({
               </div>
             )}
             <div className="vyapar-summary-line total-highlight">
-              <label htmlFor="billing-total">Total Amount ₹</label>
+              <label htmlFor="billing-total">{pointsUsed ? 'Before rewards ₹' : 'Total Amount ₹'}</label>
               <input id="billing-total" type="number" className="vyapar-field billing-total-input"
                 min="0" max={totals.totalGross} step="0.01" value={totals.totalAmount}
                 disabled={!totals.totalGross || role === 'cashier'}
@@ -1285,6 +1403,10 @@ export function VyaparBilling({
                   });
                 }} />
             </div>
+            {pointsUsed > 0 && <>
+              <div className="vyapar-summary-line discount"><span>Rewards discount</span><span>− ₹{pointsUsed.toFixed(2)}</span></div>
+              <div className="vyapar-summary-line total-highlight"><strong>Amount due</strong><strong>₹{amountDue.toFixed(2)}</strong></div>
+            </>}
           </div>
 
           {/* TWO PRIMARY OPTIONS REQUESTED BY USER: Save & New, Save & Share */}
@@ -1292,7 +1414,7 @@ export function VyaparBilling({
             <button
               type="button"
               className="button secondary vyapar-btn-save-new"
-              disabled={totals.totalAmount <= 0}
+              disabled={amountDue <= 0}
               onClick={() => handleSubmit('new')}
               title="Save bill and immediately open a new invoice form"
             >
@@ -1302,7 +1424,7 @@ export function VyaparBilling({
             <button
               type="button"
               className="button primary vyapar-btn-save-share"
-              disabled={totals.totalAmount <= 0}
+              disabled={amountDue <= 0}
               onClick={() => handleSubmit('share')}
               title="Save bill and open WhatsApp / SMS / PDF receipt sharing"
             >

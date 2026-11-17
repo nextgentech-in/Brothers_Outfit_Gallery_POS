@@ -1,3 +1,4 @@
+import { rewardDefaults, rewardRule, rewardRuleSchema } from './rewards.js';
 import { Router } from 'express';
 import { createHash } from 'node:crypto';
 import { FieldValue, type Firestore, type Transaction } from 'firebase-admin/firestore';
@@ -84,10 +85,32 @@ operationsRouter.post('/suppliers/payment',async(req,res)=>{
  }));}catch(e){fail(res,e);}
 });
 operationsRouter.get('/suppliers/balances',async(_req,res)=>{try{const db=firebase().db;const [suppliers,purchases]=await Promise.all([db.collection('erp_suppliers').get(),db.collection('erp_purchases').get()]);res.json({items:suppliers.docs.map(d=>({id:d.id,name:d.data().name,balance:purchases.docs.filter(p=>p.data().supplierId===d.id).reduce((sum,p)=>sum+paise(p.data().payable),0)/100}))});}catch(e){fail(res,e);}});
+operationsRouter.get('/customers/reward-settings', async (_req, res) => {
+  try {
+    const doc = await rewardDefaults(firebase().db).get();
+    res.json(rewardRule(doc.data()?.rule));
+  } catch (error) { fail(res, error); }
+});
+
+operationsRouter.post('/customers/reward-settings', async (req, res) => {
+  const parsed = rewardRuleSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(422).json({ error: 'Enter a valid percentage and minimum bill amount.' }); return; }
+  try {
+    await rewardDefaults(firebase().db).set({
+      rule: parsed.data, updatedAt: FieldValue.serverTimestamp(), updatedBy: res.locals.owner?.uid || 'pin-owner'
+    });
+    res.json(parsed.data);
+  } catch (error) { fail(res, error); }
+});
+
 operationsRouter.post('/customers/update',async(req,res)=>{
- const parsed=z.object({requestId,phone:z.string().refine(v=>Boolean(mobileNumber(v))),name:z.string().trim().min(1).max(120),email:z.union([z.email(),z.literal('')]),dateOfBirth:z.string().refine(validBirthDate),birthdayOffersOptIn:z.boolean()}).strict().safeParse(req.body);
- if(!parsed.success){res.status(422).json({error:'Enter a customer name, valid email and birthday.'});return;}
- try{const db=firebase().db,input=parsed.data;res.json(await idempotent(db,'customer_update',input.requestId,input,async tx=>{const ref=db.collection('erp_customerProfiles').doc(customerKey(input.phone,''));await tx.get(ref);tx.set(ref,{name:input.name,phone:mobileNumber(input.phone),email:input.email,dateOfBirth:input.dateOfBirth,birthdayOffersOptIn:input.birthdayOffersOptIn,updatedAt:FieldValue.serverTimestamp()},{merge:true});return {updated:true};}));}catch(e){fail(res,e);}
+ const parsed=z.object({requestId,phone:z.string().refine(v=>Boolean(mobileNumber(v))),name:z.string().trim().min(1).max(120),email:z.union([z.email(),z.literal('')]),dateOfBirth:z.string().max(10),birthdayOffersOptIn:z.boolean(),rewardRule:rewardRuleSchema.nullable().optional()}).strict().safeParse(req.body);
+ if (!parsed.success) { res.status(422).json({ error: 'Check the customer details and rewards rule.' }); return; }
+ const { dateOfBirth, birthdayOffersOptIn } = parsed.data;
+ if ((dateOfBirth || birthdayOffersOptIn) && !validBirthDate(dateOfBirth)) {
+   res.status(422).json({ error: 'Enter a valid date of birth for birthday offers.' }); return;
+ }
+ try{const db=firebase().db,input=parsed.data;res.json(await idempotent(db,'customer_update',input.requestId,input,async tx=>{const ref=db.collection('erp_customerProfiles').doc(customerKey(input.phone,''));await tx.get(ref);tx.set(ref,{name:input.name,...(input.rewardRule !== undefined ? {rewardRule:input.rewardRule} : {}),phone:mobileNumber(input.phone),email:input.email,dateOfBirth:input.dateOfBirth,birthdayOffersOptIn:input.birthdayOffersOptIn,updatedAt:FieldValue.serverTimestamp()},{merge:true});return {updated:true};}));}catch(e){fail(res,e);}
 });
 operationsRouter.post('/inventory/count',async(req,res)=>{
  const parsed=z.object({requestId,productId:z.string().regex(/^[\w.:-]+$/),lines:z.array(z.object({sku:z.string().regex(/^[\w.:-]+$/),expected:z.number().int().min(0),counted:z.number().int().min(0).max(100000),threshold:z.number().int().min(0).max(10000)}).strict()).min(1).max(100),note:z.string().trim().max(300).optional()}).strict().safeParse(req.body);

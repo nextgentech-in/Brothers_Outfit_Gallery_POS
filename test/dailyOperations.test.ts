@@ -27,6 +27,7 @@ const server=app.listen(0,'127.0.0.1');let base='';
 before(async()=>{if(!server.listening)await new Promise<void>(r=>server.once('listening',r));const a=server.address();assert.ok(a&&typeof a!=='string');base=`http://127.0.0.1:${a.port}`;records.set('erp_suppliers/supplier-1',{name:'Test supplier',active:true});});
 after(()=>new Promise<void>((resolve,reject)=>server.close(e=>{mock.restoreAll();e?reject(e):resolve();})));
 const post=async(path:string,payload:unknown)=>{const r=await fetch(base+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});return {status:r.status,body:await r.json()};};
+const buyer = { customerName: 'Test Buyer', customerPhone: '8765432109' };
 const purchase={requestId:'new-purchase-0001',supplierId:'supplier-1',supplierInvoice:'TEST-1',amountPaid:100,paymentMethod:'cash',lines:[{sku:'TEST-JEANS',quantity:4,unitCost:125.25,salePrice:250,mrp:300,newItem:{name:'Boot cut jeans',category:'Jeans',brand:'Test Brand',design:'12689',fabric:'Peach',size:'32',color:'Black'}}]};
 let productId='';
 test('immediate purchase creates a labelled catalog item and stock exactly once',async()=>{
@@ -60,7 +61,7 @@ test('split payments put only unpaid amount into udhar and retain cash change',a
 test('GST-enabled stock does not add tax to the bill and cash plus UPI settles exactly',async()=>{
  const [path, product]=[...records].find(([key,value])=>key.startsWith('products/')&&value.sku==='ORDERED-JEANS')!;
  records.set(path,{...product,gstEnabled:true,gstPercent:5});
- const sale={requestId:'gst-split-sale-01',expectedTotal:250,lines:[{productId:path.slice('products/'.length),sku:'ORDERED-JEANS-V1',quantity:1,price:300,discount:50}],paymentMethod:'split',payments:[{method:'cash',amount:100},{method:'upi',amount:150}]};
+ const sale={...buyer,requestId:'gst-split-sale-01',expectedTotal:250,lines:[{productId:path.slice('products/'.length),sku:'ORDERED-JEANS-V1',quantity:1,price:300,discount:50}],paymentMethod:'split',payments:[{method:'cash',amount:100},{method:'upi',amount:150}]};
  const result=await post('/pos/sale',sale);assert.equal(result.status,201,JSON.stringify(result.body));
  const invoice=records.get(`erp_invoices/${result.body.invoiceId}`)!;
  assert.equal(invoice.total,250);assert.equal(invoice.tax,0);assert.equal(invoice.lines[0].tax,0);assert.equal(invoice.lines[0].discount,50);assert.equal(invoice.lines[0].discountPercent,16.67);assert.equal(invoice.lines[0].amount,250);
@@ -69,7 +70,7 @@ test('GST-enabled stock does not add tax to the bill and cash plus UPI settles e
  assert.equal((await post('/pos/sale',{...sale,requestId:'gst-mismatch-sale-01',expectedTotal:262.5})).status,409);
 });
 test('partial discounted returns, exchanges and refund retry preserve stock and money',async()=>{
- const r=await post('/pos/sale',{requestId:'paid-sale-return-01',lines:[{productId,sku:'TEST-JEANS-V1',quantity:3}],paymentMethod:'cash',discount:1});assert.equal(r.status,201,JSON.stringify(r.body));const original=records.get(`orders/${r.body.orderId}`)!;
+ const r=await post('/pos/sale',{...buyer,requestId:'paid-sale-return-01',lines:[{productId,sku:'TEST-JEANS-V1',quantity:3}],paymentMethod:'cash',discount:1});assert.equal(r.status,201,JSON.stringify(r.body));const original=records.get(`orders/${r.body.orderId}`)!;
  const amount=returnAmounts(original.items,original.totalAmount,{},[{index:0,quantity:1,restock:true}]);
  const payload={requestId:'partial-return-01',orderId:r.body.orderId,reason:'Size change',lines:[{index:0,quantity:1,restock:true}],replacements:[{productId,sku:'TEST-JEANS-V1',quantity:1}],expectedDifference:Math.round((250-amount)*100)/100,differenceMethod:'upi'};
  const returned=await post('/orders/return',payload);assert.equal(returned.status,201,JSON.stringify(returned.body));assert.equal(returned.body.amountToCollect,.33);assert.equal(records.get(`products/${productId}`)?.stock,4);assert.equal((await post('/orders/return',payload)).status,201);
@@ -110,7 +111,7 @@ test('backup round trips timestamps, contains consistent business records and ex
 });
 
 test('recovery locks unposted bill references and recognizes already posted sales',async()=>{
- const sale={requestId:'price-changed-sale-01',expectedTotal:100,lines:[{productId,sku:'TEST-JEANS-V1',quantity:1}],paymentMethod:'cash'};
+ const sale={...buyer,requestId:'price-changed-sale-01',expectedTotal:100,lines:[{productId,sku:'TEST-JEANS-V1',quantity:1}],paymentMethod:'cash'};
  assert.equal((await post('/pos/sale',sale)).status,409);assert.equal((await post('/pos/recover',{requestId:sale.requestId})).body.state,'editable');
  assert.equal((await post('/pos/sale',{...sale,expectedTotal:250})).status,409);
  const posted=await post('/pos/recover',{requestId:'paid-sale-return-01'});assert.equal(posted.body.state,'posted');assert.ok(posted.body.invoiceId);
@@ -147,7 +148,7 @@ test('bill pricing retains the exact edited amount and conserves paise across li
 
 test('completed POS bill edits update the receipt, payments and order together', async () => {
   const sale = await post('/pos/sale', {
-    requestId: 'create-for-bill-edit-test', lines: [{ productId, sku: 'TEST-JEANS-V1', quantity: 1 }],
+    ...buyer, requestId: 'create-for-bill-edit-test', lines: [{ productId, sku: 'TEST-JEANS-V1', quantity: 1 }],
     paymentMethod: 'cash', cashTendered: 300
   });
   assert.equal(sale.status, 201, JSON.stringify(sale.body));
@@ -172,4 +173,50 @@ test('completed POS bill edits update the receipt, payments and order together',
   assert.equal((await post('/orders/edit-bill', { ...edit, requestId: 'edit-bill-test-invalid', revision: 1, lines: [{ mrp: 320, amount: 350 }] })).status, 422);
   records.set('orders/' + orderId, { ...order, status: 'Partially returned' });
   assert.equal((await post('/orders/edit-bill', { ...edit, requestId: 'edit-bill-test-returned', revision: 1 })).status, 409);
+});
+
+test('customer rewards use configurable rates and are conserved through a redemption and returns', async () => {
+  records.set('products/reward-shirt', { sku: 'REWARD-SHIRT', name: 'Reward shirt', stock: 10, price: 600 });
+  const customerPhone = '8888888888';
+  const customerName = 'Rewards Buyer';
+  const buy = {
+    requestId: 'rewards-first-sale', customerPhone, customerName, paymentMethod: 'cash',
+    lines: [{ productId: 'reward-shirt', sku: 'REWARD-SHIRT', quantity: 1 }]
+  };
+  const lookup = async () => (await fetch(base + '/pos/rewards?phone=' + customerPhone)).json();
+  assert.equal((await post('/customers/reward-settings', { rate: 5, minimum: 500 })).status, 200);
+  const first = await post('/pos/sale', buy);
+  assert.equal(first.status, 201, JSON.stringify(first.body));
+  assert.equal(first.body.rewards.earned, 30);
+  assert.equal((await lookup()).balance, 30);
+  const override = await post('/customers/update', {
+    requestId: 'set-buyer-reward-rule', phone: customerPhone, name: customerName,
+    email: '', dateOfBirth: '', birthdayOffersOptIn: false, rewardRule: { rate: 10, minimum: 500 }
+  });
+  assert.equal(override.status, 200);
+  assert.deepEqual((await lookup()).rule, { rate: 10, minimum: 500 });
+  const secondSale = { ...buy, requestId: 'rewards-redeem-sale', redeemPoints: 30,
+    expectedTotal: 1170, lines: [{ ...buy.lines[0], quantity: 2 }] };
+  const second = await post('/pos/sale', secondSale);
+  assert.equal(second.status, 201, JSON.stringify(second.body));
+  assert.deepEqual(second.body.rewards, { earned: 117, redeemed: 30, balance: 117, rule: { rate: 10, minimum: 500 } });
+  assert.deepEqual((await post('/pos/sale', secondSale)).body, second.body);
+  assert.equal(records.get('erp_invoices/' + second.body.invoiceId)?.discount, 30);
+  assert.equal(records.get('orders/' + second.body.orderId)?.items[0].amount, 1170);
+  assert.equal((await post('/pos/sale', { ...buy, requestId: 'rewards-stale-sale', redeemPoints: 118 })).status, 409);
+  assert.equal(records.get('products/reward-shirt')?.stock, 7);
+
+  const returnOne = { requestId: 'reward-partial-return', orderId: second.body.orderId, reason: 'Returned one shirt',
+    lines: [{ index: 0, quantity: 1, restock: false }] };
+  const partial = await post('/orders/return', returnOne);
+  assert.equal(partial.status, 201, JSON.stringify(partial.body));
+  assert.equal(partial.body.refundAmountToReview, 585);
+  assert.equal((await lookup()).balance, 73);
+  assert.equal((await post('/orders/return', { ...returnOne, requestId: 'reward-final-return' })).status, 201);
+  assert.equal((await lookup()).balance, 30);
+
+  const corrected = await post('/orders/edit-bill', { requestId: 'correct-earning-bill', orderId: first.body.orderId,
+    invoiceId: first.body.invoiceId, revision: 0, customerName, lines: [{ mrp: 600, amount: 400 }] });
+  assert.equal(corrected.status, 200, JSON.stringify(corrected.body));
+  assert.equal((await lookup()).balance, 0);
 });

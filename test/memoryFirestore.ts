@@ -18,6 +18,7 @@ export function memoryFirestore(db: Firestore) {
     constructor(public path: string) {}
     get id() { return this.path.split('/').at(-1)!; }
     async get() { return snapshot(this); }
+    async set(data: Record<string, unknown>) { records.set(this.path, stored(data)); }
     async update(data: Record<string, unknown>) { assert.ok(records.has(this.path)); records.set(this.path, { ...records.get(this.path), ...stored(data) }); }
   }
   class Query {

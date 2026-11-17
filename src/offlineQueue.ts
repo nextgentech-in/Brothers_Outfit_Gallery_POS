@@ -2,6 +2,7 @@ import type { BillRow } from './VyaparBilling';
 
 export type QueuedSale = {
   expectedTotal?: number;
+  redeemPoints?: number;
   requestId: string;
   invoiceNumber?: number;
   invoiceDate?: string;
@@ -26,6 +27,7 @@ export type QueuedSale = {
 };
 export type BillingDraft = {
   rows: BillRow[];
+  useRewards?: boolean;
   customerName: string;
   customerPhone: string;
   customerDateOfBirth: string;

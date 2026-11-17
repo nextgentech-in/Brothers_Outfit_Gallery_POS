@@ -83,7 +83,7 @@ const postSale = (body: unknown) => fetch(`${base}/pos/sale`, { method: 'POST', 
 const sale = { requestId: 'birthday-sale-0001', lines: [{ productId: 'shirt', sku: 'SHIRT-M', quantity: 1 }],
   paymentMethod: 'cash', customerPhone: '9876543210', customerName: 'Shop Customer', customerDateOfBirth: '2000-02-29', birthdayOffersOptIn: true };
 
-test('sale API rejects a phone without a valid birthday before starting a transaction', async () => {
+test('sale API checks birth dates when the customer opts into birthday offers', async () => {
   const before = transactions;
   for (const customerDateOfBirth of [undefined, '', '2001-02-29', '9999-12-31']) {
     const response = await postSale({ ...sale, customerDateOfBirth });
@@ -129,18 +129,26 @@ test('sale persists birthday once, exposes it in Customers and lookup, and prese
   assert.equal(records.get(profilePath)?.dateOfBirth, '2000-02-29');
 });
 
-test('walk-in sale still succeeds without creating a customer birthday profile', async () => {
-  records.set('products/walk-in-shirt', { name: 'Shirt', sku: 'WALK-M', stock: 1, price: 200 });
-  const profilesBefore = [...records.keys()].filter(path => path.startsWith('erp_customerProfiles/')).length;
-  const response = await postSale({ requestId: 'walk-in-sale-0001', lines: [{ productId: 'walk-in-shirt', sku: 'WALK-M', quantity: 1 }], paymentMethod: 'cash' });
+test('POS requires a name and mobile and can save a named sale without a birth date', async () => {
+  records.set('products/named-sale-shirt', { name: 'Shirt', sku: 'NAMED-M', stock: 1, price: 200 });
+  const saleInput = {
+    requestId: 'named-sale-0001', lines: [{ productId: 'named-sale-shirt', sku: 'NAMED-M', quantity: 1 }],
+    paymentMethod: 'cash'
+  };
+  for (const details of [{}, { customerName: 'New buyer' }, { customerPhone: '8765432109' }]) {
+    assert.equal((await postSale({ ...saleInput, ...details })).status, 422);
+  }
+  assert.equal(records.get('products/named-sale-shirt')?.stock, 1);
+  const response = await postSale({ ...saleInput, customerName: 'New buyer', customerPhone: '8765432109' });
   assert.equal(response.status, 201);
-  assert.equal([...records.keys()].filter(path => path.startsWith('erp_customerProfiles/')).length, profilesBefore);
+  assert.equal(records.get('products/named-sale-shirt')?.stock, 0);
+  assert.equal(records.get(`erp_customerProfiles/${customerKey('8765432109', '')}`)?.dateOfBirth, undefined);
 });
 
 test('bill number and India bill time are saved once, and duplicate numbers do not change stock', async () => {
   records.set('products/manual-bill-shirt', { name: 'Shirt', sku: 'MANUAL-M', stock: 3, price: 200 });
   const saleInput = { requestId: 'manual-bill-sale-0001', lines: [{ productId: 'manual-bill-shirt', sku: 'MANUAL-M', quantity: 1 }],
-    paymentMethod: 'cash', invoiceNumber: 42, invoiceDate: '2025-02-01', invoiceTime: '13:15' };
+    paymentMethod: 'cash', customerName: 'Test Buyer', customerPhone: '9876543210', invoiceNumber: 42, invoiceDate: '2025-02-01', invoiceTime: '13:15' };
   const first = await postSale(saleInput);
   assert.equal(first.status, 201);
   const receipt = await first.json();

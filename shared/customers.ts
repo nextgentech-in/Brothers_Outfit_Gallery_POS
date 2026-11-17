@@ -1,3 +1,5 @@
+import type { RewardRule } from './rewards.js';
+
 export type Customer = {
   id: string;
   customerKey?: string;
@@ -8,6 +10,7 @@ export type Customer = {
   dateOfBirth: string;
   birthdayOffersOptIn: boolean;
   address?: string;
+  rewardRule?: RewardRule;
 };
 
 // Date-only values stay in YYYY-MM-DD form; birthdays must not shift with time zones.
@@ -44,5 +47,12 @@ export function customerDetailsError(phone: string, dateOfBirth: string) {
   if (phone.trim() && !dateOfBirth) return 'Enter the customer’s date of birth when adding a mobile number.';
   if (dateOfBirth && !validBirthDate(dateOfBirth)) return 'Enter a valid date of birth from 1900 to today.';
   if (dateOfBirth && !phone.trim()) return 'Enter a mobile number to save the customer’s date of birth.';
+  return '';
+}
+
+export function billingCustomerError(name: string, phone: string, birthDate = '', birthdayOffers = false) {
+  if (!name.trim()) return 'Enter the customer name.';
+  if (!mobileNumber(phone)) return 'Enter a valid mobile number.';
+  if (birthDate || birthdayOffers) return customerDetailsError(phone, birthDate);
   return '';
 }
