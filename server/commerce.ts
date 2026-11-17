@@ -146,13 +146,14 @@ export function changeStock(product: Product, sku: string, delta: number): { pro
   if (index >= 0) {
     const variants = (product.variants || []).map(v => ({ ...v }));
     variants[index] = { ...variants[index], stock: after, quantity: after };
-    const total = variants.reduce((sum, v) => sum + Number(v.stock ?? 0), 0);
-    return { product: { ...product, variants, stock: total, quantity: total, inStock: total > 0,
+    const total = variants.reduce((sum, v) => sum + Number(v.stock ?? v.quantity ?? 0), 0);
+    const totalReserved = variants.reduce((sum, v) => sum + Number(v.reserved ?? 0), 0);
+    return { product: { ...product, variants, stock: total, quantity: total, inStock: total > totalReserved,
       ...(delta > 0 && total > 0 ? { active: true, isDeleted: false, deletedAt: FieldValue.delete() } : {}),
-      reserved: variants.reduce((sum, v) => sum + Number(v.reserved ?? 0), 0),
-      sizes: [...new Set(variants.filter(v => Number(v.stock) - Number(v.reserved ?? 0) > 0).map(v => v.size).filter(Boolean))] }, after };
+      reserved: totalReserved,
+      sizes: [...new Set(variants.filter(v => Number(v.stock ?? v.quantity ?? 0) - Number(v.reserved ?? 0) > 0).map(v => v.size).filter(Boolean))] }, after };
   }
-  return { product: { ...product, stock: after, quantity: after, inStock: after > 0,
+  return { product: { ...product, stock: after, quantity: after, inStock: after > reserved,
     ...(delta > 0 && after > 0 ? { active: true, isDeleted: false, deletedAt: FieldValue.delete() } : {}) }, after };
 }
 function publicProduct(doc: FirebaseFirestore.QueryDocumentSnapshot) {
@@ -162,7 +163,7 @@ function publicProduct(doc: FirebaseFirestore.QueryDocumentSnapshot) {
     category: data.category || '', subCategory: data.subCategory || '', shortDescription: data.shortDescription || '',
     description: data.description || '', gsl: data.gsl || '', active: data.active !== false,
     gstEnabled: data.gstEnabled === true, gstPercent: data.gstEnabled === true ? Number(data.gstPercent || 0) : 0,
-    onHand: Number(data.stock ?? 0), reserved: Number(data.reserved ?? 0), reorderThreshold: Number(data.reorderThreshold ?? 5), stock: Number(data.stock ?? 0) - Number(data.reserved ?? 0),
+    onHand: Number(data.stock ?? data.quantity ?? 0), reserved: Number(data.reserved ?? 0), reorderThreshold: Number(data.reorderThreshold ?? 5), stock: Number(data.stock ?? data.quantity ?? 0) - Number(data.reserved ?? 0),
     image: data.thumbnailUrl || data.image || data.images?.[0]?.url || data.images?.[0] || '',
     variants: (data.variants || []).map((v: Variant) => ({ sku: v.sku, barcode: v.barcode || v.posBarcode || '', size: v.size, color: v.color,
       onHand: Number(v.stock ?? v.quantity ?? 0), reserved: Number(v.reserved ?? 0), reorderThreshold: Number(v.reorderThreshold ?? data.reorderThreshold ?? 5), stock: Number(v.stock ?? v.quantity ?? 0) - Number(v.reserved ?? 0), price: Number(v.price ?? v.salePrice ?? data.salePrice ?? data.price ?? 0),
@@ -758,7 +759,7 @@ commerceRouter.post('/pos/sale', async (req, res) => {
         if (lineDiscPaise > lineBasePaise) throw Object.assign(new Error('Discount cannot exceed MRP total.'), { status: 422 });
         if (res.locals.owner?.role === 'cashier') {
           const catalogSale = rupees(variant?.price ?? variant?.salePrice ?? product.salePrice ?? product.price);
-          const catalogMrp = rupees(variant?.mrp ?? product.mrp ?? product.compareAtPrice ?? product.salePrice ?? product.price);
+          const catalogMrp = Math.max(catalogSale, rupees(variant?.mrp ?? product.mrp ?? product.compareAtPrice ?? product.salePrice ?? product.price));
           const standardRate = pricePaise === catalogSale && lineDiscPaise === 0;
           const catalogDiscount = pricePaise === catalogMrp && lineDiscPaise === (catalogMrp - catalogSale) * line.quantity;
           if (!standardRate && !catalogDiscount) throw Object.assign(new Error('Manager approval is required for a custom discount.'), { status: 403 });
@@ -859,6 +860,95 @@ commerceRouter.post('/pos/sale', async (req, res) => {
     res.status(201).json({ ...result, billUrl: customerBillUrl(result.invoiceId) });
   } catch (error) { fail(res, error); }
 });
+
+const billEditSchema = z.object({
+  requestId: key, orderId: id, invoiceId: id, revision: z.number().int().nonnegative(),
+  customerName: z.string().trim().max(120),
+  lines: z.array(z.object({ mrp: money, amount: money }).strict()).min(1).max(100)
+}).strict();
+
+commerceRouter.post('/orders/edit-bill', async (req, res) => {
+  const parsed = billEditSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(422).json({ error: 'Check the bill details and prices.' }); return; }
+  try {
+    const input = parsed.data;
+    const db = firebase().db;
+    const result = await idempotent(db, 'edit_bill', input.requestId, input, async tx => {
+      const orderRef = db.collection('orders').doc(input.orderId);
+      const invoiceRef = db.collection('erp_invoices').doc(input.invoiceId);
+      const ledgerRef = db.collection('erp_customerLedger').doc(input.orderId);
+      const [orderDoc, invoiceDoc, ledgerDoc] = await tx.getAll(orderRef, invoiceRef, ledgerRef);
+      const order = orderDoc.data();
+      const invoice = invoiceDoc.data();
+      if (!order || !invoice || invoice.orderId !== input.orderId) {
+        throw Object.assign(new Error('Bill not found.'), { status: 404 });
+      }
+      if (order.createdBy !== 'admin-pos' || order.status !== 'Delivered' || order.stockRestoredAt ||
+          Object.values(order.returnedQuantities ?? {}).some(quantity => Number(quantity) > 0) ||
+          !Array.isArray(order.items) || !Array.isArray(invoice.lines) ||
+          input.lines.length !== invoice.lines.length || input.lines.length !== order.items.length) {
+        throw Object.assign(new Error('Only completed POS bills without returns can be edited.'), { status: 409 });
+      }
+      if ((invoice.revision ?? 0) !== input.revision) {
+        throw Object.assign(new Error('This bill changed. Reopen it to load the latest version.'), { status: 409 });
+      }
+      let gross = 0;
+      let net = 0;
+      const prices = input.lines.map((edit, index) => {
+        const line = invoice.lines[index];
+        const item = order.items[index];
+        const quantity = Number(line.quantity);
+        const lineGross = rupees(edit.mrp) * quantity;
+        const lineNet = rupees(edit.amount);
+        if (!Number.isSafeInteger(quantity) || quantity < 1 || item.quantity !== quantity ||
+            item.productId !== line.productId || item.sku !== line.sku || lineNet > lineGross) {
+          throw Object.assign(new Error('Check the line amount and its original item.'), { status: 422 });
+        }
+        gross += lineGross;
+        net += lineNet;
+        return {
+          price: edit.mrp, sellingValue: lineGross / 100, amount: edit.amount, netRevenue: edit.amount,
+          discount: (lineGross - lineNet) / 100,
+          discountPercent: lineGross ? Math.round((lineGross - lineNet) * 10000 / lineGross) / 100 : 0
+        };
+      });
+      const total = net / 100;
+      const amountChanged = net !== rupees(invoice.total);
+      const method = String(order.paymentMethod || '');
+      const singlePayment = ['cash', 'upi', 'card'].includes(method) && !Number(order.creditAmount || 0);
+      if (amountChanged && !singlePayment) {
+        throw Object.assign(new Error('Keep the original total on bills paid by split payment or udhar.'), { status: 422 });
+      }
+      if (total <= 0 || total > 10_000_000) {
+        throw Object.assign(new Error('Enter a positive bill total within the supported limit.'), { status: 422 });
+      }
+      const settlement = amountChanged ? paymentBreakdown(total, method,
+        undefined, method === 'cash' ? Math.max(Number(order.cashTendered || 0), total) : undefined) : {};
+      const details = {
+        ...settlement, subtotal: gross / 100, discount: (gross - net) / 100,
+        customerName: input.customerName, updatedAt: FieldValue.serverTimestamp()
+      };
+      const lines = invoice.lines.map((line, index) => ({ ...line, ...prices[index] }));
+      const items = order.items.map((item, index) => ({ ...item, ...prices[index] }));
+      const revision = input.revision + 1;
+      tx.update(invoiceRef, { ...details, revision, total, lines });
+      tx.update(orderRef, { ...details, totalAmount: total, items });
+      if (amountChanged && ledgerDoc.exists && typeof ledgerDoc.data()?.loyaltyDelta === 'number') {
+        tx.update(ledgerRef, { loyaltyDelta: Math.floor(total / 100) });
+      }
+      tx.create(db.collection('erp_auditLog').doc(hash('edit_bill:' + input.requestId)), {
+        action: 'bill_edit', actor: res.locals.owner?.uid ?? res.locals.owner?.name ?? null,
+        invoiceId: input.invoiceId, orderId: input.orderId, revision,
+        before: { customerName: invoice.customerName || '', total: invoice.total, lines: invoice.lines },
+        after: { customerName: input.customerName, total, lines },
+        createdAt: FieldValue.serverTimestamp()
+      });
+      return { invoiceId: input.invoiceId, revision, total };
+    });
+    res.json(result);
+  } catch (error) { fail(res, error); }
+});
+
 
 const statusSchema = z.object({ requestId: key, orderId: id,
   status: z.enum(['Confirmed', 'Packed', 'Shipped', 'Delivered', 'Cancelled']) }).strict();

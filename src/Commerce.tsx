@@ -29,9 +29,9 @@ type Product = { id: string; name: string; sku: string; productNumber?: number; 
   variants: { sku: string; barcode?: string; variantSequence?: number; size?: string; color?: string; stock: number; onHand?: number; reorderThreshold?: number; price: number; mrp?: number; costPrice?: number }[] };
 type Order = { id: string; status?: string; totalAmount?: number; paymentMethod?: string; createdBy?: string; createdAt?: { _seconds?: number; seconds?: number };
   customerName?: string; shippingAddress?: { fullName?: string }; items?: { name?: string; quantity?: number }[] };
-type Supplier = { id: string; name: string; phone: string; email: string; gstin: string };
+type Supplier = { id: string; name: string; phone: string; email: string; gstin: string; address?: string };
 type Purchase = { id: string; supplierName: string; supplierInvoice: string; total: number; amountPaid: number; payable: number; lines?: { name?: string; sku?: string; quantity?: number; unitCost?: number; salePrice?: number; mrp?: number; stockValue?: number }[]; createdAt?: { _seconds?: number; seconds?: number } };
-type PurchaseOrder = { id: string; supplierId?: string; supplierName: string; supplierInvoice: string; total: number; status: string; lines?: { name?: string; sku?: string; quantity?: number; unitCost?: number; salePrice?: number; mrp?: number }[]; createdAt?: { _seconds?: number; seconds?: number }; receivedAt?: { _seconds?: number; seconds?: number }; purchaseId?: string };
+type PurchaseOrder = { supplierInvoiceDate?: string; id: string; supplierId?: string; supplierName: string; supplierInvoice: string; total: number; status: string; lines?: { name?: string; sku?: string; quantity?: number; unitCost?: number; salePrice?: number; mrp?: number }[]; createdAt?: { _seconds?: number; seconds?: number }; receivedAt?: { _seconds?: number; seconds?: number }; purchaseId?: string };
 type Movement = { id: string; productId?: string; sku?: string; deltaChange?: number; reason?: string; source?: string; stockAfter?: number };
 type Invoice = { id: string; orderId: string; total: number; lines: { name?: string; sku?: string; quantity?: number; price?: number; discount?: number; discountPercent?: number; tax?: number; amount?: number; taxPercent?: number }[];
   exchangeCreditUsed?: number; payments?: PaymentPart[]; creditAmount?: number; cashTendered?: number; change?: number; creditDueDate?: string;
@@ -522,7 +522,8 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
     }
     const paths: Record<string, string[]> = { products: ['products'], pos: ['products', 'shop-details', 'customers', 'invoices'],
       inventory: ['products', 'movements'], orders: ['shop-details'], customers: ['customers'],
-      suppliers: ['suppliers', 'purchases', 'products', 'purchase-orders'],
+      suppliers: ['suppliers', 'purchases', 'products'],
+      'purchase-orders': ['suppliers', 'products', 'purchase-orders'],
       reports: ['orders', 'invoices'], sync: ['sync-health'] };
     const wanted = background ? ['products', 'customers'] : paths[tab] || [];
     try {
@@ -765,7 +766,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
     sync: ['Sync health', 'Delivery events and work needing attention.']
   };
   return <div className="commerce"><p className="notice" role="status">{online ? 'Online' : 'Offline — provisional bills only; stock and prices confirmed after reconnect'} · {offlineSales.length} pending bill(s) on this device</p>
-    {tab !== 'suppliers' && tab !== 'pos' && (
+    {tab !== 'suppliers' && tab !== 'pos' && tab !== 'purchase-orders' && (
       <div className="page-title">
         <div><span className="eyebrow">BROTHERS OUTFIT GALLERY</span><h1>{heading[tab]?.[0]}</h1><p>{heading[tab]?.[1]}</p></div>
         <button className="button secondary" onClick={() => void load()} disabled={loading}><RefreshCw size={16} />Refresh</button>
@@ -891,44 +892,11 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
         <td><span className={customer.birthdayOffersOptIn ? 'credit-green' : 'muted'}>{customer.birthdayOffersOptIn ? 'Opted in' : 'Not opted in'}</span></td>
         <td><button type="button" className="button secondary" onClick={()=>{history.pushState(null,'',`/orders?phone=${encodeURIComponent(customer.phone)}`);window.dispatchEvent(new PopStateEvent('popstate'));}}>Bills</button><button type="button" className="button secondary" disabled={role==='cashier' || !mobileNumber(customer.phone)} onClick={() => setEditCustomer(customer)}>Edit</button><button type="button" className="button secondary customer-whatsapp-action" disabled={!mobileNumber(customer.phone)} onClick={() => setMessageCustomer(customer)} aria-label={`WhatsApp ${customer.fullName || customer.phone || 'customer'}`}><MessageCircle size={16} />WhatsApp</button>{!mobileNumber(customer.phone) && <small>Valid mobile number needed</small>}</td>
       </tr>)}{shownCustomers.length === 0 && <tr><td colSpan={6}>No customers match the selected filters.</td></tr>}</tbody></table></div></div>}
-    {tab === 'suppliers' && (
-      <>
-        <div className="page-title" style={{ flexWrap: 'wrap', gap: 16 }}>
-          <div>
-            <span className="eyebrow">PROCUREMENT & VENDOR MANAGEMENT</span>
-            <h1 style={{ margin: '8px 0 6px' }}>Suppliers & Purchases</h1>
-            <p>Purchase orders, stock receipts, vendor invoices and payment settlements.</p>
-          </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            <button type="button" className="button primary" onClick={() => setAddSupplierOpen(true)}>
-              <Plus size={16} /> Add Supplier
-            </button>
-            <button type="button" className="button secondary" onClick={() => { setPaymentSupplierId(''); setPaymentModalOpen(true); }}>
-              <IndianRupee size={16} /> Supplier Payment
-            </button>
-            <button type="button" className="button secondary" onClick={() => setShowReceiveStock(v => !v)}>
-              <PackagePlus size={16} /> {showReceiveStock ? 'Hide Stock Form' : '+ Receive Stock / New PO'}
-            </button>
-            <button type="button" className="button secondary" onClick={() => void load()} disabled={loading} title="Refresh">
-              <RefreshCw size={16} className={loading ? 'spinning' : ''} />
-            </button>
-          </div>
-        </div>
-
-        {showReceiveStock && (
-          <div style={{ marginBottom: 20 }}>
-            <PurchaseReceive
-              products={products}
-              suppliers={suppliers}
-              receive={async input => {
-                await send('purchases/receive', input);
-                await load();
-                setShowReceiveStock(false);
-              }}
-            />
-          </div>
-        )}
-
+    {tab === 'purchase-orders' && <>
+      <PurchaseReceive mode="order" products={products} suppliers={suppliers} receive={async input => {
+        await send('purchases/receive', input);
+        await load();
+      }} />
         {/* Direct show Purchase Orders */}
         <div className="glass table-panel">
           <div className="commerce-toolbar">
@@ -936,11 +904,6 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
               <h2>Purchase Orders ({purchaseOrders.length})</h2>
               <span className="microcopy" style={{ margin: 0 }}>Pending orders awaiting delivery & stock intake</span>
             </div>
-            {!showReceiveStock && (
-              <button type="button" className="button secondary" onClick={() => setShowReceiveStock(true)}>
-                <Plus size={15} /> Create Purchase Order
-              </button>
-            )}
           </div>
           <div className="table-wrap">
             <table>
@@ -957,9 +920,15 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
               <tbody>
                 {purchaseOrders.map(order => (
                   <tr key={order.id}>
-                    <td><strong>{order.id}</strong></td>
+                    <td><strong>{order.id}</strong>
+                      {!!order.lines?.length && <details><summary>Items ({order.lines.length})</summary>
+                        <ul>{order.lines.map((line, index) => <li key={index}>
+                          {line.name || line.sku} · {line.quantity} × {money(line.unitCost ?? 0)}
+                        </li>)}</ul>
+                      </details>}
+                    </td>
                     <td>{order.supplierName}</td>
-                    <td>{order.supplierInvoice}</td>
+                    <td>{order.supplierInvoice}{order.supplierInvoiceDate && <small>{order.supplierInvoiceDate}</small>}</td>
                     <td><strong>{money(order.total)}</strong></td>
                     <td>
                       <span className="pill" style={order.status === 'received' ? { background: '#24694022', color: '#246940' } : { background: '#d4a84f22', color: '#d4a84f' }}>
@@ -1005,12 +974,51 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
                   </tr>
                 ))}
                 {!purchaseOrders.length && (
-                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: 24, color: 'var(--muted)' }}>No purchase orders yet. Click "+ Receive Stock / New PO" above to create an order.</td></tr>
+                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: 24, color: 'var(--muted)' }}>No purchase orders yet.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
         </div>
+
+    </>}
+    {tab === 'suppliers' && (
+      <>
+        <div className="page-title" style={{ flexWrap: 'wrap', gap: 16 }}>
+          <div>
+            <span className="eyebrow">PROCUREMENT & VENDOR MANAGEMENT</span>
+            <h1 style={{ margin: '8px 0 6px' }}>Suppliers & Purchases</h1>
+            <p>Stock receipts, vendor invoices and payment settlements.</p>
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button type="button" className="button primary" onClick={() => setAddSupplierOpen(true)}>
+              <Plus size={16} /> Add Supplier
+            </button>
+            <button type="button" className="button secondary" onClick={() => { setPaymentSupplierId(''); setPaymentModalOpen(true); }}>
+              <IndianRupee size={16} /> Supplier Payment
+            </button>
+            <button type="button" className="button secondary" onClick={() => setShowReceiveStock(v => !v)}>
+              <PackagePlus size={16} /> {showReceiveStock ? 'Hide Stock Form' : 'Receive Stock'}
+            </button>
+            <button type="button" className="button secondary" onClick={() => void load()} disabled={loading} title="Refresh">
+              <RefreshCw size={16} className={loading ? 'spinning' : ''} />
+            </button>
+          </div>
+        </div>
+
+        {showReceiveStock && (
+          <div style={{ marginBottom: 20 }}>
+            <PurchaseReceive
+              products={products}
+              suppliers={suppliers}
+              receive={async input => {
+                await send('purchases/receive', input);
+                await load();
+                setShowReceiveStock(false);
+              }}
+            />
+          </div>
+        )}
 
         {/* Direct show Stock Receipts */}
         <div className="glass table-panel">

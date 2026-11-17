@@ -205,7 +205,7 @@ export function createApp(options: AppOptions = {}) {
   app.use('/api', async (req, res, next) => {
     const writes = new Set(['/products/images/upload', '/sync/retry', '/products/create', '/products/patch',
       '/inventory/adjust', '/inventory/adjust-batch', '/suppliers/create', '/pos/recover', '/pos/sale',
-      '/orders/status', '/orders/invoice', '/orders/return', '/orders/refund', '/credit/customers',
+      '/orders/status', '/orders/invoice', '/orders/edit-bill', '/orders/return', '/orders/refund', '/credit/customers',
       '/credit/entries', '/credit/preferences', '/whatsapp/process', '/whatsapp/retry', '/expenses/create',
       '/day/close', '/suppliers/payment', '/customers/update', '/inventory/count', '/purchases/receive',
       '/purchases/receive-order', '/purchases/return', '/purchases/return/apply-credit', '/purchases/return/refund', '/staff/save']);

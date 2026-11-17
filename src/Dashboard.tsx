@@ -1679,7 +1679,7 @@ function PurchaseReceiveModal({ onClose, onSuccess }: { onClose: () => void; onS
     <div className="dashboard-modal-backdrop" onClick={onClose}>
       <div className="dashboard-modal-panel" style={{ width: 'min(920px, 96vw)' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h2 style={{ margin: 0, fontSize: 18 }}>Receive Stock / New Purchase Order</h2>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Receive Stock</h2>
           <button type="button" className="icon-button" onClick={onClose}>×</button>
         </div>
 

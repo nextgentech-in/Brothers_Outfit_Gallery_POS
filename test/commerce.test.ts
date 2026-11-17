@@ -24,3 +24,19 @@ test('financial year follows India time at midnight', () => {
   assert.equal(fiscalYear(new Date('2027-03-31T18:29:59Z')), '2026-27');
   assert.equal(fiscalYear(new Date('2027-03-31T18:30:00Z')), '2027-28');
 });
+
+test('POS variant sale preserves quantity-only website variants and available sizes', () => {
+  const product = { active: true, variants: [
+    { sku: 'M', size: 'M', stock: 1 },
+    { sku: 'L', size: 'L', quantity: 2, reserved: 1 }
+  ] };
+  const { product: updated } = changeStock(product, 'M', -1);
+  assert.equal(updated.stock, 2);
+  assert.equal(updated.reserved, 1);
+  assert.equal(updated.inStock, true);
+  assert.deepEqual(updated.sizes, ['L']);
+  const { product: reservedOnly } = changeStock(updated, 'L', -1);
+  assert.equal(reservedOnly.stock, 1);
+  assert.equal(reservedOnly.inStock, false);
+  assert.deepEqual(reservedOnly.sizes, []);
+});

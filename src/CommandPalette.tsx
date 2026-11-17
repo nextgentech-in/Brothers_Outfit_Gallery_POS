@@ -143,12 +143,22 @@ export function CommandPalette({
       category: 'action',
       icon: Truck,
       minRole: 'manager',
-      aliases: ['add purchase', 'purchase order', 'receive goods', 'maal aaya', 'kharidi', 'khareed', 'supplier invoice', 'goods in', 'stock receive', 'maal jodo'],
+      aliases: ['add purchase', 'receive goods', 'maal aaya', 'kharidi', 'khareed', 'supplier invoice', 'goods in', 'stock receive', 'maal jodo'],
       perform: () => {
         if (onQuickAction) onQuickAction('add-purchase');
         else navigate('dashboard');
         onClose();
       }
+    },
+    {
+      id: 'purchase-orders',
+      title: 'Purchase Orders',
+      subtitle: 'Create a purchase order or receive an existing one',
+      category: 'navigation',
+      icon: Truck,
+      minRole: 'manager',
+      aliases: ['purchase order', 'new po', 'supplier order'],
+      perform: () => { navigate('purchase-orders'); onClose(); }
     },
     {
       id: 'add-expense',

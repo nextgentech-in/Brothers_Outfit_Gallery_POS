@@ -1,3 +1,4 @@
+import { priceBillLine, setBillTotal } from '../shared/billPricing';
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Search, Share2, Check, Calendar, Clock, Phone, User, Banknote, QrCode, CreditCard, Pause } from 'lucide-react';
 import { mobileNumber, shopDate } from '../shared/customers';
@@ -51,7 +52,6 @@ export type BillRow = {
   mrp: number;
   salePrice: number;
   discountPercent: number;
-  discountManual: boolean;
   discount: number;
   amount: number;
 };
@@ -67,7 +67,6 @@ const createEmptyRow = (id: string = crypto.randomUUID()): BillRow => ({
   mrp: 0,
   salePrice: 0,
   discountPercent: 0,
-  discountManual: false,
   discount: 0,
   amount: 0
 });
@@ -119,7 +118,7 @@ export function VyaparBilling({
   const [splitCredit, setSplitCredit] = useState('');
   const [creditDueDate, setCreditDueDate] = useState(() => dueDateAfter(7));
   const [creditWhatsAppOptIn, setCreditWhatsAppOptIn] = useState(false);
-  const [whatsappOptIn, setWhatsAppOptIn] = useState(false);
+  const [whatsappOptIn, setWhatsAppOptIn] = useState(true);
   const [cashTendered, setCashTendered] = useState('');
   const [terms] = useState('Goods once sold can be exchanged within 7 days with bill tag intact.');
 
@@ -240,7 +239,7 @@ export function VyaparBilling({
   }, [customers, customerSearchQuery]);
 
   function handleSelectCustomer(cust: CustomerItem) {
-    setWhatsAppOptIn(false);
+    setWhatsAppOptIn(true);
     setCreditWhatsAppOptIn(false);
     setCustomerExtras({});
     setCustomerName(cust.fullName || '');
@@ -271,7 +270,7 @@ export function VyaparBilling({
   }
 
   function handlePhoneChange(phoneVal: string) {
-    setWhatsAppOptIn(false);
+    setWhatsAppOptIn(true);
     setCreditWhatsAppOptIn(false);
     setCustomerExtras({});
     setCustomerPhone(phoneVal);
@@ -293,37 +292,27 @@ export function VyaparBilling({
   }
 
   // Row update helpers
-  function calculateRowAmount(qty: number, mrp: number, discountPercent: number, salePrice?: number) {
-    const gross = Math.round(qty * mrp * 100);
-    const discount = (salePrice === undefined ? Math.round(gross * discountPercent / 100) : gross - Math.round(qty * salePrice * 100)) / 100;
-    return { discount, amount: Math.max(0, Math.round(gross - discount * 100) / 100) };
+  function updateRowField(id: string, field: 'name' | 'quantity' | 'mrp' | 'discountPercent' | 'salePrice' | 'amount', value: string | number) {
+    setRows(previous => previous.map(row => {
+      if (row.id !== id) return row;
+      if (field === 'name') return { ...row, name: String(value) };
+      const next = Number(value);
+      const quantity = field === 'quantity' ? next : row.quantity;
+      const mrp = field === 'mrp' ? next : row.mrp;
+      const pricing = field === 'amount' ? priceBillLine(quantity, mrp, next, 'amount')
+        : field === 'discountPercent' ? priceBillLine(quantity, mrp, next, 'percent')
+        : field === 'salePrice' ? priceBillLine(quantity, mrp, next, 'price')
+        : priceBillLine(quantity, mrp, row.quantity ? row.amount * quantity / row.quantity : 0, 'amount');
+      return { ...row, ...pricing, price: pricing.mrp };
+    }));
   }
 
-  function updateRowField(id: string, field: keyof BillRow, value: any) {
-    setRows(prev =>
-      prev.map(r => {
-        if (r.id !== id) return r;
-        const updated = { ...r, [field]: value };
-        if (field === 'discountPercent') updated.discountManual = true;
-        if (['quantity', 'mrp', 'discountPercent'].includes(field)) {
-          const { discount, amount } = calculateRowAmount(
-            Number(updated.quantity || 0),
-            Number(updated.mrp || 0),
-            Number(updated.discountPercent || 0),
-            updated.discountManual ? undefined : updated.salePrice
-          );
-          updated.price = Number(updated.mrp || 0);
-          updated.discount = discount;
-          updated.amount = amount;
-        }
-        return updated;
-      })
-    );
+  function withEntryRow(items: BillRow[]) {
+    return items.some(row => !row.productId) ? items : [...items, createEmptyRow()];
   }
 
   function productRow(row: BillRow, item: typeof searchableItems[0]): BillRow {
-    const mrp = item.mrp || item.price;
-    const discountPercent = mrp > 0 ? Math.round((mrp - item.price) / mrp * 10000) / 100 : 0;
+    const pricing = priceBillLine(row.quantity, Math.max(item.mrp, item.price), item.price, 'price');
     return {
       ...row,
       productId: item.productId,
@@ -331,17 +320,13 @@ export function VyaparBilling({
       name: `${item.productName}${item.variantText}`,
       variantDetail: item.variantText,
       stock: item.stock,
-      price: mrp,
-      mrp,
-      salePrice: item.price,
-      discountPercent,
-      discountManual: false,
-      ...calculateRowAmount(row.quantity, mrp, discountPercent, item.price)
+      price: pricing.mrp,
+        ...pricing
     };
   }
 
   function handleSelectItem(rowId: string, item: typeof searchableItems[0]) {
-    setRows(prev => prev.map(row => row.id === rowId ? productRow(row, item) : row));
+    setRows(prev => withEntryRow(prev.map(row => row.id === rowId ? productRow(row, item) : row)));
     setActiveSearchRowId(null);
     setSearchQuery('');
     requestAnimationFrame(() => document.querySelector<HTMLInputElement>(`[data-qty-row="${rowId}"]`)?.focus());
@@ -373,20 +358,12 @@ export function VyaparBilling({
       handleSelectItem(emptyRow.id, match);
     } else {
       const row = productRow(createEmptyRow(), match);
-      setRows(prev => [...prev, row]);
+      setRows(prev => withEntryRow([...prev, row]));
     }
-  }
-
-  function addRow() {
-    setRows(prev => [...prev, createEmptyRow()]);
   }
 
   function removeRow(id: string) {
-    if (rows.length === 1) {
-      setRows([createEmptyRow()]);
-      return;
-    }
-    setRows(prev => prev.filter(r => r.id !== id));
+    setRows(previous => withEntryRow(previous.filter(row => row.id !== id)));
   }
 
   // Totals calculations
@@ -397,8 +374,8 @@ export function VyaparBilling({
     let totalAmount = 0;
 
     for (const r of rows) {
-      if (r.productId || r.name.trim()) {
-        const qty = Number(r.quantity || 0);
+      if (r.productId) {
+        const qty = r.quantity;
         const price = Number(r.price || 0);
         const disc = Number(r.discount || 0);
         const amt = Number(r.amount || 0);
@@ -463,7 +440,7 @@ export function VyaparBilling({
     setSplitCredit('');
     setCreditDueDate(dueDateAfter(7));
     setCreditWhatsAppOptIn(false);
-    setWhatsAppOptIn(false);
+    setWhatsAppOptIn(true);
     setInvoiceNumber(initialInvoiceNumber);
     setManualInvoiceNumber(false);
     setInvoiceDate(shopDate());
@@ -474,14 +451,18 @@ export function VyaparBilling({
 
   async function handleHold() {
     if (actionPending.current || !hasDraft) return;
+    if (rows.some(row => !row.productId && row.name.trim())) {
+      setError('Select the product from the search results before holding this bill.');
+      return;
+    }
     actionPending.current = true;
     setAction('hold');
     setError('');
     setSuccess('');
-    const requestId = draftId.current ??= crypto.randomUUID();
+    const requestId = activeHeldId ?? (draftId.current ??= crypto.randomUUID());
     try {
       const draft: BillingDraft = {
-        rows, customerName, customerPhone, customerDateOfBirth, ...customerExtras,
+        rows: rows.filter(row => row.productId), customerName, customerPhone, customerDateOfBirth, ...customerExtras,
         invoiceNumber: manualInvoiceNumber ? invoiceNumber : undefined, invoiceDate, invoiceTime,
         paymentMethod, split: { cash: splitCash, upi: splitUpi, card: splitCard, credit: splitCredit },
         cashTendered, creditDueDate, creditWhatsAppOptIn, whatsappOptIn
@@ -510,9 +491,8 @@ export function VyaparBilling({
         ...row,
         name: line.name || item?.productName || line.sku,
         stock: item?.stock ?? 0,
-        price, mrp: price, discount,
+        price, mrp: price, salePrice: Math.round((price - discount / line.quantity) * 100) / 100, discount,
         discountPercent: price > 0 ? Math.round(discount / (price * line.quantity) * 10000) / 100 : 0,
-        discountManual: true,
         amount: Math.round((price * line.quantity - discount) * 100) / 100
       };
     });
@@ -532,6 +512,7 @@ export function VyaparBilling({
         ...row,
         discount: rowDiscount / 100,
         amount: (rowGross - rowDiscount) / 100,
+        salePrice: Math.round((rowGross - rowDiscount) / row.quantity) / 100,
         discountPercent: rowGross > 0 ? Math.round(rowDiscount / rowGross * 10000) / 100 : 0
       };
     });
@@ -547,8 +528,13 @@ export function VyaparBilling({
     const split = 'draft' in bill ? bill.draft.split : Object.fromEntries(
       (bill.payments || []).map(part => [part.method, String(part.amount)])
     );
-    setRows('draft' in bill ? bill.draft.rows : restoreQueuedRows(bill));
-    draftId.current = bill.requestId;
+    const savedRows = 'draft' in bill
+      ? bill.draft.rows.map(row => row.productId
+        ? { ...row, ...priceBillLine(row.quantity, row.mrp, row.amount, 'amount') }
+        : row)
+      : restoreQueuedRows(bill);
+    setRows(withEntryRow(savedRows));
+    draftId.current = 'draft' in bill && !bill.requestId.startsWith('bill:') ? bill.requestId : crypto.randomUUID();
     setActiveHeldId(bill.requestId);
     setCustomerName(saved.customerName || '');
     setCustomerPhone(saved.customerPhone || '');
@@ -566,7 +552,7 @@ export function VyaparBilling({
     setCashTendered(saved.cashTendered === undefined ? '' : String(saved.cashTendered));
     setCreditDueDate(saved.creditDueDate ?? dueDateAfter(7));
     setCreditWhatsAppOptIn(saved.creditWhatsAppOptIn === true);
-    setWhatsAppOptIn(saved.whatsappOptIn === true);
+    setWhatsAppOptIn(saved.whatsappOptIn !== false);
     setHeldOpen(false);
     setError('');
     setSuccess('Held bill opened. Review the items and payment before saving.');
@@ -587,12 +573,23 @@ export function VyaparBilling({
       return;
     }
 
-    const validLines = rows.filter(r => (r.productId || r.name.trim()) && r.quantity > 0);
+    if (rows.some(row => !row.productId && row.name.trim())) {
+      setError('Select the product from the search results before saving this bill.');
+      return;
+    }
+    const validLines = rows.filter(row => row.productId);
     if (!validLines.length) {
       setError('Please add at least one item with quantity greater than zero.');
       return;
     }
-    if (validLines.some(line => line.mrp <= 0 || line.quantity > (catalogItems.get(itemKey(line))?.stock ?? 0))) {
+    const quantities = new Map<string, number>();
+    if (validLines.some(line => {
+      const key = itemKey(line);
+      const totalQuantity = (quantities.get(key) ?? 0) + line.quantity;
+      quantities.set(key, totalQuantity);
+      return !Number.isInteger(line.quantity) || line.quantity < 1 || line.mrp <= 0 ||
+        totalQuantity > (catalogItems.get(key)?.stock ?? 0);
+    })) {
       setError('Choose an in-stock product for each row and check its quantity and MRP.');
       return;
     }
@@ -829,7 +826,7 @@ export function VyaparBilling({
             />
             {mobileNumber(customerPhone) && <label className="check-row">
               <input type="checkbox" checked={whatsappOptIn} onChange={e => setWhatsAppOptIn(e.target.checked)} />
-              Customer agrees to automatic WhatsApp receipt delivery
+              Send receipt by WhatsApp
             </label>}
           </div>
 
@@ -906,6 +903,7 @@ export function VyaparBilling({
               <th style={{ minWidth: 260 }}>ITEM</th>
               <th style={{ width: 85, textAlign: 'center' }}>QTY</th>
               <th style={{ width: 110, textAlign: 'right' }}>MRP / PIECE</th>
+              <th style={{ width: 110, textAlign: 'right' }}>CUSTOMER PRICE / PIECE</th>
               <th style={{ width: 100, textAlign: 'right' }}>DISCOUNT %</th>
               <th style={{ width: 120, textAlign: 'right' }}>AMOUNT (₹)</th>
               <th style={{ width: 40, textAlign: 'center' }}></th>
@@ -929,13 +927,13 @@ export function VyaparBilling({
                       className="vyapar-cell-input item-name-input"
                       aria-label={`Product for row ${index + 1}`}
                       placeholder="Type or click to search items & stock..."
-                      value={row.name}
+                      value={activeSearchRowId === row.id ? searchQuery : row.name}
                       onFocus={() => {
                         setActiveSearchRowId(row.id);
                         setSearchQuery(row.name);
                       }}
                       onChange={e => {
-                        updateRowField(row.id, 'name', e.target.value);
+                        if (!row.productId) updateRowField(row.id, 'name', e.target.value);
                         setSearchQuery(e.target.value);
                         setActiveSearchRowId(row.id);
                       }}
@@ -1001,7 +999,7 @@ export function VyaparBilling({
                         ))}
                         {searchResults.length === 0 && (
                           <div className="vyapar-dropdown-empty">
-                            No matching items found. Type custom name or adjust search.
+                            No matching products found.
                           </div>
                         )}
                       </div>
@@ -1033,7 +1031,22 @@ export function VyaparBilling({
                     className="vyapar-cell-input text-right"
                     value={row.mrp || ''}
                     placeholder="MRP"
-                    readOnly
+                    disabled={!row.productId || role === 'cashier'}
+                    onChange={e => updateRowField(row.id, 'mrp', Number(e.target.value))}
+                  />
+                </td>
+
+                <td>
+                  <input
+                    type="number"
+                    aria-label={`Customer price for ${row.name || `row ${index + 1}`}`}
+                    min="0"
+                    max={row.mrp}
+                    step="0.01"
+                    className="vyapar-cell-input text-right"
+                    value={row.productId ? row.salePrice : ''}
+                    disabled={!row.productId || role === 'cashier'}
+                    onChange={e => updateRowField(row.id, 'salePrice', Number(e.target.value))}
                   />
                 </td>
 
@@ -1046,7 +1059,8 @@ export function VyaparBilling({
                     max="100"
                     step="0.01"
                     className="vyapar-cell-input text-right"
-                    value={row.discountPercent}
+                    disabled={!row.productId || role === 'cashier'}
+                    value={row.productId ? row.discountPercent : ''}
                     placeholder="0"
                     onChange={e => updateRowField(row.id, 'discountPercent', Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
                   />
@@ -1055,13 +1069,17 @@ export function VyaparBilling({
 
                 {/* AMOUNT (Calculated & Editable) */}
                 <td>
-                  <strong>₹{row.amount.toFixed(2)}</strong>
+                  <input type="number" aria-label={`Total amount for ${row.name || `row ${index + 1}`}`}
+                    className="vyapar-cell-input text-right" min="0" max={row.mrp * row.quantity} step="0.01"
+                    value={row.productId ? row.amount : ''} disabled={!row.productId || role === 'cashier'}
+                    onChange={e => updateRowField(row.id, 'amount', Number(e.target.value))} />
                 </td>
 
                 {/* Action: Delete Row */}
                 <td style={{ textAlign: 'center' }}>
                   <button
                     type="button"
+                    disabled={!row.productId && !row.name}
                     className="vyapar-row-delete"
                     onClick={() => removeRow(row.id)}
                     aria-label={`Remove ${row.name || `row ${index + 1}`}`}
@@ -1083,7 +1101,8 @@ export function VyaparBilling({
               </td>
               <td style={{ textAlign: 'center', fontWeight: 700 }}>{totals.totalQty}</td>
               <td style={{ textAlign: 'right', color: 'var(--muted)' }}>—</td>
-              <td style={{ textAlign: 'right', fontWeight: 700 }}>₹{totals.totalDiscount}</td>
+              <td></td>
+              <td style={{ textAlign: 'right', fontWeight: 700 }}>₹{totals.totalDiscount.toFixed(2)}</td>
               <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--accent)', fontSize: 16 }}>
                 ₹{totals.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
               </td>
@@ -1091,13 +1110,6 @@ export function VyaparBilling({
             </tr>
           </tfoot>
         </table>
-
-        {/* ADD ROW BUTTON (Matching image on bottom-left) */}
-        <div style={{ marginTop: 12 }}>
-          <button type="button" className="button secondary vyapar-add-row-btn" onClick={addRow}>
-            <Plus size={16} /> ADD ROW
-          </button>
-        </div>
       </div>
 
       {/* BOTTOM SECTION: NOTES, PAYMENT MODE, GRAND TOTAL & ACTION BUTTONS */}
@@ -1260,8 +1272,18 @@ export function VyaparBilling({
               </div>
             )}
             <div className="vyapar-summary-line total-highlight">
-              <span>Total Amount:</span>
-              <span className="big-amount">₹{totals.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+              <label htmlFor="billing-total">Total Amount ₹</label>
+              <input id="billing-total" type="number" className="vyapar-field billing-total-input"
+                min="0" max={totals.totalGross} step="0.01" value={totals.totalAmount}
+                disabled={!totals.totalGross || role === 'cashier'}
+                onChange={event => {
+                  const total = Number(event.target.value);
+                  setRows(previous => {
+                    const lines = setBillTotal(previous.filter(row => row.productId), total);
+                    const byId = new Map(lines.map(row => [row.id, row]));
+                    return previous.map(row => byId.get(row.id) ?? row);
+                  });
+                }} />
             </div>
           </div>
 

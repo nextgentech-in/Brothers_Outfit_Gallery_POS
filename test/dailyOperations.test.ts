@@ -11,6 +11,7 @@ import { operationsRouter } from '../server/operations.js';
 import { commerceRouter } from '../server/commerce.js';
 import { returnsRouter } from '../server/returns.js';
 import { staffRouter, staffIdentity, currentStaff } from '../server/staff.js';
+import { priceBillLine, setBillTotal } from '../shared/billPricing.js';
 import { paymentBreakdown } from '../shared/payments.js';
 import { returnAmounts } from '../shared/returns.js';
 import { summarize } from '../shared/reports.js';
@@ -41,10 +42,15 @@ test('existing receipts use weighted cost; supplier payments cannot exceed balan
  assert.equal((await post('/suppliers/payment',{...payment,requestId:'supplier-overpay-01',amount:.01})).status,422);
 });
 test('awaiting purchase orders do not change stock before receipt',async()=>{
- const payload={...purchase,requestId:'ordered-purchase-01',supplierInvoice:'PO-1',amountPaid:0,mode:'order',lines:[{...purchase.lines[0],sku:'ORDERED-JEANS'}]};
+ const payload={...purchase,requestId:'ordered-purchase-01',supplierInvoice:'PO-1',supplierInvoiceDate:'2026-11-17',includesTax:true,supplierAddress:'Market Road',amountPaid:0,mode:'order',lines:[{...purchase.lines[0],sku:'ORDERED-JEANS'}]};
  const r=await post('/purchases/receive',payload);assert.equal(r.status,201);assert.equal([...records.values()].filter(p=>p.sku==='ORDERED-JEANS').length,0);
  assert.equal((await post('/purchases/receive',{...payload,requestId:'duplicate-order-ref-01'})).status,409);
- const receive={requestId:'receive-purchase-01',orderId:r.body.orderId,amountPaid:10,paymentMethod:'upi'};assert.equal((await post('/purchases/receive-order',receive)).status,201);assert.equal((await post('/purchases/receive-order',receive)).status,201);assert.equal((await post('/purchases/receive-order',{...receive,requestId:'receive-duplicate-01'})).status,409);
+ const receive={requestId:'receive-purchase-01',orderId:r.body.orderId,amountPaid:10,paymentMethod:'upi'};const received = await post('/purchases/receive-order', receive);
+ assert.equal(received.status, 201);
+ assert.equal(records.get('erp_purchases/' + received.body.purchaseId)?.includesTax, true);
+ assert.equal(records.get('erp_purchases/' + received.body.purchaseId)?.supplierInvoiceDate, '2026-11-17');
+ assert.equal(records.get('erp_purchases/' + received.body.purchaseId)?.supplierAddress, 'Market Road');
+ assert.equal((await post('/purchases/receive-order',receive)).status,201);assert.equal((await post('/purchases/receive-order',{...receive,requestId:'receive-duplicate-01'})).status,409);
 });
 test('split payments put only unpaid amount into udhar and retain cash change',async()=>{
  const sale={requestId:'split-sale-credit-01',lines:[{productId,sku:'TEST-JEANS-V1',quantity:1}],paymentMethod:'split',payments:[{method:'cash',amount:100},{method:'credit',amount:150}],cashTendered:200,customerName:'Test Customer',customerPhone:'9876543210',customerDateOfBirth:'1998-02-28',creditDueDate:dueDateAfter(7)};
@@ -122,4 +128,48 @@ test('bill search matches the same customer with or without country code',async(
  const url=new URL(order.invoice.billUrl);
  assert.equal(url.pathname,`/api/public/bills/${order.invoice.id}/pdf`);
  assert.ok(validBillLink(order.invoice.id,url.searchParams.get('expires'),url.searchParams.get('sig')));
+});
+
+test('bill pricing retains the exact edited amount and conserves paise across lines', () => {
+  const lines = [
+    priceBillLine(3, 17, 40.01, 'amount'),
+    priceBillLine(2, 21, 25, 'percent')
+  ];
+  assert.equal(lines[0].amount, 40.01);
+  assert.equal(lines[0].discount, 10.99);
+  assert.equal(lines[1].salePrice, 15.75);
+  for (const total of [0.01, 51.67, 92.99, 93]) {
+    const edited = setBillTotal(lines, total);
+    assert.equal(edited.reduce((sum, line) => sum + Math.round(line.amount * 100), 0), Math.round(total * 100));
+    for (const line of edited) assert.equal(Math.round((line.amount + line.discount) * 100), line.mrp * line.quantity * 100);
+  }
+});
+
+test('completed POS bill edits update the receipt, payments and order together', async () => {
+  const sale = await post('/pos/sale', {
+    requestId: 'create-for-bill-edit-test', lines: [{ productId, sku: 'TEST-JEANS-V1', quantity: 1 }],
+    paymentMethod: 'cash', cashTendered: 300
+  });
+  assert.equal(sale.status, 201, JSON.stringify(sale.body));
+  const { invoiceId, orderId } = sale.body;
+  const beforeStock = records.get('products/' + productId)?.stock;
+  const edit = { requestId: 'edit-bill-test-1', invoiceId, orderId, revision: 0, customerName: 'Updated Buyer', lines: [{ mrp: 320, amount: 240.50 }] };
+  const updated = await post('/orders/edit-bill', edit);
+  assert.equal(updated.status, 200, JSON.stringify(updated.body));
+  assert.equal(updated.body.revision, 1);
+  assert.deepEqual((await post('/orders/edit-bill', edit)).body, updated.body);
+  const invoice = records.get('erp_invoices/' + invoiceId)!;
+  const order = records.get('orders/' + orderId)!;
+  assert.equal(invoice.customerName, 'Updated Buyer');
+  assert.equal(invoice.total, 240.50);
+  assert.equal(order.totalAmount, invoice.total);
+  assert.deepEqual(order.payments, [{ method: 'cash', amount: 240.50 }]);
+  assert.equal(order.change, 59.50);
+  assert.equal(invoice.lines[0].discount, 79.50);
+  assert.equal(order.items[0].netRevenue, 240.50);
+  assert.equal(records.get('products/' + productId)?.stock, beforeStock);
+  assert.equal((await post('/orders/edit-bill', { ...edit, requestId: 'edit-bill-test-stale' })).status, 409);
+  assert.equal((await post('/orders/edit-bill', { ...edit, requestId: 'edit-bill-test-invalid', revision: 1, lines: [{ mrp: 320, amount: 350 }] })).status, 422);
+  records.set('orders/' + orderId, { ...order, status: 'Partially returned' });
+  assert.equal((await post('/orders/edit-bill', { ...edit, requestId: 'edit-bill-test-returned', revision: 1 })).status, 409);
 });

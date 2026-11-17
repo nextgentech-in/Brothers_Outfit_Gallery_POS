@@ -14,7 +14,8 @@ export const purchaseLineSchema = z.object({ productId: identity.optional(), sku
   if (line.newItem?.gstEnabled && !line.newItem.gstPercent) ctx.addIssue({ code: 'custom', message: 'Choose a GST percentage for this item.' });
 });
 export const purchaseSchema = z.object({ requestId: z.string().min(12).max(128).regex(/^[\w.:-]+$/), supplierId: identity,
-  supplierInvoice: z.string().trim().min(1).max(80), paymentMethod: z.enum(['cash','upi','card']).default('cash'), amountPaid: money.default(0),
+  supplierInvoice: z.string().trim().min(1).max(80), supplierInvoiceDate: z.iso.date().optional(),
+  includesTax: z.boolean().optional(), supplierAddress: z.string().trim().max(500).optional(), paymentMethod: z.enum(['cash','upi','card']).default('cash'), amountPaid: money.default(0),
   lines: z.array(purchaseLineSchema).min(1).max(30), mode: z.enum(['order', 'receive']).default('receive') }).strict();
 export type PurchaseLine = z.infer<typeof purchaseLineSchema>;
 export type PurchaseInput = z.infer<typeof purchaseSchema>;

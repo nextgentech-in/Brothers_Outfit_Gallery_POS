@@ -84,6 +84,9 @@ async function receive(db: Firestore, tx: Transaction, input: PurchaseInput) {
   if (input.amountPaid > 0) tx.create(db.collection('erp_supplierPayments').doc(`${purchaseId}-initial`), { supplierId: input.supplierId, purchaseId, amount: input.amountPaid, method: input.paymentMethod, note: 'Payment on receipt', createdAt: FieldValue.serverTimestamp() });
   tx.create(invoiceKey, { purchaseId, supplierId: input.supplierId, invoice: input.supplierInvoice });
   tx.create(db.collection('erp_purchases').doc(purchaseId), { supplierId: input.supplierId, supplierName: supplier.data()?.name || '', supplierInvoice: input.supplierInvoice,
+    ...(input.supplierInvoiceDate ? { supplierInvoiceDate: input.supplierInvoiceDate } : {}),
+    ...(input.includesTax !== undefined ? { includesTax: input.includesTax } : {}),
+    ...(input.supplierAddress ? { supplierAddress: input.supplierAddress } : {}),
     lines, total: total / 100, amountPaid: input.amountPaid, payable: (total - cash(input.amountPaid)) / 100, status: 'received', createdAt: FieldValue.serverTimestamp() });
   return { purchaseId, total: total / 100, payable: (total - cash(input.amountPaid)) / 100, createdProductIds: [...created] };
 }
@@ -120,7 +123,8 @@ purchasesRouter.post('/purchases/receive-order', async (req, res) => {
       const ref = db.collection('erp_purchaseOrders').doc(input.orderId), order = await tx.get(ref);
       if (order.data()?.status !== 'ordered') reject('This order is already received or unavailable.', 409);
       const data = order.data()!;
-      const result = await receive(db, tx, { requestId: input.requestId, supplierId: data.supplierId, supplierInvoice: data.supplierInvoice, lines: data.lines, amountPaid: input.amountPaid, paymentMethod: input.paymentMethod, mode: 'receive' });
+      const result = await receive(db, tx, { requestId: input.requestId, supplierId: data.supplierId, supplierInvoice: data.supplierInvoice, supplierInvoiceDate: data.supplierInvoiceDate,
+        includesTax: data.includesTax, supplierAddress: data.supplierAddress, lines: data.lines, amountPaid: input.amountPaid, paymentMethod: input.paymentMethod, mode: 'receive' });
       tx.update(ref, { status: 'received', purchaseId: result.purchaseId, receivedAt: FieldValue.serverTimestamp() }); return result;
     });res.status(201).json(result);
   } catch (e) { failure(res, e); }

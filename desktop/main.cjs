@@ -7,7 +7,7 @@ const { createUpdates } = require('./updates.cjs');
 
 const origin = 'https://brothers-outfit-gallery-pos.vercel.app';
 const routes = new Set(['/', '/login', '/enroll', '/pos', '/dashboard', '/products',
-  '/inventory', '/orders', '/customers', '/credit', '/whatsapp', '/suppliers', '/reports', '/security', '/sync']);
+  '/inventory', '/orders', '/customers', '/credit', '/whatsapp', '/suppliers', '/purchase-orders', '/reports', '/security', '/sync']);
 const types = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html',
   '.svg': 'image/svg+xml', '.jpg': 'image/jpeg', '.csv': 'text/csv', '.webmanifest': 'application/manifest+json' };
 const json = (body, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });

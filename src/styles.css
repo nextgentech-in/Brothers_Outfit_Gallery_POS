@@ -1979,3 +1979,71 @@
   [data-theme=dark] .vyapar-stock-badge.unavailable { color:#ff9b94; }
   @supports not (backdrop-filter:blur(1px)) { [data-theme=dark] .glass { background:#191c21; } }
 }
+
+.purchase-order-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+}
+.purchase-order-layout {
+  display: grid;
+  grid-template-columns: minmax(235px, 340px) minmax(0, 1fr);
+  gap: 22px;
+  margin-bottom: 16px;
+}
+.purchase-order-layout label, .purchase-order-fields {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.purchase-order-layout .check-row {
+  display: flex;
+  align-items: center;
+}
+.purchase-order-layout .purchase-order-cart {
+  border-left: 1px solid var(--line);
+  padding-left: 22px;
+}
+.purchase-add-cart {
+  width: 100%;
+}
+.billing-total-input {
+  width: 155px;
+  text-align: right;
+  font-weight: 700;
+}
+@media (max-width: 760px) {
+  .purchase-order-layout {
+    grid-template-columns: 1fr;
+  }
+  .purchase-order-layout .purchase-order-cart {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding: 14px 0 0;
+  }
+}
+
+.edit-bill-dialog {
+  width: min(920px, calc(100% - 32px));
+}
+.edit-bill-dialog input[type="number"] {
+  min-width: 80px;
+}
+
+.purchase-receive .purchase-order-layout textarea {
+  min-height: 64px;
+  width: 100%;
+  margin-top: 7px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--text);
+  background: var(--solid);
+  font: inherit;
+}
+.purchase-receive .purchase-order-layout input[type="checkbox"] {
+  width: 16px;
+  min-height: 16px;
+  margin: 0;
+}

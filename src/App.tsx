@@ -90,10 +90,11 @@ function EnrollDevice() {
 }
 const primaryTabs: { id: string; label: string; icon: LucideIcon }[] = [
   { id: 'pos', label: 'Billing', icon: ShoppingBag },
+  { id: 'purchase-orders', label: 'Purchase Orders', icon: FileText },
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'products', label: 'Products', icon: Package },
   { id: 'customers', label: 'Customers', icon: Users },
-  { id: 'suppliers', label: 'Suppliers & PO', icon: Truck },
+  { id: 'suppliers', label: 'Suppliers', icon: Truck },
   { id: 'credit', label: 'Credit / Udhar', icon: ArrowDownUp },
   { id: 'inventory', label: 'Inventory', icon: ArrowDownUp },
   { id: 'orders', label: 'Orders', icon: FileText }
@@ -200,7 +201,7 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
       {tab === 'reports' && <ReportsWorkspace role={owner?.role} />}
       {tab === 'credit' && <CreditView />}
       {tab === 'whatsapp' && <WhatsAppView onCustomers={() => navigate('customers')} />}
-      {['products', 'pos', 'inventory', 'orders', 'customers', 'suppliers', 'sync'].includes(tab) && <CommerceView tab={tab} role={owner?.role} />}
+      {['products', 'pos', 'inventory', 'orders', 'customers', 'suppliers', 'purchase-orders', 'sync'].includes(tab) && <CommerceView tab={tab} role={owner?.role} />}
       </Suspense>
       <footer className="page-footer"><span>BROTHERS OUTFIT GALLERY <span className="footer-separator">/</span> STUDIO</span><span>A little more clarity. Every day.</span></footer>
     </main></div>
