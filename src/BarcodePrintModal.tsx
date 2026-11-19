@@ -3,6 +3,9 @@ import { createPortal } from 'react-dom';
 import { Printer } from 'lucide-react';
 import { ClothingLabel, type ClothingProduct, type ClothingVariant, type LabelFormat } from './ClothingLabel';
 import { BarcodePages } from './BarcodePages';
+import { barcodeFormats } from '../shared/printing';
+import { BarcodeFormatPicker } from './BarcodeFormatPicker';
+import { printDocument, usePrintPreference } from './printing';
 
 export type PrintableItem = {
   product: ClothingProduct;
@@ -23,7 +26,9 @@ export function BarcodePrintModal({
   subtitle = 'Adjust format and quantities, preview below, and print crisp labels.',
   onClose
 }: BarcodePrintModalProps) {
-  const [format, setFormat] = useState<LabelFormat>('a4-18');
+  const [format, setFormat] = usePrintPreference<LabelFormat>('barcode', barcodeFormats, 'thermal-50x38');
+  const [printing, setPrinting] = useState(false);
+  const [printError, setPrintError] = useState('');
   const [showMrp, setShowMrp] = useState(true);
   const [showDiscount, setShowDiscount] = useState(true);
 
@@ -40,7 +45,7 @@ export function BarcodePrintModal({
   const [bulkQty, setBulkQty] = useState<number | ''>('');
 
   const handleSetAll = (qty: number) => {
-    const clamped = Math.max(0, Math.min(200, qty));
+    const clamped = Number.isSafeInteger(qty) ? Math.max(0, Math.min(200, qty)) : 0;
     setCopies(prev => {
       const updated: Record<string, number> = {};
       Object.keys(prev).forEach(k => {
@@ -51,7 +56,7 @@ export function BarcodePrintModal({
   };
 
   const handleUpdateCopies = (key: string, val: number) => {
-    const clamped = Math.max(0, Math.min(200, Number.isFinite(val) ? val : 0));
+    const clamped = Number.isSafeInteger(val) ? Math.max(0, Math.min(200, val)) : 0;
     setCopies(prev => ({ ...prev, [key]: clamped }));
   };
 
@@ -75,8 +80,11 @@ export function BarcodePrintModal({
 
   const totalLabels = printableList.length;
 
-  const handlePrint = () => {
-    window.print();
+  const handlePrint = async () => {
+    setPrinting(true); setPrintError('');
+    try { await printDocument(); }
+    catch (error) { setPrintError((error as Error).message); }
+    finally { setPrinting(false); }
   };
 
   return createPortal(
@@ -94,26 +102,14 @@ export function BarcodePrintModal({
 
         {/* Configuration Panel (Hidden in print) */}
         <div className="barcode-controls no-print">
+          {printError && <p className="error-banner" role="alert">{printError}</p>}
           <div className="barcode-modal-header">
             <h2>{title}</h2>
             <p>{subtitle}</p>
           </div>
 
           <div className="barcode-settings-grid">
-            <div className="barcode-setting-group">
-              <label>
-                <strong>Label Format & Size</strong>
-                <select value={format} onChange={e => setFormat(e.target.value as LabelFormat)}>
-                  <option value="thermal-38x60">Clothing Tag: 38 × 60 mm (Vertical)</option>
-                  <option value="thermal-50x38">Thermal Roll: 50 × 38 mm (Standard Apparel)</option>
-                  <option value="thermal-50x25">Thermal Roll: 50 × 25 mm (Compact)</option>
-                  <option value="thermal-38x25">Thermal Roll: 38 × 25 mm (Mini)</option>
-                  <option value="a4-18">NovaJet 18L: 18 labels (63.5 × 46.6 mm)</option>
-                  <option value="a4-24">NovaJet 24L: 24 labels (64 × 34 mm)</option>
-                  <option value="a4-40">NovaJet 40L: 40 labels (39 × 35 mm)</option>
-                </select>
-              </label>
-            </div>
+            <BarcodeFormatPicker value={format} onChange={setFormat} />
 
             <div className="barcode-setting-group bulk-qty-group">
               <label>
@@ -207,11 +203,11 @@ export function BarcodePrintModal({
               <button
                 type="button"
                 className="button primary"
-                disabled={totalLabels === 0}
-                onClick={handlePrint}
+                disabled={totalLabels === 0 || printing}
+                onClick={() => void handlePrint()}
               >
                 <Printer size={18} />
-                <span>Print {totalLabels} Labels</span>
+                <span>{printing ? 'Preparing labels…' : `Print ${totalLabels} Labels`}</span>
               </button>
             </div>
           </div>
@@ -231,12 +227,8 @@ export function BarcodePrintModal({
                 showDiscount={showDiscount}
               />
             ))}
-            {printableList.length === 0 && (
-              <div className="empty-labels-notice no-print">
-                No labels to display. Set copies above 0 to preview and print.
-              </div>
-            )}
           </BarcodePages>
+          {printableList.length === 0 && <div className="empty-labels-notice no-print">No labels to display. Set copies above 0 to preview and print.</div>}
         </div>
       </div>
     </div>,

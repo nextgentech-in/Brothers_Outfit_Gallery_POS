@@ -1,0 +1,117 @@
+/* Physical media dimensions are independent of the selected OS printer driver. */
+@page barcode50x38 { size: 50mm 38mm; margin: 0; }
+@page barcode50x25 { size: 50mm 25mm; margin: 0; }
+@page barcode38x25 { size: 38mm 25mm; margin: 0; }
+@page barcode38x60 { size: 38mm 60mm; margin: 0; }
+@page barcode100x150 { size: 100mm 150mm; margin: 0; }
+@page barcode4x6 { size: 101.6mm 152.4mm; margin: 0; }
+@page receipt4x6 { size: 101.6mm 152.4mm; margin: 4mm; }
+@page receipt100x150 { size: 100mm 150mm; margin: 4mm; }
+@page receiptA5 { size: A5 portrait; margin: 8mm; }
+@page delivery4x6 { size: 101.6mm 152.4mm; margin: 0; }
+@page delivery100x150 { size: 100mm 150mm; margin: 0; }
+@page deliveryA5 { size: A5 portrait; margin: 0; }
+@page deliveryA4 { size: A4 portrait; margin: 0; }
+
+.barcode-setting-group small { display: block; margin-top: 6px; max-width: 380px; color: var(--muted); }
+.print-help { font-size: 12px; line-height: 1.5; }
+.label-fmt-thermal-50x38 .label-header { margin-bottom: .6mm; padding-bottom: .6mm; }
+.label-fmt-thermal-50x38 .label-store-name { font-size: 6.5pt; letter-spacing: 0; }
+.label-fmt-thermal-50x38 .label-body { gap: .5mm; }
+.label-fmt-thermal-50x38 .label-variant-pill { font-size: 7pt; padding: .3mm .5mm; }
+.label-fmt-thermal-50x38 .label-barcode-text { font-size: 5.5pt; letter-spacing: 0; }
+.label-fmt-thermal-50x25 .label-header,.label-fmt-thermal-38x25 .label-header { margin-bottom: .3mm; padding-bottom: .3mm; }
+.label-fmt-thermal-50x25 .label-body,.label-fmt-thermal-38x25 .label-body { gap: .2mm; }
+.label-fmt-thermal-50x25 .label-variant-badge-row,.label-fmt-thermal-38x25 .label-variant-badge-row { margin: 0; gap: .5mm; }
+.label-fmt-thermal-50x25 .label-variant-pill,.label-fmt-thermal-38x25 .label-variant-pill { font-size: 6pt; padding: 0 .3mm; }
+.label-fmt-thermal-50x25 .label-barcode-container,.label-fmt-thermal-38x25 .label-barcode-container { margin-top: .3mm; }
+.label-fmt-thermal-50x25 .label-barcode-text,.label-fmt-thermal-38x25 .label-barcode-text { font-size: 5pt; letter-spacing: 0; }
+.label-fmt-thermal-100x150 { width: 100mm; height: 150mm; max-width: 100mm; max-height: 150mm; padding: 6mm; }
+.label-fmt-thermal-4x6 { width: 101.6mm; height: 152.4mm; max-width: 101.6mm; max-height: 152.4mm; padding: 6mm; }
+.label-fmt-thermal-4x6 .label-barcode-image,.label-fmt-thermal-100x150 .label-barcode-image { width: 100%; height: 24mm; }
+
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150) { box-sizing: border-box; width: 101.6mm; max-width: 100%; padding: 4mm; font-size: 10px; }
+.invoice-sheet.receipt-100x150 { width: 100mm; }
+.invoice-sheet.receipt-a5 { width: 148mm; max-width: 100%; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150) :is(.invoice-header,.invoice-title,.invoice-meta,.invoice-summary) { display: block; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150) :is(h1,h2) { font-size: 14px; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150) :is(th,td) { padding: 4px 2px; font-size: 9px; overflow-wrap: anywhere; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150) .invoice-header p { font-size: 10px; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150) .invoice-meta { padding: 5px; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150) .invoice-meta>div { margin-bottom: 4px; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150) .invoice-footer { font-size: 9px; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150) .invoice-footer span { font-size: 9px; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150) .invoice-actions { display: flex; flex-wrap: wrap; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150) .invoice-actions>* { max-width: 100%; }
+/* Compact bills keep normal purchases on one label; long bills continue naturally. */
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) .invoice-header .brand-logo { width: 125px; height: 30px; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) .invoice-header p { margin-bottom: 3px; font-size: 9px; line-height: 1.3; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) .invoice-header h2 { margin: 3px 0; font-size: 13px; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) .invoice-title { display: flex; align-items: center; gap: 4px; padding: 4px 0; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) .invoice-title small { font-size: 7px; color: #000; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) .invoice-title h1 { font-size: 11px; margin: 2px 0; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) .invoice-title>span { font-size: 8px; padding: 2px 6px; color: #000; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) .invoice-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; padding: 4px; background: #fff !important; border-radius: 0; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) .invoice-meta small { font-size: 7px; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) .invoice-meta strong { font-size: 10px; margin-top: 2px; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) table { margin-top: 2mm; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) .invoice-summary { font-size: 10px; margin-top: 2mm; gap: 4px; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) .invoice-summary>div>div { padding: 2px 0; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) .invoice-grand-total { font-size: 13px; margin-top: 3px; padding-top: 4px; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) .invoice-footer { gap: 2px; font-size: 8px; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) .invoice-footer strong { font-size: 10px; }
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) .invoice-footer :is(span,small) { font-size: 8px; }
+
+.delivery-editor { width: min(880px,95vw); }
+.delivery-controls { margin-bottom: 24px; }
+.delivery-print-pages { display: flex; flex-direction: column; align-items: center; gap: 18px; overflow-x: auto; }
+.delivery-sheet { width: 101.6mm; height: 152.4mm; padding: 4mm; flex-shrink: 0; box-sizing: border-box; background: #fff; color: #000; border: 1px solid #aaa; font-family: Arial, sans-serif; display: flex; flex-direction: column; gap: 2.5mm; overflow-wrap: anywhere; }
+.delivery-100x150 { width: 100mm; height: 150mm; }
+.delivery-a5 { width: 148mm; height: 210mm; padding: 8mm; }
+.delivery-a4 { width: 210mm; height: 297mm; padding: 12mm; }
+.delivery-label-header { display: flex; justify-content: space-between; align-items: start; gap: 4mm; border-bottom: .4mm solid #000; padding-bottom: 2mm; font-size: 10pt; }
+.delivery-label-header span { font-size: 8pt; text-align: right; }
+.delivery-order-ref { font-size: 8pt; }
+.delivery-caption { display: block; font-size: 7pt; font-weight: 700; letter-spacing: .2mm; }
+.delivery-recipient { display: block; }
+.delivery-recipient h2 { margin: 1mm 0; font-size: 13pt; }
+.delivery-address { white-space: pre-line; margin: 1mm 0 2mm; font-size: 10pt; line-height: 1.3; }
+.delivery-recipient>strong { font-size: 10pt; }
+.delivery-payment { border-top: .3mm solid #000; border-bottom: .3mm solid #000; padding: 2mm 0; display: flex; justify-content: space-between; gap: 2mm; font-size: 9pt; }
+.delivery-note { margin: 0; font-size: 8pt; }
+.delivery-barcode { text-align: center; margin-top: auto; }
+.delivery-barcode img { display: block; width: 100%; height: 15mm; object-fit: contain; margin-top: 1mm; }
+.delivery-barcode strong { font: 8pt monospace; }
+.delivery-sender { border-top: .3mm solid #000; padding-top: 2mm; font-size: 7.5pt; line-height: 1.3; }
+.delivery-sender p { margin: 1mm 0; white-space: pre-line; }
+.delivery-sheet :is(p,h2,span,strong,b) { color: #000 !important; }
+
+@media print {
+  html,body { min-width: 0 !important; width: auto !important; }
+  .barcode-print-pages.barcode-roll-pages { width: auto !important; }
+  .barcode-roll-pages>.barcode-sheet-printable { display: block !important; padding: 0 !important; margin: 0 !important; break-after: page !important; page-break-after: always !important; }
+  .barcode-roll-pages>.barcode-sheet-printable:last-child { break-after: auto !important; page-break-after: auto !important; }
+  .barcode-roll-pages .clothing-label-card { margin: 0 !important; border: 0 !important; border-radius: 0 !important; break-after: auto !important; page-break-after: auto !important; }
+  .barcode-roll-pages>.sheet-thermal-50x38 { page: barcode50x38; width: 50mm !important; height: 38mm !important; }
+  .barcode-roll-pages>.sheet-thermal-50x25 { page: barcode50x25; width: 50mm !important; height: 25mm !important; }
+  .barcode-roll-pages>.sheet-thermal-38x25 { page: barcode38x25; width: 38mm !important; height: 25mm !important; }
+  .barcode-roll-pages>.sheet-thermal-38x60 { page: barcode38x60; width: 38mm !important; height: 60mm !important; }
+  .barcode-roll-pages>.sheet-thermal-100x150 { page: barcode100x150; width: 100mm !important; height: 150mm !important; }
+  .barcode-roll-pages>.sheet-thermal-4x6 { page: barcode4x6; width: 101.6mm !important; height: 152.4mm !important; }
+  .barcode-roll-pages>.sheet-thermal-38x60 .clothing-label-card { margin: 0 !important; break-after: auto !important; page-break-after: auto !important; }
+  .print-backdrop .invoice-sheet.receipt-4x6 { page: receipt4x6; width: 93.6mm !important; padding: 0 !important; }
+  .print-backdrop .invoice-sheet.receipt-100x150 { page: receipt100x150; width: 92mm !important; padding: 0 !important; }
+  .print-backdrop .invoice-sheet.receipt-a5 { page: receiptA5; width: 132mm !important; padding: 0 !important; }
+  .invoice-sheet:is(.receipt-4x6,.receipt-100x150) .invoice-header { margin: 0 0 2mm !important; }
+  .invoice-sheet:is(.receipt-4x6,.receipt-100x150) .invoice-title { margin: 2mm 0 !important; }
+  .invoice-sheet:is(.receipt-4x6,.receipt-100x150) .invoice-summary { padding: 2mm 0 !important; }
+  .invoice-sheet:is(.receipt-4x6,.receipt-100x150) .invoice-footer { margin-top: 2mm !important; padding-top: 2mm !important; }
+  .print-backdrop .delivery-editor { display: block !important; width: auto !important; max-width: none !important; max-height: none !important; overflow: visible !important; background: #fff !important; padding: 0 !important; margin: 0 !important; border: 0 !important; box-shadow: none !important; }
+  .delivery-print-pages { display: block; overflow: visible; }
+  .delivery-sheet { margin: 0; border: 0; break-after: page; page-break-after: always; break-inside: avoid; color: #000 !important; }
+  .delivery-sheet:last-child { break-after: auto; page-break-after: auto; }
+  .delivery-4x6 { page: delivery4x6; }
+  .delivery-100x150 { page: delivery100x150; }
+  .delivery-a5 { page: deliveryA5; }
+  .delivery-a4 { page: deliveryA4; }
+}

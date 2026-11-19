@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import './styles.css';
 import './receiptPrint.css';
+import './printerProfiles.css';
 
 createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>);
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {

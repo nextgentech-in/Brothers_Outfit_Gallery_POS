@@ -3,6 +3,9 @@ import { createPortal } from 'react-dom';
 import { ClothingLabel, type LabelFormat } from './ClothingLabel';
 import { BarcodePages } from './BarcodePages';
 import { Printer, Search } from 'lucide-react';
+import { barcodeFormats } from '../shared/printing';
+import { BarcodeFormatPicker } from './BarcodeFormatPicker';
+import { printDocument, usePrintPreference } from './printing';
 
 export type BatchLabelProduct = {
   id: string;
@@ -46,7 +49,9 @@ type LabelRow = {
 
 export function BarcodeBatch({ products, onClose }: { products: BatchLabelProduct[]; onClose: () => void }) {
   const [copies, setCopies] = useState<Record<string, number>>({});
-  const [format, setFormat] = useState<LabelFormat>('a4-18');
+  const [format, setFormat] = usePrintPreference<LabelFormat>('barcode', barcodeFormats, 'thermal-50x38');
+  const [printing, setPrinting] = useState(false);
+  const [printError, setPrintError] = useState('');
   const [showMrp, setShowMrp] = useState(true);
   const [showDiscount, setShowDiscount] = useState(true);
   const [query, setQuery] = useState('');
@@ -73,6 +78,12 @@ export function BarcodeBatch({ products, onClose }: { products: BatchLabelProduc
 
   const validCopies = (value: number) => Number.isSafeInteger(value) ? Math.min(200, Math.max(0, value)) : 0;
   const setVisibleCopies = (value: number) => setCopies(old => ({ ...old, ...Object.fromEntries(visibleRows.map(row => [row.key, validCopies(value)])) }));
+  async function print() {
+    setPrinting(true); setPrintError('');
+    try { await printDocument(); }
+    catch (error) { setPrintError((error as Error).message); }
+    finally { setPrinting(false); }
+  }
 
   return createPortal(
     <div className="editor-backdrop print-backdrop" onClick={onClose}>
@@ -85,6 +96,7 @@ export function BarcodeBatch({ products, onClose }: { products: BatchLabelProduc
       >
         <button className="editor-close" type="button" onClick={onClose} aria-label="Close">×</button>
         <div className="barcode-controls no-print">
+          {printError && <p className="error-banner" role="alert">{printError}</p>}
           <h2>Multi-product barcode printing</h2>
           <p>Search products or product numbers, adjust label quantities, and print across thermal rolls or A4 sheets.</p>
 
@@ -99,18 +111,7 @@ export function BarcodeBatch({ products, onClose }: { products: BatchLabelProduc
           </label>
 
           <div className="barcode-options">
-            <label>
-              Label format & size
-              <select value={format} onChange={event => setFormat(event.target.value as LabelFormat)}>
-                <option value="thermal-38x60">Clothing Tag: 38 × 60 mm (Vertical)</option>
-                <option value="thermal-50x38">Thermal Roll: 50 × 38 mm (Standard)</option>
-                <option value="thermal-50x25">Thermal Roll: 50 × 25 mm (Compact)</option>
-                <option value="thermal-38x25">Thermal Roll: 38 × 25 mm (Mini)</option>
-                <option value="a4-18">NovaJet 18L: 18 labels (63.5 × 46.6 mm)</option>
-                <option value="a4-24">NovaJet 24L: 24 labels (64 × 34 mm)</option>
-                <option value="a4-40">NovaJet 40L: 40 labels (39 × 35 mm)</option>
-              </select>
-            </label>
+            <BarcodeFormatPicker value={format} onChange={setFormat} />
             <label>
               Set visible variants
               <input
@@ -172,9 +173,9 @@ export function BarcodeBatch({ products, onClose }: { products: BatchLabelProduc
           <div className="barcode-summary">
             <strong>{labels.length} labels</strong>
             <span>{selectedProducts} products selected. Continuous rolls or A4 sheets automatically flow.</span>
-            <button className="button primary" type="button" disabled={!labels.length} onClick={() => window.print()}>
+            <button className="button primary" type="button" disabled={!labels.length || printing} onClick={() => void print()}>
               <Printer size={17} />
-              Print selected barcodes
+              {printing ? 'Preparing labels…' : 'Print selected barcodes'}
             </button>
           </div>
         </div>

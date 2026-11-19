@@ -1,4 +1,6 @@
 import React from 'react';
+export type { LabelFormat } from '../shared/printing';
+import type { LabelFormat } from '../shared/printing';
 
 export type ClothingProduct = {
   id?: string;
@@ -27,8 +29,6 @@ export type ClothingVariant = {
   salePrice?: number;
   mrp?: number;
 };
-
-export type LabelFormat = 'thermal-50x25' | 'thermal-50x38' | 'thermal-38x25' | 'thermal-38x60' | 'a4-18' | 'a4-24' | 'a4-40';
 
 export interface ClothingLabelProps {
   product: ClothingProduct;
