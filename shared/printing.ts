@@ -19,47 +19,11 @@ export const receiptFormats = {
   'a4': 'A4 paper'
 } as const;
 export type ReceiptFormat = keyof typeof receiptFormats;
-export const deliveryFormats = {
-  '4x6': 'SEZNIK Shakti · 4 × 6 in',
-  '100x150': 'Thermal label · 100 × 150 mm',
-  'a5': 'A5 paper',
-  'a4': 'A4 paper'
-} as const;
-export type DeliveryFormat = keyof typeof deliveryFormats;
-
 export function labelPageGroups<T>(labels: T[], format: LabelFormat): T[][] {
   const perPage = barcodeFormats[format].perPage;
   return Array.from({ length: Math.ceil(labels.length / perPage) }, (_, index) => labels.slice(index * perPage, (index + 1) * perPage));
 }
 
-type ShippingAddress = {
-  fullName?: string; name?: string; phone?: string; addressLine?: string; addressLine1?: string;
-  addressLine2?: string; line1?: string; line2?: string; address?: string; landmark?: string;
-  city?: string; state?: string; pincode?: string; postalCode?: string; country?: string;
-};
 export type DeliveryOrder = {
-  id: string; channel?: string; status?: string; customerName?: string; customerPhone?: string;
-  shippingAddress?: ShippingAddress; waybill?: string; trackingNumber?: string; courier?: string;
-  paymentMethod?: string; paymentStatus?: string; totalAmount?: number; codAmount?: number;
-  items?: { name?: string; quantity?: number; size?: string; color?: string }[];
+  id: string; waybill?: string; trackingNumber?: string;
 };
-export function deliveryDetails(order: DeliveryOrder) {
-  const address = order.shippingAddress || {};
-  const street = address.addressLine || address.addressLine1 || address.line1 || address.address || '';
-  const city = [address.city, address.state, address.pincode || address.postalCode].filter(Boolean).join(' · ');
-  const lines = [street, address.addressLine2 || address.line2, address.landmark, city, address.country].filter((value): value is string => Boolean(value));
-  const payment = String(order.paymentMethod || '').toLowerCase().replace(/[\s_-]+/g, '');
-  const paid = ['paid', 'completed', 'success'].includes(String(order.paymentStatus || '').toLowerCase());
-  const cod = ['cod', 'cashondelivery'].includes(payment) && !paid;
-  const amount = Number(order.codAmount ?? order.totalAmount ?? 0);
-  const waybill = order.waybill || order.trackingNumber || '';
-  return {
-    name: address.fullName || address.name || order.customerName || '',
-    phone: address.phone || order.customerPhone || '', lines, waybill,
-    paymentLabel: cod ? 'CASH ON DELIVERY' : paid ? 'PREPAID' : 'PAYMENT: ' + (order.paymentMethod || 'NOT RECORDED').toUpperCase(),
-    collect: cod && Number.isFinite(amount) ? Math.max(0, amount) : 0,
-    barcode: waybill || order.id,
-    barcodeCaption: waybill ? 'AWB / WAYBILL' : 'ORDER REFERENCE',
-    complete: Boolean((address.fullName || address.name || order.customerName) && street && address.city && (address.pincode || address.postalCode))
-  };
-}

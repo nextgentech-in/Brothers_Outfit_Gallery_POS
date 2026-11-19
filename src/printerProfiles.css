@@ -8,10 +8,6 @@
 @page receipt4x6 { size: 101.6mm 152.4mm; margin: 4mm; }
 @page receipt100x150 { size: 100mm 150mm; margin: 4mm; }
 @page receiptA5 { size: A5 portrait; margin: 8mm; }
-@page delivery4x6 { size: 101.6mm 152.4mm; margin: 0; }
-@page delivery100x150 { size: 100mm 150mm; margin: 0; }
-@page deliveryA5 { size: A5 portrait; margin: 0; }
-@page deliveryA4 { size: A4 portrait; margin: 0; }
 
 .barcode-setting-group small { display: block; margin-top: 6px; max-width: 380px; color: var(--muted); }
 .print-help { font-size: 12px; line-height: 1.5; }
@@ -62,30 +58,6 @@
 .invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) .invoice-footer strong { font-size: 10px; }
 .invoice-sheet:is(.receipt-4x6,.receipt-100x150,.receipt-a5) .invoice-footer :is(span,small) { font-size: 8px; }
 
-.delivery-editor { width: min(880px,95vw); }
-.delivery-controls { margin-bottom: 24px; }
-.delivery-print-pages { display: flex; flex-direction: column; align-items: center; gap: 18px; overflow-x: auto; }
-.delivery-sheet { width: 101.6mm; height: 152.4mm; padding: 4mm; flex-shrink: 0; box-sizing: border-box; background: #fff; color: #000; border: 1px solid #aaa; font-family: Arial, sans-serif; display: flex; flex-direction: column; gap: 2.5mm; overflow-wrap: anywhere; }
-.delivery-100x150 { width: 100mm; height: 150mm; }
-.delivery-a5 { width: 148mm; height: 210mm; padding: 8mm; }
-.delivery-a4 { width: 210mm; height: 297mm; padding: 12mm; }
-.delivery-label-header { display: flex; justify-content: space-between; align-items: start; gap: 4mm; border-bottom: .4mm solid #000; padding-bottom: 2mm; font-size: 10pt; }
-.delivery-label-header span { font-size: 8pt; text-align: right; }
-.delivery-order-ref { font-size: 8pt; }
-.delivery-caption { display: block; font-size: 7pt; font-weight: 700; letter-spacing: .2mm; }
-.delivery-recipient { display: block; }
-.delivery-recipient h2 { margin: 1mm 0; font-size: 13pt; }
-.delivery-address { white-space: pre-line; margin: 1mm 0 2mm; font-size: 10pt; line-height: 1.3; }
-.delivery-recipient>strong { font-size: 10pt; }
-.delivery-payment { border-top: .3mm solid #000; border-bottom: .3mm solid #000; padding: 2mm 0; display: flex; justify-content: space-between; gap: 2mm; font-size: 9pt; }
-.delivery-note { margin: 0; font-size: 8pt; }
-.delivery-barcode { text-align: center; margin-top: auto; }
-.delivery-barcode img { display: block; width: 100%; height: 15mm; object-fit: contain; margin-top: 1mm; }
-.delivery-barcode strong { font: 8pt monospace; }
-.delivery-sender { border-top: .3mm solid #000; padding-top: 2mm; font-size: 7.5pt; line-height: 1.3; }
-.delivery-sender p { margin: 1mm 0; white-space: pre-line; }
-.delivery-sheet :is(p,h2,span,strong,b) { color: #000 !important; }
-
 @media print {
   html,body { min-width: 0 !important; width: auto !important; }
   .barcode-print-pages.barcode-roll-pages { width: auto !important; }
@@ -106,12 +78,4 @@
   .invoice-sheet:is(.receipt-4x6,.receipt-100x150) .invoice-title { margin: 2mm 0 !important; }
   .invoice-sheet:is(.receipt-4x6,.receipt-100x150) .invoice-summary { padding: 2mm 0 !important; }
   .invoice-sheet:is(.receipt-4x6,.receipt-100x150) .invoice-footer { margin-top: 2mm !important; padding-top: 2mm !important; }
-  .print-backdrop .delivery-editor { display: block !important; width: auto !important; max-width: none !important; max-height: none !important; overflow: visible !important; background: #fff !important; padding: 0 !important; margin: 0 !important; border: 0 !important; box-shadow: none !important; }
-  .delivery-print-pages { display: block; overflow: visible; }
-  .delivery-sheet { margin: 0; border: 0; break-after: page; page-break-after: always; break-inside: avoid; color: #000 !important; }
-  .delivery-sheet:last-child { break-after: auto; page-break-after: auto; }
-  .delivery-4x6 { page: delivery4x6; }
-  .delivery-100x150 { page: delivery100x150; }
-  .delivery-a5 { page: deliveryA5; }
-  .delivery-a4 { page: deliveryA4; }
 }

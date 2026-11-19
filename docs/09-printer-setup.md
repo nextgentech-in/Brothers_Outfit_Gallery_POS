@@ -24,12 +24,16 @@ Open the bill preview after a sale or use **Orders → Receipt / reprint**. The 
 
 **Download A4 PDF** downloads the existing shareable receipt document. To save the currently selected printer layout, choose **Save as PDF** in the system print dialog.
 
-## Print website delivery stickers
+## Print website courier labels
 
-Open **Orders** and choose **Delivery sticker** for a website order. The preview loads the recipient's shipping address and the shop's sender/return address. Recipient details and a delivery note can be adjusted for this print without changing the saved order. Select up to 20 identical copies; options are 4 × 6 inches (default), 100 × 150 mm, A5 and A4.
+Open **Orders → Courier label / print** for a website order, then choose **Download courier label**. The POS uses the order's saved AWB to retrieve the original Delhivery PDF from the Package Slip API. Open the downloaded PDF to preview and print; choose the SEZNIK Shakti, 4 × 6 inch stock, actual size, and the required copy count in the PDF viewer's print dialog. Configure Delhivery One's shipping-label format as A6 / 4 × 6 inches for this printer. The provider's original PDF is preserved.
 
-The sticker includes the saved courier and AWB when assigned, or an explicitly labelled internal order reference when no AWB exists. It does not book a courier, assign a waybill, or replace courier-issued routing labels. Unpaid COD shows the collection amount; paid orders do not request another collection. Sender details must load before printing. Overlong addresses or notes are rejected rather than silently clipped; shorten the text or choose larger paper.
+If the order has no AWB yet, create/manifest the shipment through the website's existing delivery option first. This POS action only retrieves the label; it does not create shipments, change delivery addresses or book pickups. Failed API requests show an error and never substitute a locally generated sticker.
+
+The POS server uses the same **DELHIVERY_API_KEY** environment-variable name as the website. Local development reads the configured website environment file; hosted POS servers must have that server-side variable configured explicitly. **DELHIVERY_ENV** defaults to **production**; use **staging** only with a staging token. The key is never sent to the browser or to the signed PDF download host.
+
+Delhivery documentation: https://one.delhivery.com/developer-portal/document/b2c/detail/faq. Shipping-label format settings: https://help.delhivery.com/docs/shipping-label-configuration.
 
 ## Verification
 
-Automated tests cover thermal/A4 label quantities and pagination, checkout-address field mapping, AWB/order-reference distinction and unpaid COD collection. Chromium checks exercise the actual single/batch barcode dialogs, saved defaults, all paper choices, delivery-sticker overflow handling and a 50-line receipt. Printed PDFs were inspected for media dimensions, page counts, blank pages, the final receipt item and visible layout. No live orders or products are created by those browser checks.
+Automated tests cover label pagination, delivery API request parameters, saved-AWB lookup, original-PDF delivery, missing shipments, provider failures and private credential handling. Browser checks exercise the courier PDF download and missing-AWB state with fixtures. Barcode and receipt media layouts retain the previous browser/PDF verification. No live shipments are created or changed by verification.

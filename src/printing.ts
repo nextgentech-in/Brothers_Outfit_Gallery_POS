@@ -30,8 +30,5 @@ export async function printDocument() {
     ]);
   } finally { clearTimeout(timer); }
   if (images.some(img => !img.complete || img.naturalWidth === 0)) throw new Error('A print image could not load. Check the connection and try again.');
-  const stickers = [...document.querySelectorAll<HTMLElement>('.delivery-sheet')];
-  if (stickers.some(sticker => sticker.scrollHeight > sticker.clientHeight + 1 || sticker.scrollWidth > sticker.clientWidth + 1))
-    throw new Error('This address or note is too long for the sticker. Shorten it or choose a larger paper size.');
   window.print();
 }

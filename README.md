@@ -1,6 +1,6 @@
 # Brothers Outfit Gallery — Admin Studio
 
-Printer defaults and setup: [True-Ally barcode labels, SEZNIK bills and website delivery stickers](docs/09-printer-setup.md). Barcode labels default to 50 × 38 mm; bills and delivery stickers default to 4 × 6 inches. Each preview also offers other paper sizes and remembers the choice on that workstation.
+Printer defaults and setup: [True-Ally barcode labels, SEZNIK bills and website delivery stickers](docs/09-printer-setup.md). Barcode labels default to 50 × 38 mm and bills to 4 × 6 inches, with other media options saved per workstation. Website delivery printing downloads the original courier label from the Delhivery API using the saved AWB; select the 4 × 6 inch format in Delhivery One and the PDF print dialog.
 
 On 19 November 2026, the owner requested a fresh start across the website and POS. A private recursive backup was saved before removing 325 catalog, stock, customer and linked sales records from the shared live database; the reset verified zero remaining records in its target collections. Admin/staff access, Firebase sign-in accounts, shop settings, suppliers, purchases, expenses and the product-number counter were retained. The backup is excluded from Git. `scripts/reset-catalog-customers.ts` requires an exact project ID, a saved snapshot and its SHA-256 for apply, and refuses changes made since the snapshot. Deploying this code does not run the reset again.
 

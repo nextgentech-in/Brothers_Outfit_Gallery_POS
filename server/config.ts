@@ -53,6 +53,10 @@ export const config = {
   deviceAccessEnabled: env.ADMIN_DEVICE_ACCESS !== 'disabled',
   erpSyncSecret: env.ERP_SYNC_SECRET || '',
   imagekitPrivateKey: env.IMAGEKIT_PRIVATE_KEY || '',
+  delhivery: {
+    apiKey: env.DELHIVERY_API_KEY || '',
+    environment: z.enum(['production', 'staging']).parse(env.DELHIVERY_ENV || 'production')
+  },
   whatsapp: {
     appSecret: env.WA_APP_SECRET || '',
     verifyToken: env.WA_WEBHOOK_VERIFY_TOKEN || '',

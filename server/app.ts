@@ -1,4 +1,5 @@
 import { backupRouter } from './backup.js';
+import { shippingRouter } from './shipping.js';
 import { staffRouter } from './staff.js';
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
 import { createHmac, timingSafeEqual } from 'node:crypto';
@@ -216,6 +217,7 @@ export function createApp(options: AppOptions = {}) {
   app.use('/api', creditRouter);
   app.use('/api', purchasesRouter);
   app.use('/api', operationsRouter);
+  app.use('/api', shippingRouter);
   app.use('/api', returnsRouter);
   app.use('/api', reportsRouter);
   app.use('/api', staffRouter);
