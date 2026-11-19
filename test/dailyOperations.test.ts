@@ -42,16 +42,22 @@ test('existing receipts use weighted cost; supplier payments cannot exceed balan
  const payment={requestId:'supplier-payment-01',supplierId:'supplier-1',amount:1100,method:'upi'};assert.equal((await post('/suppliers/payment',payment)).status,200);assert.equal((await post('/suppliers/payment',payment)).status,200);
  assert.equal((await post('/suppliers/payment',{...payment,requestId:'supplier-overpay-01',amount:.01})).status,422);
 });
-test('awaiting purchase orders do not change stock before receipt',async()=>{
- const payload={...purchase,requestId:'ordered-purchase-01',supplierInvoice:'PO-1',supplierInvoiceDate:'2026-11-17',includesTax:true,supplierAddress:'Market Road',amountPaid:0,mode:'order',lines:[{...purchase.lines[0],sku:'ORDERED-JEANS'}]};
- const r=await post('/purchases/receive',payload);assert.equal(r.status,201);assert.equal([...records.values()].filter(p=>p.sku==='ORDERED-JEANS').length,0);
+test('creating a PO immediately receives stock and records full payment exactly once',async()=>{
+ const payload={...purchase,requestId:'ordered-purchase-01',supplierInvoice:'PO-1',supplierInvoiceDate:'2026-11-17',includesTax:true,supplierAddress:'Market Road',amountPaid:0,fullPayment:true,mode:'order',lines:[{...purchase.lines[0],sku:'ORDERED-JEANS'}]};
+ const r=await post('/purchases/receive',payload);assert.equal(r.status,201,JSON.stringify(r.body));
+ const product=[...records.values()].find(p=>p.sku==='ORDERED-JEANS')!;assert.equal(product.stock,4);
+ const order=records.get('erp_purchaseOrders/'+r.body.orderId)!;assert.equal(order.status,'received');assert.equal(order.payable,0);assert.equal(order.amountPaid,501);assert.equal(order.purchaseId,r.body.purchaseId);
+ const receipt=records.get('erp_purchases/'+r.body.purchaseId)!;assert.equal(receipt.includesTax,true);assert.equal(receipt.supplierInvoiceDate,'2026-11-17');assert.equal(receipt.supplierAddress,'Market Road');
+ assert.equal(records.get('erp_supplierPayments/'+r.body.purchaseId+'-initial')?.amount,501);
+ assert.equal((await post('/purchases/receive',payload)).status,201);assert.equal(product.stock,4);
  assert.equal((await post('/purchases/receive',{...payload,requestId:'duplicate-order-ref-01'})).status,409);
- const receive={requestId:'receive-purchase-01',orderId:r.body.orderId,amountPaid:10,paymentMethod:'upi'};const received = await post('/purchases/receive-order', receive);
- assert.equal(received.status, 201);
- assert.equal(records.get('erp_purchases/' + received.body.purchaseId)?.includesTax, true);
- assert.equal(records.get('erp_purchases/' + received.body.purchaseId)?.supplierInvoiceDate, '2026-11-17');
- assert.equal(records.get('erp_purchases/' + received.body.purchaseId)?.supplierAddress, 'Market Road');
- assert.equal((await post('/purchases/receive-order',receive)).status,201);assert.equal((await post('/purchases/receive-order',{...receive,requestId:'receive-duplicate-01'})).status,409);
+ assert.equal((await post('/purchases/receive-order',{requestId:'receive-duplicate-01',orderId:r.body.orderId,amountPaid:0})).status,409);
+});
+test('PO partial payment records only the unpaid supplier balance while receiving stock immediately',async()=>{
+ const payload={...purchase,requestId:'partial-po-test-01',supplierInvoice:'PO-PARTIAL-1',amountPaid:100,fullPayment:false,mode:'order',lines:[{...purchase.lines[0],sku:'PARTIAL-JEANS',quantity:1,unitCost:150}]};
+ const result=await post('/purchases/receive',payload);assert.equal(result.status,201,JSON.stringify(result.body));
+ const receivedId=result.body.createdProductIds[0];assert.equal(result.body.amountPaid,100);assert.equal(result.body.payable,50);assert.equal(records.get('products/'+receivedId)!.stock,1);
+ assert.equal((await post('/purchases/receive',payload)).status,201);assert.equal(records.get('products/'+receivedId)!.stock,1);
 });
 test('split payments put only unpaid amount into udhar and retain cash change',async()=>{
  const sale={requestId:'split-sale-credit-01',lines:[{productId,sku:'TEST-JEANS-V1',quantity:1}],paymentMethod:'split',payments:[{method:'cash',amount:100},{method:'credit',amount:150}],cashTendered:200,customerName:'Test Customer',customerPhone:'9876543210',customerDateOfBirth:'1998-02-28',creditDueDate:dueDateAfter(7)};
@@ -82,7 +88,7 @@ test('stock count needs no reason, rejects stale counts and preserves reservatio
  const payload={requestId:'stock-count-test-01',productId,lines:[{sku:'TEST-JEANS-V1',expected:4,counted:5,threshold:2}]};assert.equal((await post('/inventory/count',payload)).status,200);assert.equal((await post('/inventory/count',{...payload,requestId:'stock-count-stale-01'})).status,409);assert.equal(records.get(`products/${productId}`)?.stock,5);
 });
 test('reports separate sales, credit collections, refunds and supplier cash; closing is immutable',async()=>{
- const r=await (await fetch(base+`/reports/summary?from=${shopDate()}&to=${shopDate()}`)).json();assert.ok(r.summary.billCount>=3);assert.equal(r.summary.cashSupplierPayments,100);assert.equal(r.summary.creditSales,150);
+ const r=await (await fetch(base+`/reports/summary?from=${shopDate()}&to=${shopDate()}`)).json();assert.ok(r.summary.billCount>=3);assert.equal(r.summary.cashSupplierPayments,701);assert.equal(r.summary.creditSales,150);
  const close={requestId:'day-closing-test-01',date:shopDate(),openingCash:1000,countedCash:1000};const first=await post('/day/close',close);assert.equal(first.status,200,JSON.stringify(first.body));assert.equal((await post('/day/close',close)).status,200);assert.equal((await post('/day/close',{...close,requestId:'day-closing-again-01'})).status,409);
 });
 test('staff credentials are hashed, can be revoked, and changed retries are rejected',async()=>{

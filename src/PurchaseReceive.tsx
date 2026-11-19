@@ -24,6 +24,7 @@ export function PurchaseReceive({ products, suppliers, receive, mode = 'receive'
   const [quantity, setQuantity] = useState(1);
   const [supplierId, setSupplierId] = useState(''), [supplierInvoice, setSupplierInvoice] = useState('');
   const [amountPaid, setAmountPaid] = useState(0);
+  const [fullPayment, setFullPayment] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'upi' | 'card'>('cash');
   const [search, setSearch] = useState(''), [lines, setLines] = useState<Line[]>([]);
   const [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('');
@@ -46,6 +47,7 @@ export function PurchaseReceive({ products, suppliers, receive, mode = 'receive'
       setIncludesTax(input.includesTax ?? false);
       setSupplierAddress(input.supplierAddress ?? '');
       setAmountPaid(input.amountPaid);
+      setFullPayment(input.fullPayment === true);
       setPaymentMethod(input.paymentMethod);
       setLines(input.lines.map((line, index) => ({ ...line, rowId: String(index), label: line.newItem?.name || line.sku })));
       setUncertain(true);
@@ -65,6 +67,7 @@ export function PurchaseReceive({ products, suppliers, receive, mode = 'receive'
     }).slice(0, 15);
   }, [products, search, isOrder]);
   const total = lines.reduce((sum, line) => sum + Math.round(line.unitCost * 100) * line.quantity, 0) / 100;
+  const paidNow = fullPayment ? total : amountPaid;
   const patch = (rowId: string, values: Partial<Line>) => setLines(old => old.map(line => line.rowId === rowId ? { ...line, ...values } : line));
   const productKey = (product: Product, variant: Product['variants'][number]) => JSON.stringify([product.id, variant.sku]);
   const selected = matches.find(({ product, variant }) => productKey(product, variant) === selectedSku);
@@ -89,16 +92,16 @@ export function PurchaseReceive({ products, suppliers, receive, mode = 'receive'
     if (!command.current) {
       const parsed = purchaseSchema.safeParse({ requestId: crypto.randomUUID(), supplierId, supplierInvoice,
         ...(isOrder ? { supplierInvoiceDate: supplierInvoiceDate || undefined, includesTax, supplierAddress } : {}),
-        amountPaid, paymentMethod, mode, lines: lines.map(({ label, rowId, ...line }) => line) });
+        amountPaid: paidNow, fullPayment, paymentMethod, mode, lines: lines.map(({ label, rowId, ...line }) => line) });
       if (!parsed.success) { setError(parsed.error.issues[0].message); return; }
-      if (amountPaid > total) { setError('Amount paid exceeds total.'); return; }
+      if (paidNow > total) { setError('Amount paid exceeds total.'); return; }
       command.current = parsed.data;
     }
     setBusy(true);
     try {
       localStorage.setItem(pendingKey, JSON.stringify(command.current));
       await receive(command.current); localStorage.removeItem(pendingKey); command.current = null;
-      if (mode === 'receive' && lines.length > 0) {
+      if (lines.length > 0) {
         const toPrint: PrintableItem[] = lines.map(line => {
           const prod = products.find(p => p.id === line.productId) || {
             id: line.productId || 'new-item',
@@ -129,7 +132,7 @@ export function PurchaseReceive({ products, suppliers, receive, mode = 'receive'
         setPrintItems(toPrint);
         setLastReceivedPrintItems(toPrint);
       }
-      setUncertain(false); setLines([]); setSelectedSku(''); setQuantity(1); setSearch(''); setSupplierInvoice(''); setSupplierInvoiceDate(''); setIncludesTax(false); setAmountPaid(0); setNotice(mode === 'order' ? 'Purchase order saved. Stock changes when received.' : 'Purchase received. New items, prices and stock saved together.');
+      setUncertain(false); setLines([]); setSelectedSku(''); setQuantity(1); setSearch(''); setSupplierInvoice(''); setSupplierInvoiceDate(''); setIncludesTax(false); setAmountPaid(0); setFullPayment(false); setNotice(mode === 'order' ? 'Purchase order completed. Stock and supplier payment recorded.' : 'Purchase received. New items, prices and stock saved together.');
     } catch (e) { const status = (e as { status?: number }).status;
       if (status && [400,404,409,422].includes(status)) { command.current = null; localStorage.removeItem(pendingKey); setUncertain(false); } else setUncertain(true);
       setError((e as Error).message);
@@ -208,7 +211,7 @@ export function PurchaseReceive({ products, suppliers, receive, mode = 'receive'
           })} /></label>)}</div>
         {line.newItem && <div className="purchase-item-fields"><label className="check-row"><input type="checkbox" checked={line.newItem.gstEnabled === true} onChange={e => patch(line.rowId, { newItem: { ...line.newItem!, gstEnabled: e.target.checked, gstPercent: e.target.checked ? (line.newItem?.gstPercent || 5) : 0 } })} />Charge GST on this item</label>{line.newItem.gstEnabled && <label>GST %<input type="number" min="0.01" max="100" step="0.01" value={line.newItem.gstPercent || ''} onChange={e => patch(line.rowId, { newItem: { ...line.newItem!, gstPercent: Number(e.target.value) } })} /></label>}</div>}
         <p><strong>Stock cost: {money(line.unitCost)} × {line.quantity} = {money(Math.round(line.unitCost * 100) * line.quantity / 100)}</strong></p></article>)}
-      <div className="purchase-footer">{mode === 'receive' && <label>Payment method<select aria-label="Purchase payment method" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value as typeof paymentMethod)}><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option></select></label>}{mode === 'receive' && <label>Amount paid ₹<input type="number" min="0" max={total} step=".01" value={amountPaid} onChange={e => setAmountPaid(Number(e.target.value))} /></label>}<div><small>Total stock cost</small><strong>{money(total)}</strong><small>{mode === 'receive' ? `Supplier balance ${money(total - amountPaid)}` : 'No stock increase until receipt'}</small></div></div>
+      <div className="purchase-footer"><label className="check-row"><input type="checkbox" checked={fullPayment} onChange={event => setFullPayment(event.target.checked)} />Full payment</label><label>Payment method<select aria-label="Purchase payment method" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value as typeof paymentMethod)}><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option></select></label><label>Amount paid ₹<input type="number" min="0" max={total} step=".01" value={paidNow} disabled={fullPayment} onChange={e => setAmountPaid(Number(e.target.value))} /></label><div><small>Total stock cost</small><strong>{money(total)}</strong><small>Supplier balance {money(Math.max(0, total - paidNow))}</small></div></div>
       </div>
       </div>
     </fieldset><button className="button primary" disabled={busy || !lines.length}>{busy ? 'Saving…' : uncertain ? 'Retry saved purchase' : mode === 'order' ? 'Create purchase order' : 'Receive stock & create items'}</button></form>

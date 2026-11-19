@@ -8,6 +8,10 @@ Open **More tools → Suppliers → Purchase order / stock receipt**. Choose a s
 
 **Received — add stock now is the default.** Saving creates the item and receives its stock in one database transaction. It also records the initial supplier payment using the selected method. A retry with the same reference cannot receive stock twice; a second receipt for the same supplier invoice is rejected. Existing stock uses a weighted average cost. New catalog products remain website drafts until published separately.
 
+Creating a PO from **Purchase Orders** now also completes it immediately: stock, purchase receipt and supplier payment are saved together, and the PO appears as **Completed**. Tick **Full payment** to pay the calculated total, or leave it unticked and enter a partial payment or zero. The balance remains payable to the supplier. Older unreceived orders can still be received using their existing action.
+
+Saved product and variant barcode numbers are visible in the product list. New website SKUs are assigned sequentially using the shared POS product-number counter; existing SKUs remain unchanged.
+
 The optional **Purchase order — awaiting goods** mode defers stock changes until **Mark received**. CSV import supports up to 30 validated rows per purchase, with editable review before saving; use the supplied template. Existing variants can be identified with `productId` and `sku`.
 
 Products → **Print multiple product barcodes** creates Code 128 labels with brand, design, size, item, fabric, colour, MRP and sale price. Purchase cost is never printed. Choose copies per variant and A4 columns. Test a printed sample with your scanner and printer before a large run.

@@ -63,7 +63,8 @@ async function receive(db: Firestore, tx: Transaction, input: PurchaseInput) {
     lines.push({ productId, productNumber: product!.productNumber ?? null, barcode: variant?.barcode || product!.barcode || '', sku, name: product!.name, quantity: line.quantity, unitCost: line.unitCost, salePrice: selling, mrp, stockValue: lineTotal / 100 });
     movements.push({ movementId: `${purchaseId}_${index}`, productId, sku, deltaChange: line.quantity, stockAfter: oldStock + line.quantity, reason: 'purchase', source: 'admin', supplierId: input.supplierId, purchaseId, createdAt: FieldValue.serverTimestamp() });
   }
-  if (cash(input.amountPaid) > total) reject('Amount paid exceeds purchase total.');
+  const amountPaid = input.fullPayment ? total / 100 : input.amountPaid;
+  if (cash(amountPaid) > total) reject('Amount paid exceeds purchase total.');
   for (const mapping of mappings) if ((await tx.get(db.collection('productSkuMappings').doc(hash(mapping.sku.toLowerCase())))).exists) reject('SKU is already registered.', 409);
   for (const productId of created) if ((await tx.get(db.collection('productSlugMappings').doc(hash(products.get(productId)!.slug)))).exists) reject('Product identity already exists.', 409);
 
@@ -81,14 +82,14 @@ async function receive(db: Firestore, tx: Transaction, input: PurchaseInput) {
   for (const mapping of mappings) tx.create(db.collection('productSkuMappings').doc(hash(mapping.sku.toLowerCase())), { ...mapping, normalizedSku:mapping.sku.toLowerCase(), webProductId:mapping.productId, createdAt: FieldValue.serverTimestamp() });
   for (const row of movements) tx.create(db.collection('stockMovements').doc(row.movementId), row);
   for (const line of lines) tx.set(db.collection('erp_productCosts').doc(hash(`${line.productId}:${line.sku}`)), { productId: line.productId, sku: line.sku, unitCost: line.unitCost, updatedAt: FieldValue.serverTimestamp() });
-  if (input.amountPaid > 0) tx.create(db.collection('erp_supplierPayments').doc(`${purchaseId}-initial`), { supplierId: input.supplierId, purchaseId, amount: input.amountPaid, method: input.paymentMethod, note: 'Payment on receipt', createdAt: FieldValue.serverTimestamp() });
+  if (amountPaid > 0) tx.create(db.collection('erp_supplierPayments').doc(`${purchaseId}-initial`), { supplierId: input.supplierId, purchaseId, amount: amountPaid, method: input.paymentMethod, note: 'Payment on receipt', createdAt: FieldValue.serverTimestamp() });
   tx.create(invoiceKey, { purchaseId, supplierId: input.supplierId, invoice: input.supplierInvoice });
   tx.create(db.collection('erp_purchases').doc(purchaseId), { supplierId: input.supplierId, supplierName: supplier.data()?.name || '', supplierInvoice: input.supplierInvoice,
     ...(input.supplierInvoiceDate ? { supplierInvoiceDate: input.supplierInvoiceDate } : {}),
     ...(input.includesTax !== undefined ? { includesTax: input.includesTax } : {}),
     ...(input.supplierAddress ? { supplierAddress: input.supplierAddress } : {}),
-    lines, total: total / 100, amountPaid: input.amountPaid, payable: (total - cash(input.amountPaid)) / 100, status: 'received', createdAt: FieldValue.serverTimestamp() });
-  return { purchaseId, total: total / 100, payable: (total - cash(input.amountPaid)) / 100, createdProductIds: [...created] };
+    lines, total: total / 100, amountPaid, payable: (total - cash(amountPaid)) / 100, status: 'received', createdAt: FieldValue.serverTimestamp() });
+  return { purchaseId, total: total / 100, amountPaid, payable: (total - cash(amountPaid)) / 100, createdProductIds: [...created] };
 }
 purchasesRouter.post('/purchases/receive', async (req, res) => {
   const parsed = purchaseSchema.safeParse(req.body);
@@ -97,7 +98,6 @@ purchasesRouter.post('/purchases/receive', async (req, res) => {
     const db = firebase().db, input = parsed.data;
     const result = await idempotent(db, 'purchase_receive_v2', input.requestId, input, async tx => {
       if (input.mode === 'receive') return receive(db, tx, input);
-      if (input.amountPaid) reject('Record payment when receiving this purchase order.');
       const supplier = await tx.get(db.collection('erp_suppliers').doc(input.supplierId));
       if (!supplier.exists) reject('Supplier not found.', 404);
       const referenceKey = hash(`${input.supplierId}:${input.supplierInvoice.toLowerCase()}`);
@@ -105,9 +105,11 @@ purchasesRouter.post('/purchases/receive', async (req, res) => {
       if ((await tx.get(orderKey)).exists || (await tx.get(db.collection('erp_supplierInvoiceKeys').doc(referenceKey))).exists)
         reject('This supplier reference already has a purchase order or receipt.', 409);
       const orderId = `PO-${hash(input.requestId).slice(0,24)}`;
+      const result = await receive(db, tx, input);
       tx.create(orderKey, { orderId, supplierId: input.supplierId, supplierInvoice: input.supplierInvoice, createdAt: FieldValue.serverTimestamp() });
-      tx.create(db.collection('erp_purchaseOrders').doc(orderId), { ...input, supplierName: supplier.data()?.name || '', status: 'ordered', total: input.lines.reduce((sum, l) => sum + cash(l.unitCost) * l.quantity, 0) / 100, createdAt: FieldValue.serverTimestamp() });
-      return { orderId };
+      tx.create(db.collection('erp_purchaseOrders').doc(orderId), { ...input, supplierName: supplier.data()?.name || '', status: 'received', purchaseId: result.purchaseId,
+        total: result.total, amountPaid: result.amountPaid, payable: result.payable, receivedAt: FieldValue.serverTimestamp(), createdAt: FieldValue.serverTimestamp() });
+      return { orderId, ...result };
     }); res.status(201).json(result);
   } catch (e) { failure(res, e); }
 });

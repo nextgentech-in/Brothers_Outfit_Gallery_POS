@@ -164,14 +164,14 @@ export function changeStock(product: Product, sku: string, delta: number): { pro
 }
 function publicProduct(doc: FirebaseFirestore.QueryDocumentSnapshot) {
   const data = doc.data();
-  return { id: doc.id, name: data.name || '', sku: data.sku || '', demoOnly: data.demoOnly === true, barcode: data.barcode || data.posBarcode || '', price: data.salePrice ?? data.price ?? 0,
+  return { id: doc.id, name: data.name || '', sku: data.sku || '', productNumber: data.productNumber ?? null, demoOnly: data.demoOnly === true, barcode: data.barcode || data.posBarcode || '', price: data.salePrice ?? data.price ?? 0,
     brand: data.brand || '', design: data.design || '', fabric: data.fabric || '', mrp: data.mrp ?? 0, costPrice: data.costPrice ?? data.cost_price ?? data.purchasePrice ?? 0,
     category: data.category || '', subCategory: data.subCategory || '', shortDescription: data.shortDescription || '',
     description: data.description || '', gsl: data.gsl || '', active: data.active !== false,
     gstEnabled: data.gstEnabled === true, gstPercent: data.gstEnabled === true ? Number(data.gstPercent || 0) : 0,
     onHand: Number(data.stock ?? data.quantity ?? 0), reserved: Number(data.reserved ?? 0), reorderThreshold: Number(data.reorderThreshold ?? 5), stock: Number(data.stock ?? data.quantity ?? 0) - Number(data.reserved ?? 0),
     image: data.thumbnailUrl || data.image || data.images?.[0]?.url || data.images?.[0] || '',
-    variants: (data.variants || []).map((v: Variant) => ({ sku: v.sku, barcode: v.barcode || v.posBarcode || '', size: v.size, color: v.color,
+    variants: (data.variants || []).map((v: Variant) => ({ sku: v.sku, variantSequence: v.variantSequence ?? null, barcode: v.barcode || v.posBarcode || '', size: v.size, color: v.color,
       onHand: Number(v.stock ?? v.quantity ?? 0), reserved: Number(v.reserved ?? 0), reorderThreshold: Number(v.reorderThreshold ?? data.reorderThreshold ?? 5), stock: Number(v.stock ?? v.quantity ?? 0) - Number(v.reserved ?? 0), price: Number(v.price ?? v.salePrice ?? data.salePrice ?? data.price ?? 0),
       mrp: Number(v.mrp ?? data.mrp ?? 0), costPrice: Number(v.costPrice ?? v.cost_price ?? v.purchasePrice ?? data.costPrice ?? data.cost_price ?? 0) })) };
 }
