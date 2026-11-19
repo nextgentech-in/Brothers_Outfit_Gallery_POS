@@ -25,7 +25,7 @@ import { recoverToHeld, cacheCatalog, cachedCatalog, queueSale, queuedSales, rem
 
 const websiteProductsUrl = 'https://www.brothersoutfitgallery.com/admin/products';
 
-type Product = { id: string; name: string; sku: string; productNumber?: number; barcode?: string; price: number; mrp: number; costPrice?: number; onHand?: number; gstEnabled?: boolean; gstPercent?: number;
+type Product = { id: string; name: string; sku: string; productNumber?: number; barcode?: string; price: number; mrp: number; costPrice?: number; customPrice?: number | null; onHand?: number; gstEnabled?: boolean; gstPercent?: number;
   brand?: string; design?: string; fabric?: string; category: string; subCategory?: string; shortDescription?: string; description?: string; gsl?: string; active: boolean; stock: number;
   variants: { sku: string; barcode?: string; variantSequence?: number; size?: string; color?: string; stock: number; onHand?: number; reorderThreshold?: number; price: number; mrp?: number; costPrice?: number }[] };
 type Order = { id: string; status?: string; totalAmount?: number; paymentMethod?: string; createdBy?: string; createdAt?: { _seconds?: number; seconds?: number };
@@ -445,7 +445,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
   const [draftReady, setDraftReady] = useState(false);
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem('brothers-active-bill-v1') || 'null');
+      const saved = JSON.parse(localStorage.getItem('brothers-active-bill-20261119') || 'null');
       if (saved?.cart?.length && saved.cart.every((line: { product?: Product; quantity?: number }) => line.product?.id && Number.isInteger(line.quantity))) {
         setCart(saved.cart); setPayment(saved.payment || 'cash'); setDiscount(saved.discount || 0);
         setCustomerName(saved.customerName || ''); setCustomerPhone(saved.customerPhone || ''); setCustomerEmail(saved.customerEmail || '');
@@ -460,8 +460,8 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
   useEffect(() => {
     if (!draftReady || checkoutBusy) return;
     try {
-      if (!cart.length) localStorage.removeItem('brothers-active-bill-v1');
-      else localStorage.setItem('brothers-active-bill-v1', JSON.stringify({ cart, payment, discount, customerName, customerPhone, customerEmail, customerDateOfBirth, birthdayOffersOptIn, creditDueDate, creditWhatsAppOptIn, whatsappOptIn, splitAmounts, cashTendered }));
+      if (!cart.length) localStorage.removeItem('brothers-active-bill-20261119');
+      else localStorage.setItem('brothers-active-bill-20261119', JSON.stringify({ cart, payment, discount, customerName, customerPhone, customerEmail, customerDateOfBirth, birthdayOffersOptIn, creditDueDate, creditWhatsAppOptIn, whatsappOptIn, splitAmounts, cashTendered }));
     } catch { setError('Automatic draft saving is unavailable on this device. Hold the bill before leaving this page.'); }
   }, [draftReady, checkoutBusy, cart, payment, discount, customerName, customerPhone, customerEmail, customerDateOfBirth, birthdayOffersOptIn, creditDueDate, creditWhatsAppOptIn, whatsappOptIn, splitAmounts, cashTendered]);
 
@@ -697,7 +697,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
     setError(''); setCart(old => {
       const found = old.find(line => line.product.id === product.id && line.sku === sku);
       return found ? old.map(line => line === found ? { ...line, quantity: line.quantity + 1 } : line)
-        : [...old, { product, sku, quantity: 1, price: variant?.price ?? product.price }];
+        : [...old, { product, sku, quantity: 1, price: product.customPrice ?? variant?.price ?? product.price }];
     });
   }
   function setCartQuantity(productId: string, sku: string, quantity: number) {
@@ -731,7 +731,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
       payments: payment === 'split' ? paymentParts : undefined, cashTendered: cashTendered ? Number(cashTendered) : undefined, discount, paymentMethod: payment, queuedAt: new Date().toISOString(), state: 'pending' };
     checkoutGuard.current = true; setCheckoutBusy(true);
     try {
-    try { await queueSale(command); try{localStorage.removeItem('brothers-active-bill-v1');}catch{} await refreshOffline(); }
+    try { await queueSale(command); try{localStorage.removeItem('brothers-active-bill-20261119');}catch{} await refreshOffline(); }
     catch { setError('Bill storage is unavailable on this device. Keep the bill open and retry.'); return; }
     if (!navigator.onLine) {
       setNotice('Bill queued offline with a provisional ID. It will sync on reconnect.'); setCart([]); setDiscount(0); clearCustomer();

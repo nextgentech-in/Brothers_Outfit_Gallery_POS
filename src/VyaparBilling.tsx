@@ -21,6 +21,7 @@ export type ProductVariant = {
 };
 
 export type ProductItem = {
+  customPrice?: number | null;
   id: string;
   name: string;
   sku: string;
@@ -184,6 +185,7 @@ export function VyaparBilling({
       stock: number;
       price: number;
       mrp: number;
+      customPrice?: number | null;
       category?: string;
     }[] = [];
 
@@ -201,6 +203,7 @@ export function VyaparBilling({
             stock: v.stock ?? p.stock,
             price: v.price || p.price,
             mrp: v.mrp ?? p.mrp,
+            customPrice: p.customPrice,
             category: p.category
           });
         }
@@ -215,6 +218,7 @@ export function VyaparBilling({
           stock: p.stock,
           price: p.price,
           mrp: p.mrp,
+          customPrice: p.customPrice,
           category: p.category
         });
       }
@@ -372,7 +376,7 @@ export function VyaparBilling({
   }
 
   function productRow(row: BillRow, item: typeof searchableItems[0]): BillRow {
-    const pricing = priceBillLine(row.quantity, Math.max(item.mrp, item.price), item.price, 'price');
+    const pricing = priceBillLine(row.quantity, Math.max(item.mrp, item.price), item.customPrice ?? item.price, 'price');
     return {
       ...row,
       productId: item.productId,
@@ -1036,7 +1040,7 @@ export function VyaparBilling({
               <th scope="col">ITEM</th>
               <th scope="col">QTY</th>
               <th scope="col">MRP / PIECE</th>
-              <th scope="col">CUSTOMER PRICE / PIECE</th>
+              <th scope="col">CUSTOM PRICE / PIECE</th>
               <th scope="col">DISCOUNT %</th>
               <th scope="col">AMOUNT (₹)</th>
               <th scope="col"><span className="sr-only">Remove</span></th>
@@ -1138,7 +1142,7 @@ export function VyaparBilling({
                 <td>
                   <input
                     type="number"
-                    aria-label={`Customer price for ${row.name || `row ${index + 1}`}`}
+                    aria-label={`Custom price for ${row.name || `row ${index + 1}`}`}
                     min="0"
                     max={row.mrp}
                     step="0.01"

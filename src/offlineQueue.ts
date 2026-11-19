@@ -45,7 +45,8 @@ export type BillingDraft = {
 };
 export type HeldBill = QueuedSale | { requestId: string; queuedAt: string; draft: BillingDraft };
 
-const DB_NAME = 'brothers-pos-offline';
+// Keep the fresh-start catalog and bills separate from pre-reset local records.
+const DB_NAME = 'brothers-pos-offline-20261119';
 const STORE = 'sales';
 function db(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

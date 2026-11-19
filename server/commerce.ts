@@ -86,7 +86,7 @@ const productPatchSchema = z.object({ requestId: key, productId: id, patch: z.ob
   name: z.string().trim().min(1).max(200).optional(), description: z.string().trim().max(5000).optional(),
   shortDescription: z.string().trim().max(500).optional(), category: z.string().trim().min(2).max(100).optional(),
   subCategory: z.string().trim().max(100).optional(), gsl: z.string().trim().max(120).optional(),
-  salePrice: money.optional(), mrp: money.optional(), costPrice: money.optional(), active: z.boolean().optional(),
+  salePrice: money.optional(), mrp: money.optional(), costPrice: money.optional(), customPrice: money.positive().nullable().optional(), active: z.boolean().optional(),
   gstEnabled: z.boolean().optional(), gstPercent: z.number().finite().min(0).max(100).optional(),
   primaryImageUrl: z.url().max(2048).optional(),
   barcode: id.or(z.literal('')).optional(),
@@ -99,7 +99,7 @@ const productCreateSchema = z.object({ requestId: key,
   brand: z.string().trim().max(100).optional(), design: z.string().trim().max(100).optional(), fabric: z.string().trim().max(100).optional(),
   category: z.string().trim().min(2).max(100), subCategory: z.string().trim().max(100).optional(),
   shortDescription: z.string().trim().max(500).optional(), description: z.string().trim().max(5000).optional(),
-  gsl: z.string().trim().max(120).optional(), salePrice: money, mrp: money, costPrice: money.default(0),
+  gsl: z.string().trim().max(120).optional(), salePrice: money, mrp: money, costPrice: money.default(0), customPrice: money.positive().optional(),
   gstEnabled: z.boolean().default(false), gstPercent: z.number().finite().min(0).max(100).default(0),
   variants: z.array(z.object({ size: z.string().trim().min(1).max(50), color: z.string().trim().min(1).max(80),
     colorHex: z.string().regex(/^#[a-fA-F0-9]{6}$/).optional(), stock: z.number().int().min(0).max(100_000),
@@ -113,7 +113,7 @@ const productCreateSchema = z.object({ requestId: key,
   sizeGuide: z.object({ enabled: z.boolean(), unit: z.enum(['in', 'cm']),
     columns: z.array(z.string().trim().min(1).max(100)).max(12),
     rows: z.array(z.record(z.string().regex(/^c\d+$/), z.string().trim().max(100))).max(100) }).optional()
-}).strict().refine(input => (!input.gstEnabled || input.gstPercent > 0) && input.mrp > 0 && input.salePrice > 0 && input.salePrice <= input.mrp &&
+}).strict().refine(input => (!input.gstEnabled || input.gstPercent > 0) && input.mrp > 0 && input.salePrice > 0 && input.salePrice <= input.mrp && (input.customPrice === undefined || input.customPrice <= input.mrp) &&
   input.variants.every(variant => variant.price > 0 && variant.price <= input.mrp) &&
   (!input.offerStartAt || !input.offerEndAt || input.offerEndAt > input.offerStartAt) &&
   (!input.publish || Boolean(input.imageUrls?.length)), { message: 'Product pricing or images are incomplete.' });
@@ -178,7 +178,9 @@ function publicProduct(doc: FirebaseFirestore.QueryDocumentSnapshot) {
 export const commerceRouter = Router();
 commerceRouter.get('/products', async (_req, res) => {
   try {
-    const docs = await firebase().db.collection('products').get();
+    const db = firebase().db;
+    const [docs, pricing] = await Promise.all([db.collection('products').get(), db.collection('erp_posPricing').get()]);
+    const customPrices = new Map(pricing.docs.map(doc => [doc.id, doc.data().customPrice]));
     res.json({
       items: docs.docs
         .filter(d => {
@@ -189,7 +191,7 @@ commerceRouter.get('/products', async (_req, res) => {
           return true;
         })
         .map(d => {
-          const product = publicProduct(d);
+          const product = { ...publicProduct(d), customPrice: customPrices.get(d.id) ?? null };
           if (res.locals.owner?.role === 'cashier') {
             delete (product as any).costPrice;
             product.variants = product.variants.map((v: any) => {
@@ -558,6 +560,7 @@ commerceRouter.post('/products/create', async (req, res) => {
         allSizes: [...new Set(variants.map(variant => variant.size))], images,
         thumbnailUrl: primaryImage, image: primaryImage,
         createdAt: now, updatedAt: now });
+      if (input.customPrice !== undefined) tx.create(db.collection('erp_posPricing').doc(productId), { customPrice: input.customPrice, updatedAt: now });
       skuRefs.forEach((skuRef, index) => tx.create(skuRef, { normalizedSku: normalizedSkus[index],
         sku: skus[index], productId, webProductId: productId, updatedAt: now }));
       tx.create(slugRef, { normalizedSlug: slug, slug, productId, webProductId: productId, updatedAt: now });
@@ -589,7 +592,13 @@ commerceRouter.post('/products/patch', async (req, res) => {
       const snapshot = await tx.get(ref);
       if (!snapshot.exists) throw Object.assign(new Error('Product not found.'), { status: 404 });
       const before = Object.fromEntries(Object.keys(patch).map(field => [field, snapshot.data()?.[field] ?? null]));
-      const { primaryImageUrl, variantPatches, ...direct } = patch;
+      const { primaryImageUrl, variantPatches, customPrice, ...direct } = patch;
+      const pricingRef = db.collection('erp_posPricing').doc(productId);
+      const savedPricing = await tx.get(pricingRef);
+      if ('customPrice' in patch) before.customPrice = savedPricing.data()?.customPrice ?? null;
+      const effectiveCustomPrice = customPrice === undefined ? savedPricing.data()?.customPrice : customPrice;
+      if (effectiveCustomPrice != null && effectiveCustomPrice > Number(patch.mrp ?? snapshot.data()?.mrp))
+        throw Object.assign(new Error('Custom price cannot exceed MRP. Update or clear it first.'), { status: 422 });
       delete (direct as any).productNumber;
       const after: Record<string, unknown> = { ...direct,
         ...(patch.salePrice !== undefined ? { price: patch.salePrice } : {}),
@@ -647,6 +656,7 @@ commerceRouter.post('/products/patch', async (req, res) => {
       if ((after.gstEnabled ?? snapshot.data()?.gstEnabled) === true && Number(after.gstPercent ?? snapshot.data()?.gstPercent ?? 0) <= 0)
         throw Object.assign(new Error('Choose a GST percentage for a GST-enabled product.'), { status: 422 });
       if (patch.gstEnabled === false) after.gstPercent = 0;
+      if (customPrice !== undefined) tx.set(pricingRef, { customPrice, updatedAt: FieldValue.serverTimestamp() });
       tx.update(ref, after);
       tx.create(db.collection('erp_auditLog').doc(hash(`product_patch:${requestId}`)), {
         actor: res.locals.owner?.uid || 'pin-owner', target: `products/${productId}`, fields: Object.keys(patch), before, after: patch,
@@ -766,6 +776,8 @@ commerceRouter.post('/pos/sale', async (req, res) => {
       const refs = [...new Set(input.lines.map(line => line.productId))].sort().map(productId => db.collection('products').doc(productId));
       const [counter, ...snapshots] = await tx.getAll(counterRef, ...refs);
       snapshots.forEach((doc, index) => { if (!doc.exists) throw Object.assign(new Error('Product not found.'), { status: 404 }); products.set(refs[index].id, doc.data() as Product); });
+      const pricing = await tx.getAll(...refs.map(ref => db.collection('erp_posPricing').doc(ref.id)));
+      const customPrices = new Map(pricing.map(doc => [doc.id, doc.data()?.customPrice]));
       const invoiceNumber = input.invoiceNumber ?? Number(counter.data()?.lastNumber || 0) + 1;
       const invoiceId = `BOG-${fy}-${String(invoiceNumber).padStart(5, '0')}`;
       if ((await tx.get(db.collection('erp_invoices').doc(invoiceId))).exists)
@@ -777,13 +789,14 @@ commerceRouter.post('/pos/sale', async (req, res) => {
         const product = products.get(line.productId)!;
         const current = stockFor(product, line.sku);
         const variant = current.index >= 0 ? product.variants?.[current.index] : undefined;
-        const pricePaise = line.price !== undefined ? rupees(line.price) : rupees(variant?.price ?? variant?.salePrice ?? product.salePrice ?? product.price);
+        const posPrice = customPrices.get(line.productId) ?? variant?.price ?? variant?.salePrice ?? product.salePrice ?? product.price;
+        const pricePaise = line.price !== undefined ? rupees(line.price) : rupees(posPrice);
         if (!Number.isSafeInteger(pricePaise) || pricePaise < 0) throw Object.assign(new Error('Invalid product price.'), { status: 409 });
         const lineBasePaise = pricePaise * line.quantity;
         const lineDiscPaise = line.discount !== undefined ? rupees(line.discount) : 0;
         if (lineDiscPaise > lineBasePaise) throw Object.assign(new Error('Discount cannot exceed MRP total.'), { status: 422 });
         if (res.locals.owner?.role === 'cashier') {
-          const catalogSale = rupees(variant?.price ?? variant?.salePrice ?? product.salePrice ?? product.price);
+          const catalogSale = rupees(posPrice);
           const catalogMrp = Math.max(catalogSale, rupees(variant?.mrp ?? product.mrp ?? product.compareAtPrice ?? product.salePrice ?? product.price));
           const standardRate = pricePaise === catalogSale && lineDiscPaise === 0;
           const catalogDiscount = pricePaise === catalogMrp && lineDiscPaise === (catalogMrp - catalogSale) * line.quantity;
