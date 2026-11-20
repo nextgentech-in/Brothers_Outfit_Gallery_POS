@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom';
 import { readAdmin } from './adminApi';
-import { earnedPoints, redeemablePoints, type RewardRule } from '../shared/rewards';
+import { earnedPoints, type RewardRule } from '../shared/rewards';
 import { priceBillLine, setBillTotal } from '../shared/billPricing';
 import { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { Plus, Trash2, Search, Share2, Check, Calendar, Clock, Coins, Phone, User, Banknote, QrCode, CreditCard, Pause } from 'lucide-react';
@@ -102,7 +102,6 @@ export function VyaparBilling({
   onRemoveHeldBill: (id: string) => Promise<void>;
 }) {
   // Customer info & Auto-lookup state
-  const [useRewards, setUseRewards] = useState(false);
   const [rewardAttempt, setRewardAttempt] = useState(0);
   const [rewardResult, setRewardResult] = useState<{ phone: string; attempt: number; balance: number; rule: RewardRule }>();
   const [rewardFailure, setRewardFailure] = useState('');
@@ -277,7 +276,6 @@ export function VyaparBilling({
     const selectedPhone = mobileNumber(cust.phone || '');
     if (selectedPhone !== phone) setRewardAttempt(attempt => attempt + 1);
     knownPhone.current = selectedPhone;
-    setUseRewards(false);
     setCustomerName(cust.fullName || '');
     const rawPhone = cust.phone ? cust.phone.replace(/\D/g, '') : '';
     const cleanPhone = rawPhone.length === 12 && rawPhone.startsWith('91') ? rawPhone.slice(2) : (cust.phone || '');
@@ -298,7 +296,6 @@ export function VyaparBilling({
   function handlePhoneChange(value: string) {
     setWhatsAppOptIn(true);
     setCreditWhatsAppOptIn(false);
-    setUseRewards(false);
     setCustomerExtras({});
     setCustomerPhone(value);
     const normalized = mobileNumber(value);
@@ -479,10 +476,8 @@ export function VyaparBilling({
   };
   const splitAllocated = Math.round(Object.values(splitAmounts).reduce((sum, amount) => sum + amount, 0) * 100) / 100;
   const hasCreditPayment = paymentMethod === 'credit' || (paymentMethod === 'split' && splitAmounts.credit > 0);
-  const maxPoints = rewards && !hasCreditPayment ? redeemablePoints(rewards.balance, totals.totalAmount) : 0;
-  const pointsUsed = useRewards ? maxPoints : 0;
-  const amountDue = Math.round((totals.totalAmount - pointsUsed) * 100) / 100;
-  const pointsToEarn = rewards && !hasCreditPayment ? earnedPoints(amountDue, rewards.rule) : 0;
+  const amountDue = totals.totalAmount;
+  const pointsToEarn = rewards ? earnedPoints(amountDue, rewards.rule) : 0;
   const splitRemaining = Math.round((amountDue - splitAllocated) * 100) / 100;
   const cashPortion = paymentMethod === 'split' ? splitAmounts.cash : amountDue;
 
@@ -508,7 +503,6 @@ export function VyaparBilling({
     setCustomerName('');
     setCustomerPhone('');
     knownPhone.current = '';
-    setUseRewards(false);
     setRewardAttempt(attempt => attempt + 1);
     setCustomerDateOfBirth('');
     setCustomerExtras({});
@@ -549,7 +543,7 @@ export function VyaparBilling({
         rows: rows.filter(row => row.productId), customerName, customerPhone, customerDateOfBirth, ...customerExtras,
         invoiceNumber: manualInvoiceNumber ? invoiceNumber : undefined, invoiceDate, invoiceTime,
         paymentMethod, split: { cash: splitCash, upi: splitUpi, card: splitCard, credit: splitCredit },
-        cashTendered, creditDueDate, creditWhatsAppOptIn, whatsappOptIn, useRewards
+        cashTendered, creditDueDate, creditWhatsAppOptIn, whatsappOptIn
       };
       await onHoldBill({ requestId, queuedAt: new Date().toISOString(), draft });
       resetBill(true);
@@ -623,7 +617,6 @@ export function VyaparBilling({
     setCustomerName(saved.customerName || '');
     setCustomerPhone(saved.customerPhone || '');
     knownPhone.current = mobileNumber(saved.customerPhone || '');
-    setUseRewards('draft' in bill && bill.draft.useRewards === true);
     setCustomerDateOfBirth(saved.customerDateOfBirth || '');
     setCustomerExtras({ customerEmail: saved.customerEmail, birthdayOffersOptIn: saved.birthdayOffersOptIn });
     setInvoiceNumber(saved.invoiceNumber ?? initialInvoiceNumber);
@@ -655,10 +648,6 @@ export function VyaparBilling({
       setError(customerError);
       if (!phone) phoneInputRef.current?.focus();
       else if (!customerName.trim()) nameInputRef.current?.focus();
-      return;
-    }
-    if (useRewards && !hasCreditPayment && !rewards) {
-      setError('Check the customer’s coin balance before saving.');
       return;
     }
     if (manualInvoiceNumber && (!Number.isSafeInteger(invoiceNumber) || invoiceNumber < 1 || invoiceNumber > 999999)) {
@@ -707,7 +696,6 @@ export function VyaparBilling({
     const id = draftId.current ??= crypto.randomUUID();
     const payload: QueuedSale = {
       expectedTotal: amountDue,
-      ...(pointsUsed ? { redeemPoints: pointsUsed } : {}),
       requestId: `bill:${id.slice(0, 123)}`,
       ...(manualInvoiceNumber ? { invoiceNumber } : {}),
       invoiceDate,
@@ -747,7 +735,6 @@ export function VyaparBilling({
         });
       }
     } catch (err) {
-      if ((err as { status?: number }).status === 409 && useRewards) setRewardAttempt(attempt => attempt + 1);
       setError((err as Error).message || 'Failed to record bill.');
     } finally {
       actionPending.current = false;
@@ -965,20 +952,16 @@ export function VyaparBilling({
                 : rewards ? <>
                   <strong>{rewards.balance.toLocaleString('en-IN')} available</strong>
                   {rewards.rule.rate > 0
-                    ? <small>{rewards.rule.rate}% on paid bills from ₹{rewards.rule.minimum.toLocaleString('en-IN')}</small>
+                    ? <small>{rewards.rule.rate}% of every bill amount</small>
                     : <small>Coin earning is off for this customer.</small>}
                   {pointsToEarn > 0 && <small>Earn {pointsToEarn} {pointsToEarn === 1 ? 'coin' : 'coins'} on this bill</small>}
                 </> : <small>{!online ? 'Reconnect to check the balance.'
                   : rewardFailure === phone ? 'Coin balance unavailable.' : 'Checking coin balance…'}</small>}
             </div>
-            {maxPoints > 0 && <label className="check-row">
-              <input type="checkbox" checked={useRewards} onChange={event => setUseRewards(event.target.checked)} />
-              Use {maxPoints} {maxPoints === 1 ? 'coin' : 'coins'} for ₹{maxPoints} off
-            </label>}
+            <small>Coins accumulate separately. Your bill amount stays the same.</small>
             {phone && online && !rewards && rewardFailure === phone &&
               <button type="button" className="text-button" onClick={() => setRewardAttempt(value => value + 1)}>Refresh balance</button>}
-            {useRewards && maxPoints === 0 &&
-              <button type="button" className="text-button" onClick={() => setUseRewards(false)}>Continue without coins</button>}
+
           </div>
         </div>
 
@@ -1396,7 +1379,7 @@ export function VyaparBilling({
               </div>
             )}
             <div className="vyapar-summary-line total-highlight">
-              <label htmlFor="billing-total">{pointsUsed ? 'Before coins ₹' : 'Total Amount ₹'}</label>
+              <label htmlFor="billing-total">Total Amount ₹</label>
               <input id="billing-total" type="number" className="vyapar-field billing-total-input"
                 min="0" max={totals.totalGross} step="0.01" value={totals.totalAmount}
                 disabled={!totals.totalGross || role === 'cashier'}
@@ -1409,10 +1392,7 @@ export function VyaparBilling({
                   });
                 }} />
             </div>
-            {pointsUsed > 0 && <>
-              <div className="vyapar-summary-line discount"><span>Coin discount</span><span>− ₹{pointsUsed.toFixed(2)}</span></div>
-              <div className="vyapar-summary-line total-highlight"><strong>Amount due</strong><strong>₹{amountDue.toFixed(2)}</strong></div>
-            </>}
+
           </div>
 
           {/* TWO PRIMARY OPTIONS REQUESTED BY USER: Save & New, Save & Share */}

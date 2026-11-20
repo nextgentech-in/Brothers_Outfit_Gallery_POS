@@ -11,6 +11,7 @@ export type Customer = {
   birthdayOffersOptIn: boolean;
   address?: string;
   rewardRule?: RewardRule;
+  coinBalance?: number;
 };
 
 // Date-only values stay in YYYY-MM-DD form; birthdays must not shift with time zones.

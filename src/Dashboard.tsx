@@ -1,4 +1,5 @@
 import { WhatsAppDraftDialog, type WhatsAppDraft } from './WhatsAppDraftDialog';
+import { CustomerCoinDialog } from './CustomerCoinDialog';
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   ShoppingBag,
@@ -114,6 +115,7 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [whatsappDraft,setWhatsappDraft]=useState<WhatsAppDraft | null>(null);
+  const [customerCoinsOpen, setCustomerCoinsOpen] = useState(false);
   const latestDashboardRequest=useRef(0);
 
   // Date & Channel Filters
@@ -396,6 +398,9 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
 
             {moreActionsOpen && (
               <div className="dashboard-dropdown-menu">
+                <button type="button" className="dashboard-dropdown-item" onClick={() => { setMoreActionsOpen(false); setCustomerCoinsOpen(true); }}>
+                  <UserCheck size={16} /><span>View top customer coins</span>
+                </button>
                 <button
                   type="button"
                   className="dashboard-dropdown-item"
@@ -1417,6 +1422,7 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
       )}
 
       {whatsappDraft && <WhatsAppDraftDialog draft={whatsappDraft} onClose={()=>setWhatsappDraft(null)} />}
+      {customerCoinsOpen && <CustomerCoinDialog onClose={() => setCustomerCoinsOpen(false)} />}
 
       {/* 12. RECEIPT VIEWER / REPRINT DIALOG */}
       {receiptInvoice && (

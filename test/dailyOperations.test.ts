@@ -181,7 +181,7 @@ test('completed POS bill edits update the receipt, payments and order together',
   assert.equal((await post('/orders/edit-bill', { ...edit, requestId: 'edit-bill-test-returned', revision: 1 })).status, 409);
 });
 
-test('customer rewards use configurable rates and are conserved through a redemption and returns', async () => {
+test('customer coins accumulate on every bill without deductions and reverse correctly on returns', async () => {
   records.set('products/reward-shirt', { sku: 'REWARD-SHIRT', name: 'Reward shirt', stock: 10, price: 600 });
   const customerPhone = '8888888888';
   const customerName = 'Rewards Buyer';
@@ -200,29 +200,42 @@ test('customer rewards use configurable rates and are conserved through a redemp
     email: '', dateOfBirth: '', birthdayOffersOptIn: false, rewardRule: { rate: 10, minimum: 500 }
   });
   assert.equal(override.status, 200);
-  assert.deepEqual((await lookup()).rule, { rate: 10, minimum: 500 });
-  const secondSale = { ...buy, requestId: 'rewards-redeem-sale', redeemPoints: 30,
-    expectedTotal: 1170, lines: [{ ...buy.lines[0], quantity: 2 }] };
+  assert.deepEqual((await lookup()).rule, { rate: 10, minimum: 0 });
+  const secondSale = { ...buy, requestId: 'rewards-second-sale',
+    expectedTotal: 1200, lines: [{ ...buy.lines[0], quantity: 2 }] };
   const second = await post('/pos/sale', secondSale);
   assert.equal(second.status, 201, JSON.stringify(second.body));
-  assert.deepEqual(second.body.rewards, { earned: 117, redeemed: 30, balance: 117, rule: { rate: 10, minimum: 500 } });
+  assert.deepEqual(second.body.rewards, { earned: 120, redeemed: 0, balance: 150, rule: { rate: 10, minimum: 0 } });
   assert.deepEqual((await post('/pos/sale', secondSale)).body, second.body);
-  assert.equal(records.get('erp_invoices/' + second.body.invoiceId)?.discount, 30);
-  assert.equal(records.get('orders/' + second.body.orderId)?.items[0].amount, 1170);
-  assert.equal((await post('/pos/sale', { ...buy, requestId: 'rewards-stale-sale', redeemPoints: 118 })).status, 409);
+  assert.equal(records.get('erp_invoices/' + second.body.invoiceId)?.discount, 0);
+  assert.equal(records.get('orders/' + second.body.orderId)?.items[0].amount, 1200);
+  assert.equal((await post('/pos/sale', { ...buy, requestId: 'rewards-stale-sale', redeemPoints: 118 })).status, 422);
   assert.equal(records.get('products/reward-shirt')?.stock, 7);
 
   const returnOne = { requestId: 'reward-partial-return', orderId: second.body.orderId, reason: 'Returned one shirt',
     lines: [{ index: 0, quantity: 1, restock: false }] };
   const partial = await post('/orders/return', returnOne);
   assert.equal(partial.status, 201, JSON.stringify(partial.body));
-  assert.equal(partial.body.refundAmountToReview, 585);
-  assert.equal((await lookup()).balance, 73);
+  assert.equal(partial.body.refundAmountToReview, 600);
+  assert.equal((await lookup()).balance, 90);
   assert.equal((await post('/orders/return', { ...returnOne, requestId: 'reward-final-return' })).status, 201);
   assert.equal((await lookup()).balance, 30);
 
   const corrected = await post('/orders/edit-bill', { requestId: 'correct-earning-bill', orderId: first.body.orderId,
     invoiceId: first.body.invoiceId, revision: 0, customerName, lines: [{ mrp: 600, amount: 400 }] });
   assert.equal(corrected.status, 200, JSON.stringify(corrected.body));
-  assert.equal((await lookup()).balance, 0);
+  assert.equal((await lookup()).balance, 20);
+  const creditBill = await post('/pos/sale', { ...buy, requestId: 'rewards-credit-sale', paymentMethod: 'credit', creditDueDate: dueDateAfter(7) });
+  assert.equal(creditBill.status, 201, JSON.stringify(creditBill.body));
+  assert.equal(creditBill.body.total, 600);
+  assert.equal(creditBill.body.rewards.earned, 60);
+  assert.equal((await lookup()).balance, 80);
+  const smallBill = await post('/pos/sale', { ...buy, requestId: 'rewards-small-bill', expectedTotal: 400,
+    lines: [{ ...buy.lines[0], price: 400 }] });
+  assert.equal(smallBill.status, 201, JSON.stringify(smallBill.body));
+  assert.equal(smallBill.body.rewards.earned, 40);
+  assert.equal((await lookup()).balance, 120);
+  const directory = await (await fetch(base + '/customers')).json();
+  const customer = directory.items.find((item: any) => item.fullName === customerName);
+  assert.equal(customer.coinBalance, 120);
 });

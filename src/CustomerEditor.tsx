@@ -4,14 +4,13 @@ import { shopDate, type Customer } from '../shared/customers';
 import type { RewardRule } from '../shared/rewards';
 
 function ruleFrom(form: FormData): RewardRule {
-  return { rate: Number(form.get('rewardRate')), minimum: Number(form.get('rewardMinimum')) };
+  return { rate: Number(form.get('rewardRate')), minimum: 0 };
 }
 
 function RewardRuleFields({ rule }: { rule?: RewardRule }) {
   return <>
     <label>Earn rate (%)<input name="rewardRate" type="number" min="0" max="100" step="0.01" defaultValue={rule?.rate ?? 0} required /></label>
-    <label>Minimum paid bill (₹)<input name="rewardMinimum" type="number" min="0" max="10000000" step="0.01" defaultValue={rule?.minimum ?? 0} required /></label>
-    <small>Set the rate to 0 to pause earning. One coin is worth ₹1 on a future paid bill.</small>
+    <small>Coins accumulate at this percentage of every bill amount, including credit bills. Coins do not reduce the bill. Whole coins are rounded down. Set 0% to pause earning.</small>
   </>;
 }
 

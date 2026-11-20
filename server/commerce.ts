@@ -1,6 +1,6 @@
 import { priceBillLine, setBillTotal } from '../shared/billPricing.js';
 import { isHiddenWebsiteOrder } from '../shared/orderVisibility.js';
-import { earnedPoints, redeemablePoints } from '../shared/rewards.js';
+import { earnedPoints } from '../shared/rewards.js';
 import { configuredRewardRule, readRewardBalance, rewardAccount, rewardDefaults, rewardRule, writeRewardBalance } from './rewards.js';
 import { paymentBreakdown } from '../shared/payments.js';
 import { createHash, randomBytes } from 'node:crypto';
@@ -385,9 +385,10 @@ commerceRouter.get('/orders', async (_req, res) => {
 commerceRouter.get('/customers', async (_req, res) => {
   try {
     const db = firebase().db;
-    const [users, profiles] = await Promise.all([db.collection('users').get(), db.collection('erp_customerProfiles').get()]);
-    res.json({ items: customerDirectory(users.docs.map(d => ({ id: d.id, data: d.data() })),
-      profiles.docs.map(d => ({ id: d.id, data: d.data() }))) });
+    const [users, profiles, accounts] = await Promise.all([db.collection('users').get(), db.collection('erp_customerProfiles').get(), db.collection('erp_loyaltyAccounts').get()]);
+    const balances = new Map(accounts.docs.map(d => [d.id, Math.max(0, Number(d.data().balance || 0))]));
+    res.set('Cache-Control', 'private, no-store').json({ items: customerDirectory(users.docs.map(d => ({ id: d.id, data: d.data() })),
+      profiles.docs.map(d => ({ id: d.id, data: d.data() }))).map(customer => ({ ...customer, coinBalance: balances.get(customer.customerKey || '') || 0 })) });
   }
   catch { res.status(503).json({ error: 'Customers are unavailable.' }); }
 });
@@ -749,7 +750,7 @@ commerceRouter.get('/pos/rewards', async (req, res) => {
     ]);
     res.set('Cache-Control', 'private, no-store').json({
       balance: Math.max(0, Number(account.data()?.balance || 0)),
-      rule: configuredRewardRule(profile.data()?.rewardRule) ?? rewardRule((await rewardDefaults(db).get()).data()?.rule)
+      rule: { ...(configuredRewardRule(profile.data()?.rewardRule) ?? rewardRule((await rewardDefaults(db).get()).data()?.rule)), minimum: 0 }
     });
   } catch (error) { fail(res, error); }
 });
@@ -757,6 +758,7 @@ commerceRouter.get('/pos/rewards', async (req, res) => {
 commerceRouter.post('/pos/sale', async (req, res) => {
   const parsed = saleSchema.safeParse(req.body);
   if (!parsed.success) { res.status(422).json({ error: parsed.error.issues.find(issue => issue.code === 'custom')?.message || 'Invalid sale.' }); return; }
+  if (parsed.data.redeemPoints) { res.status(422).json({ error: 'Coins accumulate for the customer and cannot be deducted from a bill. Remove coin redemption and review the full bill amount.' }); return; }
   try {
     const input = parsed.data, db = firebase().db;
     const result = await idempotent(db, 'pos_sale', input.requestId, input, async tx => {
@@ -765,7 +767,7 @@ commerceRouter.post('/pos/sale', async (req, res) => {
       const identity = customerKey(input.customerPhone, '');
       const creditState = (input.paymentMethod === 'credit' || (input.paymentMethod === 'split' && input.payments?.some(p => p.method === 'credit' && p.amount > 0))) ? await readCreditState(db, tx, identity) : null;
       const profile = await tx.get(db.collection('erp_customerProfiles').doc(identity));
-      const rule = configuredRewardRule(profile.data()?.rewardRule) ?? rewardRule((await tx.get(rewardDefaults(db))).data()?.rule);
+      const rule = { ...(configuredRewardRule(profile.data()?.rewardRule) ?? rewardRule((await tx.get(rewardDefaults(db))).data()?.rule)), minimum: 0 };
       const rewardsAccount = await readRewardBalance(db, tx, identity);
       const issuedDate = input.invoiceDate && input.invoiceTime
         ? new Date(`${input.invoiceDate}T${input.invoiceTime}:00+05:30`)
@@ -843,15 +845,10 @@ commerceRouter.post('/pos/sale', async (req, res) => {
       });
       const overallDiscountPaise = rupees(input.discount || 0);
       const baseDiscount = Math.min(subtotalPaise, totalLineDiscountPaise || overallDiscountPaise);
-      const beforeRewards = (subtotalPaise - baseDiscount) / 100;
-      const redeemed = input.redeemPoints ?? 0;
-      if (redeemed && (creditState || redeemed > redeemablePoints(rewardsAccount.balance, beforeRewards))) {
-        throw Object.assign(new Error('Rewards changed or are unavailable for this payment. Review the customer points and retry.'), { status: 409 });
-      }
-      const total = (subtotalPaise - baseDiscount - redeemed * 100) / 100;
-      const earned = creditState ? 0 : earnedPoints(total, rule);
-      const rewards = { earned, redeemed, balance: writeRewardBalance(tx, rewardsAccount, earned - redeemed), rule };
-      const discountPaise = baseDiscount + redeemed * 100;
+      const total = (subtotalPaise - baseDiscount) / 100;
+      const earned = earnedPoints(total, rule);
+      const rewards = { earned, redeemed: 0, balance: writeRewardBalance(tx, rewardsAccount, earned), rule };
+      const discountPaise = baseDiscount;
       const taxPaise = 0;
       const pricedLines = setBillTotal(lineSnapshots.map(line => ({
         ...priceBillLine(line.quantity, line.price, line.amount, 'amount'),
