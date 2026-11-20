@@ -55,11 +55,11 @@ export function CustomerWhatsAppDialog({ customer, shopName, onClose, initialCre
 
   return <dialog ref={dialog} className="whatsapp-compose-dialog glass" aria-labelledby="whatsapp-compose-title"
     onCancel={event => { event.preventDefault(); onClose(); }}>
-    <form onSubmit={openWhatsApp}>
+    <form onSubmit={openWhatsApp} noValidate={editedMessage !== null}>
       <header><div><span className="eyebrow">PREPARE A MESSAGE</span><h2 id="whatsapp-compose-title">Message on WhatsApp</h2></div>
         <button type="button" className="icon-button" aria-label="Close WhatsApp message" onClick={onClose}>×</button></header>
       <div className="whatsapp-recipient"><MessageCircle size={22} /><div><strong>{name}</strong><span>{phone ? `+${phone}` : 'Mobile number unavailable'}</span></div><span className="source-tag">Manual send</span></div>
-      <p>Choose a message type and fill in the details. We write the draft; you review it and tap Send in WhatsApp.</p>
+      <p>Choose a message type, then edit the full message below before opening WhatsApp. You review it there and tap Send.</p>
       <label>Language<select aria-label="Message language" value={language} onChange={e=>{setLanguage(e.target.value as DraftLanguage);localStorage.setItem('whatsapp-draft-language',e.target.value);}}><option value="en">English</option><option value="hi">हिन्दी</option><option value="gu">ગુજરાતી</option></select></label><label>Message type<select ref={typeInput} aria-label="Message type" required value={kind} onChange={event => {
         setKind(event.target.value as MessageKind); setDetails(''); setAmount(event.target.value === 'payment' && credit ? String(credit.balance) : ''); setDate(event.target.value === 'payment' ? credit?.nextDueDate || '' : '');
         setEditedMessage(null); setError(''); setOpenedUrl('');

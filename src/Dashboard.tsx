@@ -1,3 +1,4 @@
+import { WhatsAppDraftDialog, type WhatsAppDraft } from './WhatsAppDraftDialog';
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   ShoppingBag,
@@ -112,6 +113,8 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [whatsappDraft,setWhatsappDraft]=useState<WhatsAppDraft | null>(null);
+  const latestDashboardRequest=useRef(0);
 
   // Date & Channel Filters
   const [preset, setPreset] = useState<DatePreset>('today');
@@ -170,8 +173,9 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
   }, []);
 
   // Main Dashboard Data Fetch
-  const loadDashboard = useCallback(async () => {
-    setLoading(true);
+  const loadDashboard = useCallback(async (background=false) => {
+    const request=++latestDashboardRequest.current;
+    if(!background)setLoading(true);
     setError('');
     try {
       const query = new URLSearchParams({
@@ -180,12 +184,13 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
         ...(channel ? { channel } : {})
       });
       const res = await readAdmin<DashboardReportData>(`reports/dashboard-summary?${query.toString()}`);
+      if(request!==latestDashboardRequest.current)return;
       setData(res);
       setLastUpdated(new Date());
     } catch (err) {
-      setError((err as Error).message || 'Failed to load dashboard data.');
+      if(request===latestDashboardRequest.current)setError((err as Error).message || 'Failed to load dashboard data.');
     } finally {
-      setLoading(false);
+      if(request===latestDashboardRequest.current)setLoading(false);
       void refreshOffline();
     }
   }, [fromDate, toDate, channel, refreshOffline]);
@@ -193,6 +198,12 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
   useEffect(() => {
     void loadDashboard();
   }, [loadDashboard]);
+  useEffect(()=>{
+    const refresh=()=>{if(navigator.onLine&&document.visibilityState!=='hidden')void loadDashboard(true);};
+    window.addEventListener('focus',refresh);window.addEventListener('online',refresh);document.addEventListener('visibilitychange',refresh);
+    const timer=window.setInterval(refresh,30000);
+    return()=>{window.clearInterval(timer);window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);document.removeEventListener('visibilitychange',refresh);};
+  },[loadDashboard]);
 
   // Handle Preset Changes
   const handlePresetSelect = (newPreset: DatePreset) => {
@@ -258,14 +269,14 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
     const raw = (task.phone || '').replace(/[^0-9]/g, '');
     const phone = raw.length === 10 ? `91${raw}` : raw;
     const msg = `Hello ${task.name},\n\nFriendly reminder from Brothers Outfit Gallery regarding your payment of ₹${task.amount.toLocaleString('en-IN')}.\n\nTotal balance: ₹${task.totalBalance.toLocaleString('en-IN')}.\n\nPlease let us know when convenient to settle. Thank you!`;
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    setWhatsappDraft({name:task.name,phone,message:msg});
   };
 
   const handleWhatsAppBirthday = (task: { phone: string; name: string }) => {
     const raw = (task.phone || '').replace(/[^0-9]/g, '');
     const phone = raw.length === 10 ? `91${raw}` : raw;
     const msg = `Happy Birthday ${task.name}! 🎉🎂\n\nWishing you a wonderful day and a blessed year ahead from the entire team at Brothers Outfit Gallery! Visit our store today for a special birthday discount.`;
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    setWhatsappDraft({name:task.name,phone,message:msg});
   };
 
   // Toggle tasks view all
@@ -1404,6 +1415,8 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
           </div>
         </div>
       )}
+
+      {whatsappDraft && <WhatsAppDraftDialog draft={whatsappDraft} onClose={()=>setWhatsappDraft(null)} />}
 
       {/* 12. RECEIPT VIEWER / REPRINT DIALOG */}
       {receiptInvoice && (

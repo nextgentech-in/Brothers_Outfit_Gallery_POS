@@ -1,4 +1,5 @@
 import { priceBillLine, setBillTotal } from '../shared/billPricing.js';
+import { isHiddenWebsiteOrder } from '../shared/orderVisibility.js';
 import { earnedPoints, redeemablePoints } from '../shared/rewards.js';
 import { configuredRewardRule, readRewardBalance, rewardAccount, rewardDefaults, rewardRule, writeRewardBalance } from './rewards.js';
 import { paymentBreakdown } from '../shared/payments.js';
@@ -378,7 +379,7 @@ commerceRouter.post('/products/images/upload', rateLimit({ windowMs: 60_000, lim
 });
 commerceRouter.get('/orders', async (_req, res) => {
   try { const docs = await firebase().db.collection('orders').orderBy('createdAt', 'desc').limit(80).get();
-    res.json({ items: docs.docs.map(d => ({ id: d.id, ...d.data() })) }); }
+    res.json({ items: docs.docs.map(d => ({ id: d.id, ...d.data() })).filter(order => !isHiddenWebsiteOrder(order)) }); }
   catch { res.status(503).json({ error: 'Orders are unavailable.' }); }
 });
 commerceRouter.get('/customers', async (_req, res) => {
@@ -1132,6 +1133,7 @@ commerceRouter.get('/orders/stream', async (_req, res) => {
     if (!initialized) { initialized = true; return; }
     for (const change of snapshot.docChanges()) {
       if (change.type === 'added') res.write(`event: new-order\ndata: ${JSON.stringify({ id: change.doc.id, total: change.doc.data().totalAmount || 0 })}\n\n`);
+      if (change.type === 'modified' || change.type === 'removed') res.write(`event: order-updated\ndata: ${JSON.stringify({ id: change.doc.id })}\n\n`);
     }
   }, () => { res.write('event: unavailable\ndata: {}\n\n'); res.end(); });
   const heartbeat = setInterval(() => res.write(': keepalive\n\n'), 25_000);

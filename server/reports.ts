@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { isCancelledOrder } from '../shared/orderVisibility.js';
 import { createHash } from 'node:crypto';
 import { FieldValue, type Firestore, type Transaction, type DocumentData } from 'firebase-admin/firestore';
 import { z } from 'zod';
@@ -96,7 +97,7 @@ reportsRouter.get('/reports/dashboard-summary', async (req, res) => {
     for (const doc of ordersSnap.docs) {
       const o = doc.data();
       const status = String(o.status || '').toLowerCase();
-      if (status === 'cancelled') continue;
+      if (isCancelledOrder(o)) continue;
 
       if (['pending', 'processing', 'unconfirmed'].includes(status)) {
         pendingOrdersList.push({

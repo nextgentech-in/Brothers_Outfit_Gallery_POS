@@ -10,6 +10,7 @@ import { shopDate, validBirthDate, mobileNumber } from '../shared/customers.js';
 import { validDueDate } from '../shared/credit.js';
 import { customerKey } from './customerIdentity.js';
 import { customerBillUrl } from './billLink.js';
+import { isCancelledOrder, isHiddenWebsiteOrder } from '../shared/orderVisibility.js';
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 const requestId = z.string().min(12).max(128).regex(/^[\w.:-]+$/);
 const money = z.number().finite().min(0).max(10000000).refine(n => Math.abs(n*100-paise(n))<.00001);
@@ -44,8 +45,9 @@ operationsRouter.get('/orders/search', async(req,res)=>{
     const found=rows.docs.map(d=>{
       const order = d.data();
       const channel = order.createdBy === 'admin-pos' || String(order.channel).toLowerCase() === 'pos' || /^(POS|EX)-/.test(d.id) ? 'POS' : 'Website';
-      return {...order,id:d.id,channel,invoice:invoiceByOrder.get(d.id)};
-    }).filter((o:any)=>!term || `${o.id} ${o.customerName||o.shippingAddress?.fullName||''} ${o.customerPhone||o.shippingAddress?.phone||o.userPhone||''} ${o.invoice?.id||''}`.toLowerCase().includes(term.toLowerCase()) || (Boolean(mobileNumber(term))&&mobileNumber(term)===mobileNumber(o.customerPhone||o.shippingAddress?.phone||o.userPhone||'')));
+      return {...order,id:d.id,channel,status:isCancelledOrder(order)?'Cancelled':order.status,invoice:invoiceByOrder.get(d.id)};
+    }).filter(order => ['1','true'].includes(String(req.query.includeCancelled)) || !isHiddenWebsiteOrder(order)
+    ).filter((o:any)=>!term || `${o.id} ${o.customerName||o.shippingAddress?.fullName||''} ${o.customerPhone||o.shippingAddress?.phone||o.userPhone||''} ${o.invoice?.id||''}`.toLowerCase().includes(term.toLowerCase()) || (Boolean(mobileNumber(term))&&mobileNumber(term)===mobileNumber(o.customerPhone||o.shippingAddress?.phone||o.userPhone||'')));
     const offset=Math.max(0,Math.min(1000000,Number(req.query.offset)||0));
     const items = found.slice(offset, offset + 50).map(order => {
       const invoice = order.invoice;
