@@ -1,5 +1,8 @@
-export async function readAdmin<T>(path: string): Promise<T> {
-  const response = await fetch(`/api/${path}`, { credentials: 'same-origin' });
+export async function readAdmin<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`/api/${path}`, { credentials: 'same-origin', signal });
+  if (!response.headers.get('content-type')?.includes('application/json')) {
+    throw Object.assign(new Error('The POS API returned an unexpected response. Please try again.'), { status: response.status });
+  }
   const body = await response.json();
   if (!response.ok) throw Object.assign(new Error(body.error || 'Unable to load data.'), { status: response.status });
   return body;

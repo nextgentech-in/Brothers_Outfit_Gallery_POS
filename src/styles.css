@@ -2150,3 +2150,7 @@
 .vyapar-items-table th:nth-child(8) { width: 6%; }
 .vyapar-items-table th:nth-child(n+4):nth-child(-n+7) { text-align: right; }
 .billing-scan-compact { justify-content: flex-start; }
+
+.workspace[data-sidebar-hidden="true"] > .sidebar { display: none; }
+.workspace[data-sidebar-hidden="true"] > .main-area { margin-left: 0; }
+.workspace-navigation-toggle { flex-shrink: 0; margin-right: 5px; }

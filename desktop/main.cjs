@@ -92,9 +92,11 @@ else {
     browser.setPermissionCheckHandler(() => false);
     window = new BrowserWindow({ show: !smoke, width: 1440, height: 940, minWidth: 900, minHeight: 670,
       title: 'Brothers Outfit POS', webPreferences: { session: browser, sandbox: true, contextIsolation: true, nodeIntegration: false } });
-    window.webContents.on('will-navigate', (event, href) => {
-      if (new URL(href).origin !== origin) event.preventDefault();
-    });
+    const blockExternalNavigation = event => {
+      if (new URL(event.url).origin !== origin) event.preventDefault();
+    };
+    window.webContents.on('will-navigate', blockExternalNavigation);
+    window.webContents.on('will-redirect', blockExternalNavigation);
     window.webContents.setWindowOpenHandler(({ url }) => {
       const target = new URL(url);
       if (target.origin === origin && /^\/api\/public\/bills\//.test(target.pathname) ||
@@ -104,7 +106,8 @@ else {
     });
     const currentVersion = app.getVersion();
     const updates = app.isPackaged && process.platform === 'win32' ? createUpdates({
-      updater: require('electron-updater').autoUpdater, window, dialog, currentVersion, setMenuLabel: setMenu
+      updater: require('electron-updater').autoUpdater, window, dialog, currentVersion, setMenuLabel: setMenu,
+      openReleasePage: url => shell.openExternal(url).catch(() => {})
     }) : null;
     function setMenu(updateLabel = 'Check for Updates…') {
       Menu.setApplicationMenu(Menu.buildFromTemplate([
@@ -114,7 +117,10 @@ else {
         ] },
         { label: 'Updates', submenu: [
           { label: updateLabel,
-            enabled: Boolean(updates), click: () => void updates?.checkFromMenu() },
+            click: () => void (updates ? updates.checkFromMenu() : dialog.showMessageBox(window, {
+              type: 'info', title: 'POS Updates', message: 'Automatic updates are available in the installed Windows POS.',
+              detail: `Running version ${currentVersion}.`
+            })) },
           { label: `Installed version ${currentVersion}`, enabled: false }
         ] }
       ]));

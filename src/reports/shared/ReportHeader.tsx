@@ -24,13 +24,16 @@ export function ReportHeader({
 }: ReportHeaderProps) {
   const handlePrint = () => {
     if (onPrint) onPrint();
-    else window.print();
+    else {
+      document.body.dataset.printReport = '';
+      try { window.print(); }
+      finally { delete document.body.dataset.printReport; }
+    }
   };
 
   return (
     <div className="report-header">
       <div className="report-header-info">
-        <span className="report-eyebrow">BROTHERS OUTFIT GALLERY · REPORTS</span>
         <h1 className="report-title">{title}</h1>
         <p className="report-description">{description}</p>
         {lastUpdated && (

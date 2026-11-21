@@ -64,6 +64,12 @@ test('CSRF checks reject cross-origin, missing token and mismatched token', asyn
     assert.equal(res.status, 403);
   }
 });
+test('parallel writes can reuse the same CSRF cookie across tabs', async () => {
+  const { cookie, token } = await csrf();
+  const response = await fetch(`${origin}/api/auth/csrf`, { headers: { cookie } });
+  assert.equal((await response.json() as { token: string }).token, token);
+  assert.equal(response.headers.getSetCookie().length, 0);
+});
 test('PIN input is validated and upstream sign-in errors stay private', async () => {
   const { cookie, token } = await csrf();
   const headers = { origin: config.origin, cookie, 'x-csrf-token': token, 'Content-Type': 'application/json' };
@@ -141,9 +147,10 @@ test('login rate limiting rejects repeated attempts', async () => {
 test('cashier and manager permissions are enforced by the server',async()=>{
  const {cookie,token}=await csrf();const headers={origin:config.origin,cookie:cookie+'; bo_session=test-session','x-csrf-token':token,'Content-Type':'application/json'};
  fixtureRole='cashier';
- for(const path of ['/api/reports/summary','/api/dashboard','/api/suppliers','/api/backup/export','/api/staff'])assert.equal((await fetch(origin+path,{headers})).status,403,path);
+ for(const path of ['/api/reports/summary','/api/dashboard','/api/dashboard/','/api/Dashboard','/api/Reports/sales','/api/suppliers','/api/backup/export','/api/staff'])assert.equal((await fetch(origin+path,{headers})).status,403,path);
  for(const path of ['/api/orders/return','/api/inventory/count','/api/expenses/create','/api/products/create'])assert.equal((await fetch(origin+path,{method:'POST',headers,body:'{}'})).status,403,path);
  assert.equal((await fetch(origin+'/api/pos/sale',{method:'POST',headers,body:JSON.stringify({discount:10})})).status,403);
  assert.equal((await fetch(origin+'/api/pos/sale',{method:'POST',headers,body:JSON.stringify({discount:10,lines:[{discount:10}]})})).status,422);
- fixtureRole='manager';assert.equal((await fetch(origin+'/api/staff',{headers})).status,403);
+ fixtureRole='manager';
+ for (const path of ['/api/staff','/api/Staff/','/api/Backup/export']) assert.equal((await fetch(origin+path,{headers})).status,403,path);
 });

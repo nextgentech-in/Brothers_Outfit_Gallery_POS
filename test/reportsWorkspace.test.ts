@@ -1,7 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { computeDatePreset } from '../src/reports/shared/ReportFilters';
-import { downloadCsv, formatINR, formatDateINR } from '../src/reports/shared/exportUtils';
+import { csvCell, formatINR, formatDateINR } from '../src/reports/shared/exportUtils';
+
+test('CSV escapes formula-like text and preserves numeric amounts', () => {
+  assert.equal(csvCell(' =1+1'), `"' =1+1"`);
+  assert.equal(csvCell('+919876543210'), `"'+919876543210"`);
+  assert.equal(csvCell('A "quoted" name'), '"A ""quoted"" name"');
+  assert.equal(csvCell(-125), '"-125"');
+});
 
 test('Report Filters: date presets compute correct dates in Asia/Kolkata timezone', () => {
   const todayRange = computeDatePreset('today');

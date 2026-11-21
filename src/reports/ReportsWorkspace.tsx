@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { lazy, Suspense, useState, useEffect } from 'react';
 import {
+  PanelLeftClose,
+  PanelLeftOpen,
   ShoppingBag,
   Truck,
   RotateCcw,
@@ -21,25 +23,25 @@ import {
 import './reports.css';
 
 // Reports components
-import { SalesReport } from './transactions/SalesReport';
-import { PurchasesReport } from './transactions/PurchasesReport';
-import { CustomerReturnsReport } from './transactions/CustomerReturnsReport';
-import { SupplierReturnsReport } from './transactions/SupplierReturnsReport';
-import { DayBookReport } from './transactions/DayBookReport';
+const SalesReport = lazy(() => import('./transactions/SalesReport').then(module => ({ default: module.SalesReport })));
+const PurchasesReport = lazy(() => import('./transactions/PurchasesReport').then(module => ({ default: module.PurchasesReport })));
+const CustomerReturnsReport = lazy(() => import('./transactions/CustomerReturnsReport').then(module => ({ default: module.CustomerReturnsReport })));
+const SupplierReturnsReport = lazy(() => import('./transactions/SupplierReturnsReport').then(module => ({ default: module.SupplierReturnsReport })));
+const DayBookReport = lazy(() => import('./transactions/DayBookReport').then(module => ({ default: module.DayBookReport })));
 
-import { ProfitLossReport } from './profit/ProfitLossReport';
-import { BillProfitReport } from './profit/BillProfitReport';
-import { ItemProfitReport } from './profit/ItemProfitReport';
+const ProfitLossReport = lazy(() => import('./profit/ProfitLossReport').then(module => ({ default: module.ProfitLossReport })));
+const BillProfitReport = lazy(() => import('./profit/BillProfitReport').then(module => ({ default: module.BillProfitReport })));
+const ItemProfitReport = lazy(() => import('./profit/ItemProfitReport').then(module => ({ default: module.ItemProfitReport })));
 
-import { CustomerStatementReport } from './party/CustomerStatementReport';
-import { SupplierStatementReport } from './party/SupplierStatementReport';
-import { OutstandingUdharReport } from './party/OutstandingUdharReport';
-import { SupplierPayablesReport } from './party/SupplierPayablesReport';
+const CustomerStatementReport = lazy(() => import('./party/CustomerStatementReport').then(module => ({ default: module.CustomerStatementReport })));
+const SupplierStatementReport = lazy(() => import('./party/SupplierStatementReport').then(module => ({ default: module.SupplierStatementReport })));
+const OutstandingUdharReport = lazy(() => import('./party/OutstandingUdharReport').then(module => ({ default: module.OutstandingUdharReport })));
+const SupplierPayablesReport = lazy(() => import('./party/SupplierPayablesReport').then(module => ({ default: module.SupplierPayablesReport })));
 
-import { CashFlowReport } from './cash/CashFlowReport';
-import { ExpensesReport } from './cash/ExpensesReport';
-import { DailyClosingReport } from './cash/DailyClosingReport';
-import { StockGstReport } from './cash/StockGstReport';
+const CashFlowReport = lazy(() => import('./cash/CashFlowReport').then(module => ({ default: module.CashFlowReport })));
+const ExpensesReport = lazy(() => import('./cash/ExpensesReport').then(module => ({ default: module.ExpensesReport })));
+const DailyClosingReport = lazy(() => import('./cash/DailyClosingReport').then(module => ({ default: module.DailyClosingReport })));
+const StockGstReport = lazy(() => import('./cash/StockGstReport').then(module => ({ default: module.StockGstReport })));
 
 interface ReportNavItem {
   id: string;
@@ -95,22 +97,25 @@ const REPORT_GROUPS: ReportNavGroup[] = [
 ];
 const CORE_REPORTS = new Set(['sales', 'purchases', 'day_book', 'profit_loss', 'outstanding_udhar', 'expenses', 'daily_closing', 'stock_gst']);
 
+function getReportFromUrl() {
+  const report = new URLSearchParams(window.location.search).get('report');
+  return REPORT_GROUPS.some(group => group.items.some(item => item.id === report)) ? report! : 'sales';
+}
+
 export function ReportsWorkspace({
-  role = 'owner',
   onOpenInvoice
 }: {
-  role?: string;
   onOpenInvoice?: (invoice: any) => void;
 }) {
-  const [activeReport, setActiveReport] = useState<string>(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('report') || 'sales';
-  });
-  const [showAdvanced, setShowAdvanced] = useState(() => !CORE_REPORTS.has(new URLSearchParams(window.location.search).get('report') || 'sales'));
+  const [activeReport, setActiveReport] = useState(getReportFromUrl);
+  const [showAdvanced, setShowAdvanced] = useState(() => !CORE_REPORTS.has(getReportFromUrl()));
+  const [navHidden, setNavHidden] = useState(() => localStorage.getItem('bo-report-navigation') === 'hidden');
   const visibleGroups = REPORT_GROUPS.map(group => ({ ...group, items: showAdvanced ? group.items : group.items.filter(item => CORE_REPORTS.has(item.id)) })).filter(group => group.items.length);
 
   const handleSelectReport = (id: string) => {
+    if (id === activeReport) return;
     setActiveReport(id);
+    if (!CORE_REPORTS.has(id)) setShowAdvanced(true);
     const url = new URL(window.location.href);
     url.searchParams.set('report', id);
     window.history.pushState(null, '', url.toString());
@@ -118,21 +123,20 @@ export function ReportsWorkspace({
 
   useEffect(() => {
     const onPop = () => {
-      const params = new URLSearchParams(window.location.search);
-      const rep = params.get('report');
-      if (rep) setActiveReport(rep);
+      const report = getReportFromUrl();
+      setActiveReport(report);
+      if (!CORE_REPORTS.has(report)) setShowAdvanced(true);
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
   return (
-    <div className="reports-workspace-container">
+    <div className="reports-workspace-container" data-report-nav-hidden={navHidden}>
       {/* SECONDARY SIDEBAR - DESKTOP */}
-      <aside className="reports-secondary-sidebar" aria-label="Reports categories">
+      <aside id="reports-categories" className="reports-secondary-sidebar" aria-label="Reports categories">
         <div className="reports-sidebar-header">
-          <span className="reports-sidebar-eyebrow">WORKSPACE REPORTS</span>
-          <h2 className="reports-sidebar-title">Reports & Insights</h2>
+          <h2 className="reports-sidebar-title">Reports</h2>
         </div>
 
         <nav className="reports-sidebar-nav">
@@ -163,8 +167,16 @@ export function ReportsWorkspace({
         </nav>
       </aside>
 
-      {/* MOBILE REPORT SELECTOR */}
-      <div className="reports-mobile-selector">
+      <section className="reports-main-content" aria-label="Report results">
+        <div className="reports-navigation-toolbar">
+          <button type="button" className="report-btn secondary reports-navigation-toggle" aria-expanded={!navHidden} aria-controls="reports-categories" onClick={() => {
+            localStorage.setItem('bo-report-navigation', navHidden ? 'visible' : 'hidden');
+            setNavHidden(!navHidden);
+          }}>
+            {navHidden ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+            {navHidden ? 'Show report menu' : 'Hide report menu'}
+          </button>
+          <div className="reports-mobile-selector">
         <select
           className="reports-mobile-select"
           value={activeReport}
@@ -181,10 +193,9 @@ export function ReportsWorkspace({
             </optgroup>
           ))}
         </select>
-      </div>
-
-      {/* MAIN REPORT WORKSPACE AREA */}
-      <main className="reports-main-content">
+          </div>
+        </div>
+        <Suspense fallback={<p role="status" className="report-loading">Opening report…</p>}>
         {activeReport === 'sales' && <SalesReport onOpenInvoice={onOpenInvoice} />}
         {activeReport === 'purchases' && <PurchasesReport />}
         {activeReport === 'customer_returns' && <CustomerReturnsReport />}
@@ -204,7 +215,8 @@ export function ReportsWorkspace({
         {activeReport === 'expenses' && <ExpensesReport />}
         {activeReport === 'daily_closing' && <DailyClosingReport />}
         {activeReport === 'stock_gst' && <StockGstReport />}
-      </main>
+        </Suspense>
+      </section>
     </div>
   );
 }

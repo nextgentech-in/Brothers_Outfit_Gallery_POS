@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Eye, Printer } from 'lucide-react';
 import { readAdmin } from '../../adminApi';
 import { ReportHeader } from '../shared/ReportHeader';
@@ -20,7 +20,8 @@ export function SalesReport({ onOpenInvoice }: { onOpenInvoice?: (invoice: any) 
     };
   });
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshCount, setRefreshCount] = useState(0);
   const [error, setError] = useState('');
   const [data, setData] = useState<{ summary: any; items: any[] }>({
     summary: {
@@ -37,31 +38,35 @@ export function SalesReport({ onOpenInvoice }: { onOpenInvoice?: (invoice: any) 
   const [lastUpdated, setLastUpdated] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
 
-  const loadData = useCallback(async () => {
+  const { fromDate, toDate, channel, paymentMethod } = filters;
+  const searchQuery = filters.searchQuery?.trim() || '';
+  useEffect(() => {
+    const request = new AbortController();
+    const query = new URLSearchParams({ from: fromDate, to: toDate });
+    if (channel) query.set('channel', channel);
+    if (paymentMethod) query.set('payment', paymentMethod);
+    if (searchQuery) query.set('q', searchQuery);
     setLoading(true);
     setError('');
-    try {
-      const q = new URLSearchParams({
-        from: filters.fromDate,
-        to: filters.toDate
-      });
-      if (filters.channel) q.set('channel', filters.channel);
-      if (filters.paymentMethod) q.set('payment', filters.paymentMethod);
-      if (filters.searchQuery) q.set('q', filters.searchQuery);
 
-      const res = await readAdmin<{ summary: any; items: any[] }>(`reports/sales?${q.toString()}`);
-      setData(res);
-      setLastUpdated(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }));
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [filters]);
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await readAdmin<{ summary: any; items: any[] }>('reports/sales?' + query, request.signal);
+        if (request.signal.aborted) return;
+        setData(result);
+        setLastUpdated(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }));
+      } catch (cause) {
+        if (!request.signal.aborted) setError((cause as Error).message);
+      } finally {
+        if (!request.signal.aborted) setLoading(false);
+      }
+    }, searchQuery ? 250 : 0);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+    return () => {
+      window.clearTimeout(timer);
+      request.abort();
+    };
+  }, [fromDate, toDate, channel, paymentMethod, searchQuery, refreshCount]);
 
   const handleExportCsv = () => {
     const headers = [
@@ -240,8 +245,8 @@ export function SalesReport({ onOpenInvoice }: { onOpenInvoice?: (invoice: any) 
         description="Comprehensive analysis of POS in-store and website online sales, settlements, and pending udhar."
         lastUpdated={lastUpdated}
         loading={loading}
-        onRefresh={loadData}
-        onExportCsv={handleExportCsv}
+        onRefresh={() => setRefreshCount(count => count + 1)}
+        onExportCsv={error ? undefined : handleExportCsv}
       />
 
       <ReportFilters

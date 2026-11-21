@@ -81,7 +81,10 @@ export function createApp(options: AppOptions = {}) {
         .send(invoicePdf({ id: invoiceId, ...snap.data() }));
     } catch { res.status(503).json({ error: 'Bill is temporarily unavailable.' }); }
   });
-  app.get('/api/auth/csrf', (_req, res) => {
+  app.get('/api/desktop/status', (_req, res) => res.json({ desktop: false }));
+  app.get('/api/auth/csrf', (req, res) => {
+    const existing = cookieValue(req, csrfName);
+    if (/^[a-f0-9]{64}$/.test(existing)) { res.json({ token: existing }); return; }
     const token = csrfToken();
     res.cookie(csrfName, token, { ...cookieOptions, maxAge: config.sessionMs }).json({ token });
   });
@@ -158,12 +161,17 @@ export function createApp(options: AppOptions = {}) {
   app.get('/api/auth/me', (_req, res) => res.json(res.locals.owner));
   app.use('/api', (req,res,next) => {
     const role = res.locals.owner?.role;
-    if (role !== 'owner' && (req.path.startsWith('/staff') || req.path.startsWith('/backup') || req.path.startsWith('/auth/device/'))) { res.status(403).json({ error: 'Owner access required.' }); return; }
-    if(role==='cashier' && ['/reports','/day','/suppliers','/purchases','/purchase-orders','/expenses','/dashboard','/overview','/movements'].some(path=>req.path===path||req.path.startsWith(path+'/'))){res.status(403).json({error:'Manager or owner access required.'});return;}
-    if (role === 'cashier' && !['GET','HEAD','OPTIONS'].includes(req.method) && !req.path.startsWith('/auth/')) {
-      const lineDiscount = Array.isArray(req.body?.lines) ? req.body.lines.reduce((sum: number, line: { discount?: number }) => sum + Number(line.discount || 0), 0) : NaN;
+    // Express routers match literal paths case-insensitively and accept a trailing slash.
+    const route = req.path.toLowerCase().replace(/\/+$/, '');
+    const matches = (prefix: string) => route === prefix || route.startsWith(`${prefix}/`);
+    if (role !== 'owner' && ['/staff', '/backup', '/auth/device'].some(matches)) { res.status(403).json({ error: 'Owner access required.' }); return; }
+    if (role === 'cashier' && ['/reports', '/day', '/suppliers', '/purchases', '/purchase-orders', '/expenses', '/dashboard', '/overview', '/movements'].some(matches)) {
+      res.status(403).json({ error: 'Manager or owner access required.' }); return;
+    }
+    if (role === 'cashier' && !['GET','HEAD','OPTIONS'].includes(req.method) && !matches('/auth')) {
+      const lineDiscount = Array.isArray(req.body?.lines) ? req.body.lines.reduce((sum: number, line: { discount?: number } | null) => sum + Number(line?.discount || 0), 0) : NaN;
       const catalogDiscount = Array.isArray(req.body?.lines) && req.body.lines.length > 0 && Math.round(lineDiscount * 100) === Math.round(Number(req.body?.discount || 0) * 100);
-      const allowed = req.path === '/pos/recover' || (req.path === '/pos/sale' && (Number(req.body?.discount || 0) === 0 || catalogDiscount)) || (req.path === '/credit/entries' && req.body?.kind === 'payment');
+      const allowed = route === '/pos/recover' || (route === '/pos/sale' && (Number(req.body?.discount || 0) === 0 || catalogDiscount)) || (route === '/credit/entries' && req.body?.kind === 'payment');
       if (!allowed) { res.status(403).json({ error: 'Manager or owner approval is required for this action.' }); return; }
     }
     next();
@@ -203,16 +211,6 @@ export function createApp(options: AppOptions = {}) {
     catch { res.status(503).json({ error: 'Dashboard data is unavailable. Check the server connection to the shared database.' }); }
   });
   app.use('/api', (req, res, next) => ['GET', 'HEAD', 'OPTIONS'].includes(req.method) ? next() : csrf(req, res, next));
-  app.use('/api', async (req, res, next) => {
-    const writes = new Set(['/products/images/upload', '/sync/retry', '/products/create', '/products/patch',
-      '/inventory/adjust', '/inventory/adjust-batch', '/suppliers/create', '/pos/recover', '/pos/sale',
-      '/orders/status', '/orders/invoice', '/orders/edit-bill', '/orders/return', '/orders/refund', '/credit/customers',
-      '/credit/entries', '/credit/preferences', '/whatsapp/process', '/whatsapp/retry', '/expenses/create',
-      '/day/close', '/suppliers/payment', '/customers/update', '/customers/reward-settings', '/inventory/count', '/purchases/receive',
-      '/purchases/receive-order', '/purchases/return', '/purchases/return/apply-credit', '/purchases/return/refund', '/staff/save']);
-    if (req.method !== 'POST' || !writes.has(req.path)) { next(); return; }
-    next();
-  });
   app.use('/api', commerceRouter);
   app.use('/api', creditRouter);
   app.use('/api', purchasesRouter);

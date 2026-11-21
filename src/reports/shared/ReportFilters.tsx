@@ -171,6 +171,7 @@ export function ReportFilters({
               <Search size={15} />
               <input
                 type="text"
+                aria-label="Search report records"
                 placeholder={searchPlaceholder}
                 value={filters.searchQuery || ''}
                 onChange={e => onChange({ ...filters, searchQuery: e.target.value })}

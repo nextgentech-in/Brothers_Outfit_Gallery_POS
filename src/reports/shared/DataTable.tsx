@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { ChevronDown, ChevronUp, ChevronsUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronsUpDown, ChevronLeft, ChevronRight, Columns3 } from 'lucide-react';
 
 export interface ColumnDef<T> {
   key: string;
@@ -28,6 +28,18 @@ export function DataTable<T>({
   defaultPageSize = 25,
   loading = false
 }: DataTableProps<T>) {
+  const preferenceKey = 'bo-report-columns:' + columns.map(column => column.key).join(',');
+  const [hidden, setHidden] = useState<string[]>(() => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem(preferenceKey) || '[]');
+      if (Array.isArray(saved)) {
+        const keys = columns.filter(column => saved.includes(column.key)).map(column => column.key);
+        if (keys.length < columns.length) return keys;
+      }
+    } catch { /* Use the default columns when preferences are unavailable. */ }
+    return [];
+  });
+  const visibleColumns = columns.filter(column => !hidden.includes(column.key));
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(1);
@@ -47,6 +59,18 @@ export function DataTable<T>({
     }
     setPage(1);
   };
+
+  function setVisibleColumns(nextHidden: string[]) {
+    if (nextHidden.length >= columns.length) return;
+    setHidden(nextHidden);
+    if (sortKey && nextHidden.includes(sortKey)) {
+      setSortKey(null);
+      setSortDirection('asc');
+      setPage(1);
+    }
+    try { localStorage.setItem(preferenceKey, JSON.stringify(nextHidden)); }
+    catch { /* The active display preference still applies for this visit. */ }
+  }
 
   const sortedData = useMemo(() => {
     if (!sortKey) return data;
@@ -83,22 +107,37 @@ export function DataTable<T>({
   };
 
   return (
-    <div className="report-table-panel">
+    <div className="report-table-panel" aria-busy={loading}>
+      <div className="report-table-toolbar">
+        <h2>Report records</h2>
+        <details className="report-columns">
+          <summary className="report-btn secondary"><Columns3 size={16} /> Columns</summary>
+          <div className="report-columns-options">
+            {columns.map(column => <label key={column.key}>
+              <input type="checkbox" checked={!hidden.includes(column.key)}
+                disabled={visibleColumns.length === 1 && !hidden.includes(column.key)}
+                onChange={event => setVisibleColumns(event.target.checked ? hidden.filter(key => key !== column.key) : [...hidden, column.key])} />
+              {column.header}
+            </label>)}
+            <button type="button" className="report-btn secondary" disabled={hidden.length === 0} onClick={() => setVisibleColumns([])}>Reset columns</button>
+          </div>
+        </details>
+      </div>
       <div className="report-table-wrap">
         <table className="report-data-table">
           <thead>
             <tr>
-              {columns.map(col => {
+              {visibleColumns.map(col => {
                 const isSorted = sortKey === col.key;
                 return (
                   <th
                     key={col.key}
                     style={{
                       textAlign: col.align || 'left',
-                      width: col.width,
-                      cursor: col.sortable ? 'pointer' : 'default'
+                      width: col.width
                     }}
-                    onClick={() => handleHeaderClick(col)}
+                    scope="col"
+                    aria-sort={isSorted ? (sortDirection === 'asc' ? 'ascending' : 'descending') : undefined}
                     className={col.sortable ? 'sortable-header' : ''}
                   >
                     <div
@@ -112,16 +151,16 @@ export function DataTable<T>({
                             : 'flex-start'
                       }}
                     >
-                      <span>{col.header}</span>
-                      {col.sortable && (
-                        <span className="sort-icon">
+                      {col.sortable ? (<button type="button" className="report-sort-button" onClick={() => handleHeaderClick(col)}>
+                        {col.header}
+                        <span className="sort-icon" aria-hidden="true">
                           {isSorted ? (
                             sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
                           ) : (
                             <ChevronsUpDown size={13} className="text-muted" />
                           )}
                         </span>
-                      )}
+                      </button>) : col.header}
                     </div>
                   </th>
                 );
@@ -131,20 +170,20 @@ export function DataTable<T>({
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={columns.length} className="table-state-cell">
+                <td colSpan={visibleColumns.length} className="table-state-cell">
                   <div className="table-loading-spinner">Loading report records…</div>
                 </td>
               </tr>
             ) : paginatedData.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="table-state-cell empty-state">
+                <td colSpan={visibleColumns.length} className="table-state-cell empty-state">
                   {emptyMessage}
                 </td>
               </tr>
             ) : (
               paginatedData.map((row, idx) => (
                 <tr key={getKey(row, idx)}>
-                  {columns.map(col => (
+                  {visibleColumns.map(col => (
                     <td
                       key={col.key}
                       style={{ textAlign: col.align || 'left', width: col.width }}
@@ -170,6 +209,7 @@ export function DataTable<T>({
           <div className="page-size-selector">
             <span>Show:</span>
             <select
+              aria-label="Rows per page"
               value={pageSize}
               onChange={e => {
                 setPageSize(Number(e.target.value));

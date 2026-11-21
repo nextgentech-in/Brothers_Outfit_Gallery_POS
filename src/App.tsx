@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react';
 import { ArrowDownUp, ArrowRight, BarChart3, ChevronRight, FileText,
-  LayoutDashboard, LockKeyhole, MessageCircle, Moon, Package, RefreshCw, ShieldCheck,
+  LayoutDashboard, LockKeyhole, PanelLeftClose, PanelLeftOpen, MessageCircle, Moon, Package, RefreshCw, ShieldCheck,
   ShoppingBag, Sun, Truck, Users, Search, type LucideIcon } from 'lucide-react';
 import type { Owner } from '../shared/contracts';
 import { BrandLogo } from './BrandLogo';
@@ -113,6 +113,7 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
   const [offlineSession, setOfflineSession] = useState(false);
   const [error, setError] = useState('');
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [sidebarHidden, setSidebarHidden] = useState(() => localStorage.getItem('bo-workspace-navigation') === 'hidden');
   const allowed=(id:string)=>owner?.role!=='cashier'||['pos','customers','credit','sync'].includes(id);
   useEffect(()=>{if(owner?.role==='cashier'&&!allowed(tab))navigate('pos');},[owner,tab]);
   function navigate(id: string) { setTab(id); history.pushState(null, '', id === 'pos' ? '/' : `/${id}`); }
@@ -163,13 +164,16 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
     window.location.assign('/login');
   }
   if (!owner) return <p role="status">Checking shop access…</p>;
-  return <div className="workspace">
-    <aside className="sidebar glass"><Brand compact /><div className="workspace-label">YOUR WORKSPACE</div><nav aria-label="Main navigation">{primaryTabs.filter(item=>allowed(item.id)).map(item => <button key={item.id} onClick={() => navigate(item.id)} className={`nav-item ${tab === item.id ? 'selected' : ''}`} aria-current={tab === item.id ? 'page' : undefined}><item.icon size={19} />{item.label}{tab === item.id && <span className="nav-dot" />}</button>)}<details className="sidebar-more"><summary>More tools</summary><div className="more-menu">{moreTabs.filter(item=>allowed(item.id)&&(item.id!=='security'||owner?.role==='owner')).map(item => <button key={item.id} onClick={() => navigate(item.id)} className={`nav-item ${tab === item.id ? 'selected' : ''}`}><item.icon size={19} />{item.label}</button>)}</div></details></nav>
+  return <div className="workspace" data-sidebar-hidden={sidebarHidden}>
+    <aside className="sidebar glass" id="workspace-navigation"><Brand compact /><div className="workspace-label">YOUR WORKSPACE</div><nav aria-label="Main navigation">{primaryTabs.filter(item=>allowed(item.id)).map(item => <button key={item.id} onClick={() => navigate(item.id)} className={`nav-item ${tab === item.id ? 'selected' : ''}`} aria-current={tab === item.id ? 'page' : undefined}><item.icon size={19} />{item.label}{tab === item.id && <span className="nav-dot" />}</button>)}<details className="sidebar-more"><summary>More tools</summary><div className="more-menu">{moreTabs.filter(item=>allowed(item.id)&&(item.id!=='security'||owner?.role==='owner')).map(item => <button key={item.id} onClick={() => navigate(item.id)} className={`nav-item ${tab === item.id ? 'selected' : ''}`}><item.icon size={19} />{item.label}</button>)}</div></details></nav>
       <div className="sidebar-bottom"><div className="sidebar-connection">Shared website catalog · Live store</div>
       <div className="owner"><span className="avatar">BO</span><div><strong>{owner?.name || (owner?.role === 'cashier' ? 'Cashier' : owner?.role === 'manager' ? 'Manager' : 'Store owner')}</strong><small>{owner ? 'Active session' : 'Ready'}</small></div><button className="icon-button" onClick={logout} aria-label="Go to dashboard" title="Reset to Dashboard"><LayoutDashboard size={17} /></button></div></div>
     </aside>
     <div className="main-area"><header className="topbar">
-      <div className="breadcrumbs">Workspace <ChevronRight size={14} /><strong>{tabs.find(t => t.id === tab)?.label || 'Dashboard'}</strong></div>
+      <div className="breadcrumbs"><button type="button" className="icon-button workspace-navigation-toggle" title={sidebarHidden ? 'Show workspace menu' : 'Hide workspace menu'} aria-label={sidebarHidden ? 'Show workspace menu' : 'Hide workspace menu'} aria-controls="workspace-navigation" aria-expanded={!sidebarHidden} onClick={() => {
+        localStorage.setItem('bo-workspace-navigation', sidebarHidden ? 'visible' : 'hidden');
+        setSidebarHidden(!sidebarHidden);
+      }}>{sidebarHidden ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}</button>Workspace <ChevronRight size={14} /><strong>{tabs.find(t => t.id === tab)?.label || 'Dashboard'}</strong></div>
       <div
         className="topbar-search-trigger"
         onClick={() => setPaletteOpen(true)}
@@ -198,7 +202,7 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
       <Suspense fallback={<p role="status">Loading workspace…</p>}>
       {tab === 'dashboard' && <Dashboard navigate={navigate} role={owner?.role} />}
       {tab === 'security' && owner?.role === 'owner' && <><StaffSettings /><TrustedDevices /></>}
-      {tab === 'reports' && <ReportsWorkspace role={owner?.role} />}
+      {tab === 'reports' && <ReportsWorkspace />}
       {tab === 'credit' && <CreditView />}
       {tab === 'whatsapp' && <WhatsAppView onCustomers={() => navigate('customers')} />}
       {['products', 'pos', 'inventory', 'orders', 'customers', 'suppliers', 'purchase-orders', 'sync'].includes(tab) && <CommerceView tab={tab} role={owner?.role} />}

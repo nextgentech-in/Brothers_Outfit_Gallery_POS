@@ -3,16 +3,19 @@
  * Downloads genuine CSV files and handles browser printing
  */
 
-export function downloadCsv(filename: string, headers: string[], rows: (string | number | boolean | null | undefined)[][]) {
-  const escapeCell = (val: unknown): string => {
-    if (val === null || val === undefined) return '""';
-    const str = String(val).replace(/"/g, '""');
-    return `"${str}"`;
-  };
+type CsvValue = string | number | boolean | null | undefined;
 
+export function csvCell(value: CsvValue): string {
+  if (value === null || value === undefined) return '""';
+  const text = String(value);
+  const safe = typeof value === 'string' && /^(?:[\t\r\n]|\s*[=+@\-＝＋＠－])/u.test(text) ? `'${text}` : text;
+  return `"${safe.replace(/"/g, '""')}"`;
+}
+
+export function downloadCsv(filename: string, headers: string[], rows: CsvValue[][]) {
   const csvContent = [
-    headers.map(escapeCell).join(','),
-    ...rows.map(row => row.map(escapeCell).join(','))
+    headers.map(csvCell).join(','),
+    ...rows.map(row => row.map(csvCell).join(','))
   ].join('\r\n');
 
   const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
