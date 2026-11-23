@@ -91,12 +91,13 @@ html,body{width:${mm(roll.paper)}!important;min-width:0!important;height:auto!im
 }
 
 function measurePrintedHeight(sheet: HTMLElement | null, contentWidth: number) {
-  if (!sheet?.parentElement) return 200;
-  const clone = sheet.cloneNode(true) as HTMLElement;
+  const source = sheet?.querySelector<HTMLElement>('.receipt-paper') ?? sheet;
+  if (!sheet || !source) return 200;
+  const clone = source.cloneNode(true) as HTMLElement;
   clone.querySelectorAll('.no-print,.invoice-actions,.error-banner').forEach(node => node.remove());
   clone.removeAttribute('role'); clone.removeAttribute('aria-modal'); clone.setAttribute('aria-hidden', 'true');
-  Object.assign(clone.style, { position: 'absolute', left: '-10000px', top: '0', width: `${contentWidth}mm`, padding: '0', margin: '0', maxHeight: 'none', height: 'auto', overflow: 'visible', visibility: 'hidden' });
-  sheet.parentElement.appendChild(clone);
+  Object.assign(clone.style, { position: 'absolute', left: '-10000px', top: '0', width: `${contentWidth}mm`, boxSizing: 'content-box', padding: '0', margin: '0', border: '0', maxHeight: 'none', height: 'auto', overflow: 'visible', visibility: 'hidden' });
+  sheet.appendChild(clone);
   const px = clone.getBoundingClientRect().height;
   clone.remove();
   return px * 25.4 / 96;

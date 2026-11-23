@@ -87,8 +87,26 @@ export function ReceiptDialog({ invoice, shop, preview = false, onClose }: { inv
     ? `https://wa.me/${shopWhatsApp}?text=${encodeURIComponent('BILL ' + invoice.id)}` : '';
   const whatsappText = [shop?.name || 'Brothers Outfit Gallery', 'Sales receipt ' + invoice.id, ...invoice.lines.map(line => `${line.name || line.sku || 'Item'} (${line.sku || 'Item'}) × ${line.quantity || 0}: ${money(Number(line.price || 0) * Number(line.quantity || 0))}`), discount > 0 ? 'Discount: ' + money(discount) : '', 'Total: ' + money(invoice.total), invoice.billUrl ? 'Open your bill PDF: ' + invoice.billUrl : '', 'Payment: ' + invoice.paymentMethod, 'Thank you for shopping with us.'].filter(Boolean).join('\n');
   return createPortal(<div className="editor-backdrop print-backdrop" onClick={onClose}><div ref={sheetRef} className={`invoice-sheet glass receipt-${paper}`} role="dialog" aria-modal="true" aria-label={preview ? 'Bill print preview' : `Receipt ${invoice.id}`} onClick={event => event.stopPropagation()}>
-    <div className="invoice-actions"><select aria-label="Receipt paper" value={paper} onChange={e => setPaper(e.target.value as ReceiptFormat)}>{Object.entries(receiptFormats).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><button className="text-button" onClick={() => setPaper('58')}>Use shop default</button><button className="button secondary" onClick={onClose}>Close</button>{!preview && !provisional && <a className="button secondary" href={`/api/invoices/${encodeURIComponent(invoice.id)}/pdf`} download>Download A4 PDF</a>}{!preview && invoice.billUrl && <a className="button secondary" href={invoice.billUrl} target="_blank" rel="noopener noreferrer">Open customer link</a>}{!preview && phone.length >= 10 && invoice.billUrl && <a className="button secondary" href={`sms:+${phone}?body=${encodeURIComponent('Your Brothers Outfit bill ' + invoice.id + ': ' + invoice.billUrl)}`}>Share by SMS</a>}{!preview && phone.length >= 10 && invoice.billUrl && <button className="button secondary" type="button" onClick={() => setWhatsappDraftOpen(true)}><MessageCircle size={16} />Edit & share on WhatsApp</button>}<button className="button primary" disabled={printing} onClick={() => void printBill()}><Printer size={16} />{printing ? 'Preparing bill…' : 'Print bill'}</button></div>
-    <p className="no-print print-help">Shop default: 58 mm receipt roll. In the print dialog choose the 58 mm receipt printer, Margins: None, Scale: 100, and turn headers and footers off. Save a PDF from that dialog for the selected size.</p>
+    <div className="invoice-actions receipt-toolbar">
+      <div className="receipt-toolbar-top">
+        <div className="receipt-toolbar-title"><Printer size={18} /><div><strong>{preview ? 'Bill preview' : 'Print bill'}</strong><span>{preview ? 'Sale not completed yet' : invoice.id}</span></div></div>
+        <button className="receipt-close" type="button" onClick={onClose} aria-label="Close">×</button>
+      </div>
+      <div className="receipt-paper-row">
+        <label><span>Paper</span><select aria-label="Receipt paper" value={paper} onChange={e => setPaper(e.target.value as ReceiptFormat)}>{Object.entries(receiptFormats).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+        {paper !== '58' && <button className="text-button" type="button" onClick={() => setPaper('58')}>Use shop default (58 mm)</button>}
+      </div>
+      <p className="print-help">In the print dialog pick the {paper === '58' || paper === '80' ? 'receipt printer' : 'matching printer'}, set <b>Margins: None</b>, <b>Scale: 100</b> and turn <b>headers and footers</b> off.</p>
+      <div className="receipt-toolbar-actions">
+        <div className="receipt-share">
+          {!preview && !provisional && <a className="button secondary sm" href={`/api/invoices/${encodeURIComponent(invoice.id)}/pdf`} download><FileDown size={15} />A4 PDF</a>}
+          {!preview && invoice.billUrl && <a className="button secondary sm" href={invoice.billUrl} target="_blank" rel="noopener noreferrer"><Eye size={15} />Customer link</a>}
+          {!preview && phone.length >= 10 && invoice.billUrl && <a className="button secondary sm" href={`sms:+${phone}?body=${encodeURIComponent('Your Brothers Outfit bill ' + invoice.id + ': ' + invoice.billUrl)}`}>SMS</a>}
+          {!preview && phone.length >= 10 && invoice.billUrl && <button className="button secondary sm" type="button" onClick={() => setWhatsappDraftOpen(true)}><MessageCircle size={15} />WhatsApp</button>}
+        </div>
+        <button className="button primary receipt-print" type="button" disabled={printing} onClick={() => void printBill()}><Printer size={16} />{printing ? 'Preparing bill…' : 'Print bill'}</button>
+      </div>
+    </div>
     {printError && <p className="error-banner no-print" role="alert">{printError}</p>}
     {whatsappDraftOpen && <WhatsAppDraftDialog draft={{name:invoice.customerName || 'Customer',phone:invoice.customerPhone || '',message:whatsappText}} onClose={() => setWhatsappDraftOpen(false)} />}
     {!preview && phone && !invoice.billUrl && <p className="no-print" role="status">{provisional ? 'Sync this bill before sharing its PDF link.' : 'The customer PDF link is unavailable. Reopen the receipt from Orders while online.'}</p>}
@@ -96,6 +114,7 @@ export function ReceiptDialog({ invoice, shop, preview = false, onClose }: { inv
       <p>Scan with the customer’s phone and send the WhatsApp request to receive this PDF automatically.</p>
       <img width={128} height={128} alt="Scan to request this receipt on WhatsApp" src={`/api/barcode/render?format=qrcode&code=${encodeURIComponent(requestUrl)}`} />
     </div>}
+    <div className="receipt-stage"><div className="receipt-paper">
     {preview && <div className="preview-ribbon">BILL PREVIEW · SALE NOT COMPLETED</div>}
     {provisional && <div className="preview-ribbon">OFFLINE BILL · PENDING SYNC</div>}
     <div className="invoice-header"><BrandLogo /><div><h2>{shop?.name || 'Brothers Outfit Gallery'}</h2><p>{shop?.address || 'FF-57, Pratham Square, Himatnagar, Gujarat 383001'}<br />Phone: {shop?.phone || '+91 84602 33020'}{shop?.email && <><br />{shop.email}</>}</p></div></div>
@@ -109,6 +128,7 @@ export function ReceiptDialog({ invoice, shop, preview = false, onClose }: { inv
     {Number(invoice.exchangeCreditUsed) > 0 && <p>Exchange credit applied: {money(invoice.exchangeCreditUsed)}</p>}
     {invoice.payments && <p>{invoice.payments.map(p => `${p.method.toUpperCase()}: ${money(p.amount)}`).join(' · ')}{Number(invoice.change) > 0 ? ` · Change: ${money(invoice.change)}` : ''}</p>}
     {(invoice.paymentMethod === 'credit' || Number(invoice.creditAmount) > 0) && <p className="credit-red"><strong>Repayment due: {invoice.creditDueDate || 'Not recorded'}</strong></p>}<div className="invoice-footer"><strong>Thank you for visiting.</strong><span>Keep this receipt for your records. For assistance, contact {shop?.phone || '+91 84602 33020'}.</span><small>Sales receipt · GST tax invoice not issued</small></div>
+    </div></div>
   </div></div>,document.body);
 }
 async function get<T>(path: string): Promise<T> {
