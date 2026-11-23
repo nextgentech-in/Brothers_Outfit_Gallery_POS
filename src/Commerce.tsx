@@ -1,4 +1,3 @@
-import { WhatsAppDraftDialog } from './WhatsAppDraftDialog';
 import { receiptFormats, type ReceiptFormat } from '../shared/printing';
 import { printDocument, receiptPageCss, usePrintPreference } from './printing';
 import type { BillRewards } from '../shared/rewards';
@@ -64,7 +63,6 @@ const isPreviewProduct = (p: Product) => {
 
 export function ReceiptDialog({ invoice, shop, preview = false, onClose }: { invoice: Invoice; shop: Shop | null; preview?: boolean; onClose: () => void }) {
   const provisional = invoice.id.startsWith('LOCAL-');
-  const [whatsappDraftOpen,setWhatsappDraftOpen]=useState(false);
   const [paper, setPaper] = usePrintPreference<ReceiptFormat>('receipt58', receiptFormats, '58');
   const sheetRef = useRef<HTMLDivElement>(null);
   const [printing, setPrinting] = useState(false), [printError, setPrintError] = useState('');
@@ -102,13 +100,12 @@ export function ReceiptDialog({ invoice, shop, preview = false, onClose }: { inv
           {!preview && !provisional && <a className="button secondary sm" href={`/api/invoices/${encodeURIComponent(invoice.id)}/pdf`} download><FileDown size={15} />A4 PDF</a>}
           {!preview && invoice.billUrl && <a className="button secondary sm" href={invoice.billUrl} target="_blank" rel="noopener noreferrer"><Eye size={15} />Customer link</a>}
           {!preview && phone.length >= 10 && invoice.billUrl && <a className="button secondary sm" href={`sms:+${phone}?body=${encodeURIComponent('Your Brothers Outfit bill ' + invoice.id + ': ' + invoice.billUrl)}`}>SMS</a>}
-          {!preview && phone.length >= 10 && invoice.billUrl && <button className="button secondary sm" type="button" onClick={() => setWhatsappDraftOpen(true)}><MessageCircle size={15} />WhatsApp</button>}
+          {!preview && phone.length >= 10 && invoice.billUrl && <a className="button secondary sm whatsapp-direct" href={`https://wa.me/${phone}?text=${encodeURIComponent(whatsappText)}`} target="_blank" rel="noopener noreferrer"><MessageCircle size={15} />WhatsApp</a>}
         </div>
         <button className="button primary receipt-print" type="button" disabled={printing} onClick={() => void printBill()}><Printer size={16} />{printing ? 'Preparing bill…' : 'Print bill'}</button>
       </div>
     </div>
     {printError && <p className="error-banner no-print" role="alert">{printError}</p>}
-    {whatsappDraftOpen && <WhatsAppDraftDialog draft={{name:invoice.customerName || 'Customer',phone:invoice.customerPhone || '',message:whatsappText}} onClose={() => setWhatsappDraftOpen(false)} />}
     {!preview && phone && !invoice.billUrl && <p className="no-print" role="status">{provisional ? 'Sync this bill before sharing its PDF link.' : 'The customer PDF link is unavailable. Reopen the receipt from Orders while online.'}</p>}
     {requestUrl && <div className="no-print">
       <p>Scan with the customer’s phone and send the WhatsApp request to receive this PDF automatically.</p>

@@ -35,6 +35,7 @@ export async function printDocument(pageCss?: () => string) {
   window.print();
 }
 
+// The bill is centred on whatever paper width the printer driver ends up using.
 // Chrome only reliably sends a custom paper size to the printer through an unnamed @page rule,
 // so the exact size for the chosen media is injected just before printing.
 const OVERRIDE_ID = 'print-media-override';
@@ -62,6 +63,7 @@ export function labelPageCss(format: LabelFormat) {
   return `@page{size:${mm(width)} ${mm(height)};margin:0}
 @media print{${RESET_NAMED_PAGES}
 html,body{width:${mm(width)}!important;min-width:0!important;height:auto!important;min-height:0!important;margin:0!important;padding:0!important;overflow:visible!important}
+body>.print-backdrop,.print-backdrop .barcode-editor,.print-backdrop .barcode-preview-container{min-height:0!important;height:auto!important;padding:0!important;margin:0!important}
 .print-backdrop .barcode-print-pages{display:block!important;width:${mm(width)}!important;margin:0!important;padding:0!important;gap:0!important}
 .print-backdrop .barcode-roll-pages>.barcode-sheet-printable{display:block!important;${sheet};break-after:page!important;page-break-after:always!important}
 .print-backdrop .barcode-roll-pages>.barcode-sheet-printable:last-child{break-after:auto!important;page-break-after:auto!important}
@@ -86,8 +88,9 @@ export function receiptPageCss(format: ReceiptFormat, sheet: HTMLElement | null)
   const length = Math.max(60, Math.ceil(measurePrintedHeight(sheet, roll.content) + 12));
   return `@page{size:${mm(roll.paper)} ${mm(length)};margin:0}
 @media print{${RESET_NAMED_PAGES}
-html,body{width:${mm(roll.paper)}!important;min-width:0!important;height:auto!important;margin:0!important;padding:0!important}
-.print-backdrop .invoice-sheet{width:${mm(roll.content)}!important;max-width:none!important;margin:0 auto!important;padding:2mm 0 0!important}}`;
+html,body{width:auto!important;min-width:0!important;height:auto!important;margin:0!important;padding:0!important}
+body>.print-backdrop{width:100%!important;margin:0!important;padding:0!important}
+.print-backdrop .invoice-sheet{width:${mm(roll.content)}!important;max-width:none!important;margin:0 auto!important;padding:2mm 0 0!important;float:none!important}}`;
 }
 
 function measurePrintedHeight(sheet: HTMLElement | null, contentWidth: number) {

@@ -57,6 +57,7 @@ export function ClothingLabel({
       </div>
 
       <div className="label-body">
+        <div className="label-item-name" title={product.name}>{product.name}</div>
         <div className="label-variant-badge-row">
           <span className="label-variant-pill">
             <strong>Size:</strong> {variant.size || 'Free'}
