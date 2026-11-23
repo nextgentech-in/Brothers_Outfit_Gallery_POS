@@ -1,12 +1,16 @@
 import { purchaseCsv } from '../shared/purchaseCsv';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Search, Trash2, Printer } from 'lucide-react';
+import { Search, Trash2, Printer, Plus, Minus } from 'lucide-react';
 import { purchaseSchema, type PurchaseInput, type PurchaseLine } from '../shared/purchases';
 import { BarcodePrintModal, type PrintableItem } from './BarcodePrintModal';
 export type { PurchaseInput };
 type Product = { id: string; name: string; sku: string; productNumber?: number; barcode?: string; price?: number; mrp?: number; costPrice?: number; stock: number; variants: { sku: string; barcode?: string; size?: string; color?: string; stock: number; price?: number; mrp?: number; costPrice?: number }[] };
 type Supplier = { id: string; name: string; phone?: string; address?: string };
 type Line = PurchaseLine & { label: string; rowId: string };
+type Variant = Product['variants'][number];
+const variantsOf = (product: Product): Variant[] => product.variants.length ? product.variants
+  : [{ sku: product.sku, stock: product.stock, price: product.price, costPrice: product.costPrice, mrp: product.mrp, barcode: product.barcode }];
+const variantName = (variant?: Variant) => [variant?.size || 'Free size', variant?.color].filter(Boolean).join(' · ');
 const money = (n: number) => `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 export function PurchaseReceive({ products, suppliers, receive, mode = 'receive' }: {
   products: Product[];
@@ -22,6 +26,8 @@ export function PurchaseReceive({ products, suppliers, receive, mode = 'receive'
   const [supplierAddress, setSupplierAddress] = useState('');
   const [selectedSku, setSelectedSku] = useState('');
   const [quantity, setQuantity] = useState(1);
+  const [pickedProductId, setPickedProductId] = useState('');
+  const [sizeQty, setSizeQty] = useState<Record<string, number>>({});
   const [supplierId, setSupplierId] = useState(''), [supplierInvoice, setSupplierInvoice] = useState('');
   const [amountPaid, setAmountPaid] = useState(0);
   const [fullPayment, setFullPayment] = useState(false);
@@ -66,11 +72,45 @@ export function PurchaseReceive({ products, suppliers, receive, mode = 'receive'
       return `${product.productNumber ? `#${product.productNumber}` : ''} ${product.name} ${variant.sku} ${variant.barcode ?? ''} ${'size' in variant ? variant.size : ''} ${'color' in variant ? variant.color : ''}`.toLowerCase().includes(q);
     }).slice(0, 15);
   }, [products, search, isOrder]);
+  const productMatches = useMemo(() => {
+    const raw = search.trim(), q = raw.toLowerCase();
+    const cleanNum = raw.replace(/^#/, '').trim();
+    const num = /^\d+$/.test(cleanNum) ? parseInt(cleanNum, 10) : null;
+    return products.filter(product => {
+      if (!q) return true;
+      if (num !== null && product.productNumber === num) return true;
+      return [product.productNumber ? `#${product.productNumber}` : '', product.name, product.sku, product.barcode ?? '',
+        ...variantsOf(product).flatMap(variant => [variant.sku, variant.barcode ?? '', variant.size ?? '', variant.color ?? ''])]
+        .join(' ').toLowerCase().includes(q);
+    }).slice(0, 60);
+  }, [products, search]);
+  const picked = products.find(product => product.id === pickedProductId);
+  const pickedUnits = picked ? variantsOf(picked).reduce((sum, variant) => sum + (sizeQty[variant.sku] || 0), 0) : 0;
+  function pickProduct(id: string) { setPickedProductId(id); setSizeQty({}); }
+  function setSize(sku: string, value: number) {
+    setSizeQty(old => ({ ...old, [sku]: Number.isFinite(value) ? Math.max(0, Math.min(10000, Math.floor(value))) : 0 }));
+  }
+  function addPickedSizes() {
+    if (!picked) return;
+    variantsOf(picked).forEach(variant => { const count = sizeQty[variant.sku] || 0; if (count > 0) add(picked, variant, count); });
+    setSizeQty({});
+  }
+  const cartGroups = useMemo(() => {
+    const groups = new Map<string, Line[]>();
+    lines.forEach(line => {
+      if (line.newItem || !line.productId || !products.some(product => product.id === line.productId)) return;
+      groups.set(line.productId, [...(groups.get(line.productId) ?? []), line]);
+    });
+    return [...groups].map(([id, groupLines]) => {
+      const product = products.find(item => item.id === id)!;
+      const order = variantsOf(product).map(variant => variant.sku);
+      return { product, lines: [...groupLines].sort((a, b) => order.indexOf(a.sku) - order.indexOf(b.sku)) };
+    });
+  }, [lines, products]);
+  const looseLines = lines.filter(line => line.newItem || !line.productId || !products.some(product => product.id === line.productId));
   const total = lines.reduce((sum, line) => sum + Math.round(line.unitCost * 100) * line.quantity, 0) / 100;
   const paidNow = fullPayment ? total : amountPaid;
   const patch = (rowId: string, values: Partial<Line>) => setLines(old => old.map(line => line.rowId === rowId ? { ...line, ...values } : line));
-  const productKey = (product: Product, variant: Product['variants'][number]) => JSON.stringify([product.id, variant.sku]);
-  const selected = matches.find(({ product, variant }) => productKey(product, variant) === selectedSku);
   function add(product: Product, variant: Product['variants'][number], count = 1) {
     const rate = variant.price ?? product.price;
     const mrp = variant.mrp ?? product.mrp ?? rate;
@@ -83,7 +123,7 @@ export function PurchaseReceive({ products, suppliers, receive, mode = 'receive'
         ...(rate && mrp && rate <= mrp ? { salePrice: rate, mrp } : {})
       }];
     });
-    setSearch('');
+    if (!isOrder) setSearch('');
     setSelectedSku('');
     setQuantity(1);
   }
@@ -132,7 +172,7 @@ export function PurchaseReceive({ products, suppliers, receive, mode = 'receive'
         setPrintItems(toPrint);
         setLastReceivedPrintItems(toPrint);
       }
-      setUncertain(false); setLines([]); setSelectedSku(''); setQuantity(1); setSearch(''); setSupplierInvoice(''); setSupplierInvoiceDate(''); setIncludesTax(false); setAmountPaid(0); setFullPayment(false); setNotice(mode === 'order' ? 'Purchase order completed. Stock and supplier payment recorded.' : 'Purchase received. New items, prices and stock saved together.');
+      setUncertain(false); setLines([]); setPickedProductId(''); setSizeQty({}); setSelectedSku(''); setQuantity(1); setSearch(''); setSupplierInvoice(''); setSupplierInvoiceDate(''); setIncludesTax(false); setAmountPaid(0); setFullPayment(false); setNotice(mode === 'order' ? 'Purchase order completed. Stock and supplier payment recorded.' : 'Purchase received. New items, prices and stock saved together.');
     } catch (e) { const status = (e as { status?: number }).status;
       if (status && [400,404,409,422].includes(status)) { command.current = null; localStorage.removeItem(pendingKey); setUncertain(false); } else setUncertain(true);
       setError((e as Error).message);
@@ -163,15 +203,35 @@ export function PurchaseReceive({ products, suppliers, receive, mode = 'receive'
       <div className={isOrder ? 'purchase-order-layout' : undefined}>
       <div>
       {isOrder && <>
-        <label>Product<input type="search" placeholder="Search by product, number or SKU" value={search}
-          onChange={event => { setSearch(event.target.value); setSelectedSku(''); }} /></label>
-        <label>Matching product<select value={selectedSku} onChange={event => setSelectedSku(event.target.value)}>
-          <option value="">Choose product</option>
-          {matches.map(({ product, variant }) => <option key={productKey(product, variant)} value={productKey(product, variant)}>
-            {product.productNumber ? `#${product.productNumber} · ` : ''}{product.name} · {variant.sku}
+        <label>Product<input type="search" placeholder="Search by product name, number or SKU" value={search}
+          onChange={event => setSearch(event.target.value)} /></label>
+        <label>Choose product<select value={pickedProductId} onChange={event => pickProduct(event.target.value)}>
+          <option value="">{productMatches.length ? `Select from ${productMatches.length} product${productMatches.length === 1 ? '' : 's'}` : 'No matching products'}</option>
+          {picked && !productMatches.includes(picked) && <option value={picked.id}>{picked.productNumber ? `#${picked.productNumber} · ` : ''}{picked.name}</option>}
+          {productMatches.map(product => <option key={product.id} value={product.id}>
+            {product.productNumber ? `#${product.productNumber} · ` : ''}{product.name} ({variantsOf(product).length} size{variantsOf(product).length === 1 ? '' : 's'})
           </option>)}
         </select></label>
-        <label>Quantity<input type="number" min="1" max="10000" step="1" value={quantity} onChange={event => setQuantity(Number(event.target.value))} /></label>
+        {picked && <div className="po-size-picker">
+          <div className="po-size-picker-head">
+            <strong>{picked.productNumber ? <span className="product-no-badge">#{picked.productNumber}</span> : null}{picked.name}</strong>
+            <span>Enter how many of each size to order</span>
+          </div>
+          {variantsOf(picked).map(variant => {
+            const inCart = lines.find(line => line.productId === picked.id && line.sku === variant.sku)?.quantity ?? 0;
+            const count = sizeQty[variant.sku] || 0;
+            return <div className={`po-size-option${count > 0 ? ' active' : ''}`} key={variant.sku}>
+              <div><strong>{variantName(variant)}</strong><small>{variant.sku} · Stock {variant.stock ?? 0}{inCart ? ` · ${inCart} in cart` : ''}</small></div>
+              <div className="po-stepper">
+                <button type="button" aria-label={`Less ${variantName(variant)}`} disabled={count < 1} onClick={() => setSize(variant.sku, count - 1)}><Minus size={14} /></button>
+                <input type="number" min="0" max="10000" step="1" aria-label={`Quantity for ${variantName(variant)}`} value={count || ''} placeholder="0" onChange={event => setSize(variant.sku, Number(event.target.value))} />
+                <button type="button" aria-label={`More ${variantName(variant)}`} onClick={() => setSize(variant.sku, count + 1)}><Plus size={14} /></button>
+              </div>
+            </div>;
+          })}
+          <button type="button" className="button primary purchase-add-cart" disabled={!picked || pickedUnits < 1}
+        onClick={addPickedSizes}><Plus size={16} />{pickedUnits > 0 ? `Add ${pickedUnits} unit${pickedUnits === 1 ? '' : 's'} to cart` : 'Add to cart'}</button>
+        </div>}
         <label className="check-row"><input type="checkbox" checked={includesTax} onChange={event => setIncludesTax(event.target.checked)} /> Entered purchase rates include tax</label>
       </>}
       <div className={isOrder ? 'purchase-order-fields' : 'purchase-top'}>
@@ -190,8 +250,6 @@ export function PurchaseReceive({ products, suppliers, receive, mode = 'receive'
           <label>Supplier address<textarea value={supplierAddress} maxLength={500} onChange={event => setSupplierAddress(event.target.value)} /></label>
         </>}
       </div>
-      {isOrder && <button type="button" className="button primary purchase-add-cart" disabled={!selected || !Number.isInteger(quantity) || quantity < 1 || quantity > 10000}
-        onClick={() => { if (selected) add(selected.product, selected.variant, quantity); }}>Add to Cart</button>}
       <details className="purchase-import"><summary>Import purchase items from CSV</summary><p><a href="/purchase-template.csv" download>Download CSV template</a>. Import up to 30 rows, review all values below, then receive the purchase.</p><label>Import CSV<input type="file" accept=".csv,text/csv" onChange={async e=>{const file=e.target.files?.[0];if(!file)return;try{const imported=purchaseCsv(await file.text());if(imported.length+lines.length>30)throw new Error('A purchase supports up to 30 items.');setLines(old=>[...old,...imported.map(line=>({...line,rowId:crypto.randomUUID(),label:line.newItem?.name||line.sku}))]);setError('');}catch(error){setError((error as Error).message);}e.target.value='';}}/></label></details>{!isOrder && <><div className="commerce-toolbar purchase-search-toolbar"><div className="field-search"><Search size={18} /><input aria-label="Search products to receive" placeholder="Find existing item, size or SKU" value={search} onChange={e => setSearch(e.target.value)} /></div></div>
       {matches.map(({ product, variant }) => (
         <button type="button" className="button secondary" key={`${product.id}:${variant.sku}`} onClick={() => add(product, variant)}>
@@ -203,7 +261,36 @@ export function PurchaseReceive({ products, suppliers, receive, mode = 'receive'
       <div className="purchase-order-cart">
       {isOrder && <h3>Cart</h3>}
       {isOrder && !lines.length && <p className="microcopy">No products added.</p>}
-      {lines.map(line => <article className="purchase-item-card" key={line.rowId}><header><strong>{line.newItem ? 'New catalog item' : line.label}</strong><button type="button" className="icon-button" aria-label={`Remove ${line.label}`} onClick={() => setLines(old => old.filter(x => x.rowId !== line.rowId))}><Trash2 size={18} /></button></header>
+      {cartGroups.map(({ product, lines: groupLines }) => {
+        const missing = variantsOf(product).filter(variant => !groupLines.some(line => line.sku === variant.sku));
+        const units = groupLines.reduce((sum, line) => sum + line.quantity, 0);
+        const cost = groupLines.reduce((sum, line) => sum + Math.round(line.unitCost * 100) * line.quantity, 0) / 100;
+        return <article className="po-cart-product" key={product.id}>
+          <header>
+            <div><strong>{product.productNumber ? <span className="product-no-badge">#{product.productNumber}</span> : null}{product.name}</strong>
+              <small>{groupLines.length} size{groupLines.length === 1 ? '' : 's'} · {units} unit{units === 1 ? '' : 's'} · {money(cost)}</small></div>
+            <button type="button" className="icon-button" aria-label={`Remove all sizes of ${product.name}`} onClick={() => setLines(old => old.filter(line => line.productId !== product.id || line.newItem))}><Trash2 size={18} /></button>
+          </header>
+          <div className="po-cart-table">
+            <div className="po-cart-row po-cart-head"><span>Size</span><span>Qty</span><span>Rate ₹</span><span>Sale ₹</span><span>MRP ₹</span><span>Amount</span><span /></div>
+            {groupLines.map(line => {
+              const variant = variantsOf(product).find(item => item.sku === line.sku);
+              return <div className="po-cart-row" key={line.rowId}>
+                <span className="po-cart-size"><strong>{variantName(variant)}</strong><small>{line.sku}</small></span>
+                <input aria-label={`Quantity ${variantName(variant)}`} required type="number" min="1" step="1" value={line.quantity} onChange={e => patch(line.rowId, { quantity: Number(e.target.value) })} />
+                <input aria-label={`Purchase rate ${variantName(variant)}`} required type="number" min="0" step=".01" value={line.unitCost} onChange={e => patch(line.rowId, { unitCost: Number(e.target.value) })} />
+                <input aria-label={`Sale price ${variantName(variant)}`} type="number" min=".01" step=".01" value={line.salePrice ?? ''} onChange={e => patch(line.rowId, { salePrice: e.target.value === '' ? undefined : Number(e.target.value) })} />
+                <input aria-label={`MRP ${variantName(variant)}`} type="number" min=".01" step=".01" value={line.mrp ?? ''} onChange={e => patch(line.rowId, { mrp: e.target.value === '' ? undefined : Number(e.target.value) })} />
+                <span className="po-cart-amount">{money(Math.round(line.unitCost * 100) * line.quantity / 100)}</span>
+                <button type="button" className="icon-button" aria-label={`Remove ${variantName(variant)}`} onClick={() => setLines(old => old.filter(x => x.rowId !== line.rowId))}><Trash2 size={16} /></button>
+              </div>;
+            })}
+          </div>
+          {missing.length > 0 && <div className="po-add-sizes"><span>Add size:</span>{missing.map(variant =>
+            <button type="button" key={variant.sku} onClick={() => add(product, variant, 1)}><Plus size={13} />{variantName(variant)}</button>)}</div>}
+        </article>;
+      })}
+      {looseLines.map(line => <article className="purchase-item-card" key={line.rowId}><header><strong>{line.newItem ? 'New catalog item' : line.label}</strong><button type="button" className="icon-button" aria-label={`Remove ${line.label}`} onClick={() => setLines(old => old.filter(x => x.rowId !== line.rowId))}><Trash2 size={18} /></button></header>
         {line.newItem && <div className="purchase-item-fields">{(['name','category','brand','design','fabric','size','color'] as const).map(field => <label key={field}>{({ name: 'Item name', category: 'Category', brand: 'Brand', design: 'Design / article', fabric: 'Fabric', size: 'Size', color: 'Colour' })[field]}<input required={['name','category','size','color'].includes(field)} value={line.newItem![field]} maxLength={field === 'name' ? 200 : 80} onChange={e => patch(line.rowId, { newItem: { ...line.newItem!, [field]: e.target.value } })} /></label>)}<label>SKU / barcode base<input required pattern="[A-Za-z0-9_.:-]+" maxLength={100} value={line.sku} onChange={e => patch(line.rowId, { sku: e.target.value })} /></label></div>}
         <div className="purchase-item-fields">{([{ field: 'quantity', label: 'Quantity', min: 1, step: 1 }, { field: 'unitCost', label: 'Purchase rate ₹', min: 0, step: .01 }, { field: 'salePrice', label: 'Sale price ₹', min: .01, step: .01 }, { field: 'mrp', label: 'MRP ₹', min: .01, step: .01 }] as const).map(({ field, label, min, step }) => <label key={field}>{label}<input required={field === 'quantity' || field === 'unitCost' || Boolean(line.newItem)} type="number"
           min={min} step={step} value={line[field] ?? ''} onChange={e => patch(line.rowId, {
