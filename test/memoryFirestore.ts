@@ -20,6 +20,7 @@ export function memoryFirestore(db: Firestore) {
     async get() { return snapshot(this); }
     async set(data: Record<string, unknown>) { records.set(this.path, stored(data)); }
     async update(data: Record<string, unknown>) { assert.ok(records.has(this.path)); records.set(this.path, { ...records.get(this.path), ...stored(data) }); }
+    async delete() { records.delete(this.path); }
   }
   class Query {
     constructor(public path: string, public filters: [string, string, unknown][] = [], public order?: [string, string], public count?: number) {}
@@ -43,6 +44,11 @@ export function memoryFirestore(db: Firestore) {
     }
   }
   mock.method(db, 'collection', (path: string) => new Query(path));
+  if (typeof (db as { batch?: unknown }).batch === 'function') mock.method(db, 'batch', () => { const ops: (() => void)[] = []; return {
+    delete(ref: Ref) { ops.push(() => records.delete(ref.path)); },
+    set(ref: Ref, data: Record<string, unknown>) { const value = stored(data); ops.push(() => records.set(ref.path, value)); },
+    async commit() { ops.forEach(op => op()); }
+  }; });
   let previous: Promise<unknown> = Promise.resolve();
   mock.method(db, 'runTransaction', (operation: (tx: unknown) => Promise<unknown>) => {
     const run = previous.catch(() => {}).then(async () => {

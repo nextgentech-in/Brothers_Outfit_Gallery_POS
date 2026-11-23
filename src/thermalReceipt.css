@@ -4,8 +4,9 @@
    page length measured before printing matches what prints. */
 .invoice-sheet:is(.receipt-58,.receipt-80){--roll:48mm}
 .invoice-sheet.receipt-80{--roll:72mm}
-.print-backdrop .invoice-sheet:is(.receipt-58,.receipt-80){background:#fff!important;color:#000!important;font-family:Arial,Helvetica,sans-serif!important;font-size:8.5pt!important;line-height:1.3!important}
-.print-backdrop .invoice-sheet:is(.receipt-58,.receipt-80) :is(h1,h2,p,small,strong,span,th,td,div){color:#000!important;background:transparent!important;font-family:inherit!important}
+.print-backdrop .invoice-sheet:is(.receipt-58,.receipt-80) .receipt-paper{color:#000!important;font-family:Arial,Helvetica,sans-serif!important;font-size:8.5pt!important;line-height:1.3!important}
+@media print{.print-backdrop .invoice-sheet:is(.receipt-58,.receipt-80){background:#fff!important;color:#000!important}}
+.print-backdrop .invoice-sheet:is(.receipt-58,.receipt-80) .receipt-paper :is(h1,h2,p,small,strong,span,th,td,div){color:#000!important;background:transparent!important;font-family:inherit!important}
 .print-backdrop .invoice-sheet:is(.receipt-58,.receipt-80) .credit-red{color:#000!important}
 
 .print-backdrop .invoice-sheet:is(.receipt-58,.receipt-80) .preview-ribbon{display:block!important;border:1px solid #000!important;padding:1mm!important;margin:0 0 2mm!important;font-size:7pt!important;font-weight:700;text-align:center}
@@ -74,9 +75,9 @@
   .print-backdrop .invoice-sheet.receipt-a5{--paper:132mm}
   .print-backdrop .invoice-sheet.receipt-a4{--paper:min(186mm,100%)}
 
-  .print-backdrop .receipt-toolbar{
+  .print-backdrop .invoice-sheet[class*="receipt-"] .receipt-toolbar{
     position:sticky;top:0;z-index:2;display:flex!important;flex-direction:column;gap:12px;
-    margin:0!important;padding:18px 22px 16px;background:var(--solid,#fff);border-bottom:1px solid var(--line,#ccd3dc)
+    margin:0!important;padding:18px 22px 16px;background:var(--solid,#fff)!important;color:var(--text,#18212b)!important;border-bottom:1px solid var(--line,#ccd3dc)
   }
   .receipt-toolbar-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
   .receipt-toolbar-title{display:flex;align-items:center;gap:10px;color:var(--accent,#855715)}

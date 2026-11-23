@@ -103,7 +103,7 @@ const moreTabs: { id: string; label: string; icon: LucideIcon }[] = [
   { id: 'reports', label: 'Reports', icon: BarChart3 },
   { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
   { id: 'sync', label: 'Sync health', icon: RefreshCw },
-  { id: 'security', label: 'Trusted devices', icon: ShieldCheck }
+  { id: 'security', label: 'Backup & security', icon: ShieldCheck }
 ];
 const tabs = [...primaryTabs, ...moreTabs];
 function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => void }) {
