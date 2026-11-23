@@ -5,7 +5,7 @@ import { BarcodePages } from './BarcodePages';
 import { Printer, Search } from 'lucide-react';
 import { barcodeFormats } from '../shared/printing';
 import { BarcodeFormatPicker } from './BarcodeFormatPicker';
-import { printDocument, usePrintPreference } from './printing';
+import { labelPageCss, printDocument, usePrintPreference } from './printing';
 
 export type BatchLabelProduct = {
   id: string;
@@ -80,7 +80,7 @@ export function BarcodeBatch({ products, onClose }: { products: BatchLabelProduc
   const setVisibleCopies = (value: number) => setCopies(old => ({ ...old, ...Object.fromEntries(visibleRows.map(row => [row.key, validCopies(value)])) }));
   async function print() {
     setPrinting(true); setPrintError('');
-    try { await printDocument(); }
+    try { await printDocument(() => labelPageCss(format)); }
     catch (error) { setPrintError((error as Error).message); }
     finally { setPrinting(false); }
   }
