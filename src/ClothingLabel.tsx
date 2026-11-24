@@ -52,6 +52,7 @@ export function ClothingLabel({
   return (
     <div className={`clothing-label-card pro-label label-fmt-${format}`}>
       <div className="pro-label-brand">BROTHERS OUTFIT GALLERY</div>
+      <div className="pro-label-name" title={product.name}>{product.name}</div>
       <div className="pro-label-specs">
         <div><span>SIZE</span><strong>{variant.size || 'FREE'}</strong></div>
         <div><span>COLOUR</span><strong>{variant.color || 'STD'}</strong></div>

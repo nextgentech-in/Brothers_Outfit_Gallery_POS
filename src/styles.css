@@ -2238,3 +2238,6 @@
 .invoice-sheet.receipt-58 .pro-bill .pb-meta{flex-direction:column;gap:0}
 .invoice-sheet.receipt-58 .pro-bill .pb-top{flex-direction:column;align-items:center;gap:.1em}
 @media print{.invoice-sheet .pro-bill{font-weight:500}.invoice-sheet .pro-bill .pb-shop,.invoice-sheet .pro-bill .pb-billto,.invoice-sheet .pro-bill .pb-totals,.invoice-sheet .pro-bill .pb-terms{break-inside:avoid}}
+.pro-label .pro-label-name{font-size:calc(var(--pl-val) + .2pt);font-weight:800;line-height:1.1;text-transform:uppercase;letter-spacing:.05mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+.pro-label:is(.label-fmt-thermal-38x60,.label-fmt-thermal-4x6,.label-fmt-thermal-100x150,.label-fmt-a4-18) .pro-label-name{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.clothing-label-card.pro-label.label-fmt-thermal-50x38 .pro-label-name,.clothing-label-card.pro-label.label-fmt-a4-24 .pro-label-name{font-size:calc(var(--pl-val) - 1.2pt)}
