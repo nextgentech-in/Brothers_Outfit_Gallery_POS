@@ -1,19 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { readAdmin, writeAdmin } from './adminApi';
 import type { Customer } from '../shared/customers';
+import { askCoinReset } from './coinReset';
 
 export function CustomerCoinDialog({ onClose, canReset = true }: { onClose: () => void; canReset?: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [customers, setCustomers] = useState<Customer[]>([]), [loading, setLoading] = useState(true), [error, setError] = useState('');
   const [resetting, setResetting] = useState(''), [notice, setNotice] = useState('');
   async function resetCoins(customer: Customer) {
-    const name = customer.fullName || customer.phone;
-    if (!window.confirm(`Reset ${(customer.coinBalance || 0).toLocaleString('en-IN')} coins for ${name} to 0? This cannot be undone.`)) return;
+    const choice = askCoinReset(customer);
+    if (!choice) return;
     setResetting(customer.id); setError(''); setNotice('');
     try {
-      await writeAdmin('customers/coins/reset', { requestId: crypto.randomUUID(), phone: customer.phone });
-      setCustomers(list => list.filter(item => item.id !== customer.id));
-      setNotice(`Coins reset to 0 for ${name}.`);
+      const result = await writeAdmin<{ balance: number }>('customers/coins/reset', { requestId: crypto.randomUUID(), phone: customer.phone, ...(choice.coins ? { coins: choice.coins } : {}) });
+      setCustomers(list => list.map(item => item.id === customer.id ? { ...item, coinBalance: result.balance } : item).filter(item => (item.coinBalance || 0) > 0)
+        .sort((a, b) => (b.coinBalance || 0) - (a.coinBalance || 0) || a.fullName.localeCompare(b.fullName)));
+      setNotice(choice.label);
     } catch (reason) { setError((reason as Error).message); }
     finally { setResetting(''); }
   }

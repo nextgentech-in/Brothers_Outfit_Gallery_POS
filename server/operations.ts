@@ -116,18 +116,20 @@ operationsRouter.post('/customers/update',async(req,res)=>{
 });
 // Owner/manager action: clears one customer's accumulated coins and records who did it.
 operationsRouter.post('/customers/coins/reset', async (req, res) => {
-  const parsed = z.object({ requestId, phone: z.string().refine(v => Boolean(mobileNumber(v))) }).strict().safeParse(req.body);
+  const parsed = z.object({ requestId, phone: z.string().refine(v => Boolean(mobileNumber(v))), coins: z.number().int().positive().max(100_000_000).optional() }).strict().safeParse(req.body);
   if (!parsed.success) { res.status(422).json({ error: 'Choose a customer with a valid mobile number.' }); return; }
   try {
     const db = firebase().db, input = parsed.data, identity = customerKey(input.phone, '');
     res.json(await idempotent(db, 'customer_coins_reset', input.requestId, input, async tx => {
       const ref = rewardAccount(db, identity), doc = await tx.get(ref);
       const previousBalance = Math.max(0, Number(doc.data()?.balance || 0));
-      tx.set(ref, { balance: 0, lastResetAt: FieldValue.serverTimestamp(), lastResetBalance: previousBalance, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      // coins given = partial reset (remove that many, never below 0); omitted = full reset to 0.
+      const removed = input.coins === undefined ? previousBalance : Math.min(input.coins, previousBalance), balance = previousBalance - removed;
+      tx.set(ref, { balance, lastResetAt: FieldValue.serverTimestamp(), lastResetBalance: previousBalance, lastResetRemoved: removed, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       tx.create(db.collection('erp_auditLog').doc(hash(`customer_coins_reset:${input.requestId}`)), {
-        actor: res.locals.owner?.uid || 'pin-owner', target: identity, action: 'customer_coins_reset', previousBalance, createdAt: FieldValue.serverTimestamp()
+        actor: res.locals.owner?.uid || 'pin-owner', target: identity, action: input.coins === undefined ? 'customer_coins_reset' : 'customer_coins_partial_reset', previousBalance, removed, balance, createdAt: FieldValue.serverTimestamp()
       });
-      return { reset: true, previousBalance, balance: 0 };
+      return { reset: true, previousBalance, removed, balance };
     }));
   } catch (e) { fail(res, e); }
 });
