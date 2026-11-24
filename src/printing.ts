@@ -30,5 +30,28 @@ export async function printDocument() {
     ]);
   } finally { clearTimeout(timer); }
   if (images.some(img => !img.complete || img.naturalWidth === 0)) throw new Error('A print image could not load. Check the connection and try again.');
-  window.print();
+  const cleanup = fitReceiptRollPage();
+  try { window.print(); } finally { cleanup(); }
+}
+
+// Receipt rolls are continuous paper: size the page to the bill so the printer
+// does not feed out the blank rest of a fixed 297 mm page.
+const rollPages = { '58': { page: 'thermal58', paper: 58, content: 54 }, '80': { page: 'thermal80', paper: 80, content: 76 } } as const;
+function fitReceiptRollPage() {
+  const sheet = document.querySelector<HTMLElement>('.print-backdrop .invoice-sheet.receipt-58, .print-backdrop .invoice-sheet.receipt-80');
+  const bill = sheet?.querySelector<HTMLElement>('.pro-bill');
+  if (!sheet || !bill) return () => {};
+  const roll = rollPages[sheet.classList.contains('receipt-58') ? '58' : '80'];
+  const probe = document.createElement('div');
+  probe.className = sheet.className.replace(/\bglass\b/, '');
+  probe.style.cssText = `position:absolute;left:-10000px;top:0;width:${roll.content}mm;padding:0;margin:0;max-height:none;overflow:visible;visibility:hidden`;
+  probe.appendChild(bill.cloneNode(true));
+  document.body.appendChild(probe);
+  const mm = probe.getBoundingClientRect().height / (96 / 25.4);
+  probe.remove();
+  const height = Math.ceil(mm + 4 + 6); // 2 mm top/bottom margins plus a small tear-off allowance
+  const style = document.createElement('style');
+  style.textContent = `@media print{@page ${roll.page}{size:${roll.paper}mm ${height}mm;margin:2mm}}`;
+  document.head.appendChild(style);
+  return () => style.remove();
 }
