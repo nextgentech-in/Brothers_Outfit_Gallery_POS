@@ -5,7 +5,7 @@ import { ClothingLabel, type ClothingProduct, type ClothingVariant, type LabelFo
 import { BarcodePages } from './BarcodePages';
 import { barcodeFormats } from '../shared/printing';
 import { BarcodeFormatPicker } from './BarcodeFormatPicker';
-import { printDocument, usePrintPreference } from './printing';
+import { labelPageCss, printDocument, usePrintPreference } from './printing';
 
 export type PrintableItem = {
   product: ClothingProduct;
@@ -82,7 +82,7 @@ export function BarcodePrintModal({
 
   const handlePrint = async () => {
     setPrinting(true); setPrintError('');
-    try { await printDocument(); }
+    try { await printDocument(() => labelPageCss(format)); }
     catch (error) { setPrintError((error as Error).message); }
     finally { setPrinting(false); }
   };

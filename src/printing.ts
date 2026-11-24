@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { barcodeFormats, type LabelFormat, type ReceiptFormat } from '../shared/printing';
 
 // Preferences are local to each till, so different workstations can use different media.
 export function usePrintPreference<T extends string>(kind: string, options: Record<T, unknown>, fallback: T): [T, (value: T) => void] {
@@ -16,7 +17,7 @@ export function usePrintPreference<T extends string>(kind: string, options: Reco
   }];
 }
 
-export async function printDocument() {
+export async function printDocument(pageCss?: () => string) {
   const images = [...document.querySelectorAll<HTMLImageElement>('.print-backdrop img')]
     .filter(img => !img.closest('.no-print') && img.getClientRects().length > 0);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -30,28 +31,77 @@ export async function printDocument() {
     ]);
   } finally { clearTimeout(timer); }
   if (images.some(img => !img.complete || img.naturalWidth === 0)) throw new Error('A print image could not load. Check the connection and try again.');
-  const cleanup = fitReceiptRollPage();
-  try { window.print(); } finally { cleanup(); }
+  applyPageCss(pageCss?.());
+  window.print();
 }
 
-// Receipt rolls are continuous paper: size the page to the bill so the printer
-// does not feed out the blank rest of a fixed 297 mm page.
-const rollPages = { '58': { page: 'thermal58', paper: 58, content: 54 }, '80': { page: 'thermal80', paper: 80, content: 76 } } as const;
-function fitReceiptRollPage() {
-  const sheet = document.querySelector<HTMLElement>('.print-backdrop .invoice-sheet.receipt-58, .print-backdrop .invoice-sheet.receipt-80');
-  const bill = sheet?.querySelector<HTMLElement>('.pro-bill');
-  if (!sheet || !bill) return () => {};
-  const roll = rollPages[sheet.classList.contains('receipt-58') ? '58' : '80'];
-  const probe = document.createElement('div');
-  probe.className = sheet.className.replace(/\bglass\b/, '');
-  probe.style.cssText = `position:absolute;left:-10000px;top:0;width:${roll.content}mm;padding:0;margin:0;max-height:none;overflow:visible;visibility:hidden`;
-  probe.appendChild(bill.cloneNode(true));
-  document.body.appendChild(probe);
-  const mm = probe.getBoundingClientRect().height / (96 / 25.4);
-  probe.remove();
-  const height = Math.ceil(mm + 4 + 6); // 2 mm top/bottom margins plus a small tear-off allowance
+// The bill is centred on whatever paper width the printer driver ends up using.
+// Chrome only reliably sends a custom paper size to the printer through an unnamed @page rule,
+// so the exact size for the chosen media is injected just before printing.
+const OVERRIDE_ID = 'print-media-override';
+function applyPageCss(css?: string) {
+  document.getElementById(OVERRIDE_ID)?.remove();
+  if (!css) return;
   const style = document.createElement('style');
-  style.textContent = `@media print{@page ${roll.page}{size:${roll.paper}mm ${height}mm;margin:2mm}}`;
+  style.id = OVERRIDE_ID;
+  style.textContent = css;
   document.head.appendChild(style);
-  return () => style.remove();
+  const cleanup = () => { style.remove(); window.removeEventListener('afterprint', cleanup); };
+  window.addEventListener('afterprint', cleanup);
+}
+
+const mm = (value: number) => `${Math.round(value * 100) / 100}mm`;
+// Named @page rules in older stylesheets would otherwise win over the injected size.
+const RESET_NAMED_PAGES = 'html body .print-backdrop.print-backdrop.print-backdrop,html body .print-backdrop.print-backdrop.print-backdrop *{page:auto!important}';
+
+/** One label per page, page exactly the label size, so the printer never feeds blank labels. */
+export function labelPageCss(format: LabelFormat) {
+  if (!format.startsWith('thermal-')) return `@page{size:210mm 297mm;margin:0}@media print{${RESET_NAMED_PAGES}}`;
+  const { width, height } = barcodeFormats[format];
+  // Content is kept slightly shorter than the page; rounding past the page edge creates an extra blank label.
+  const sheet = `width:${mm(width)}!important;height:${mm(height - 0.6)}!important;max-height:${mm(height - 0.6)}!important;overflow:hidden!important;box-sizing:border-box!important;margin:0!important;padding:0!important;break-inside:avoid!important;page-break-inside:avoid!important`;
+  return `@page{size:${mm(width)} ${mm(height)};margin:0}
+@media print{${RESET_NAMED_PAGES}
+html,body{width:${mm(width)}!important;min-width:0!important;height:auto!important;min-height:0!important;margin:0!important;padding:0!important;overflow:visible!important}
+body>.print-backdrop,.print-backdrop .barcode-editor,.print-backdrop .barcode-preview-container{min-height:0!important;height:auto!important;padding:0!important;margin:0!important}
+.print-backdrop .barcode-print-pages{display:block!important;width:${mm(width)}!important;margin:0!important;padding:0!important;gap:0!important}
+.print-backdrop .barcode-roll-pages>.barcode-sheet-printable{display:block!important;${sheet};break-after:page!important;page-break-after:always!important}
+.print-backdrop .barcode-roll-pages>.barcode-sheet-printable:last-child{break-after:auto!important;page-break-after:auto!important}
+.print-backdrop .barcode-roll-pages .clothing-label-card{width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;border:0!important;outline:0!important;border-radius:0!important;box-shadow:none!important;break-after:auto!important;page-break-after:auto!important}}`;
+}
+
+const rollReceipts: Partial<Record<ReceiptFormat, { paper: number; content: number }>> = {
+  '58': { paper: 58, content: 48 },
+  '80': { paper: 80, content: 72 }
+};
+const fixedReceipts: Partial<Record<ReceiptFormat, [number, number, number]>> = {
+  '4x6': [101.6, 152.4, 4], '100x150': [100, 150, 4], 'a5': [148, 210, 8], 'a4': [210, 297, 12]
+};
+
+/** Roll receipts get a page exactly as long as the bill, so nothing is cut and no paper is wasted. */
+export function receiptPageCss(format: ReceiptFormat, sheet: HTMLElement | null) {
+  const roll = rollReceipts[format];
+  if (!roll) {
+    const [w, h, margin] = fixedReceipts[format] ?? [210, 297, 12];
+    return `@page{size:${mm(w)} ${mm(h)};margin:${mm(margin)}}@media print{${RESET_NAMED_PAGES}}`;
+  }
+  const length = Math.max(60, Math.ceil(measurePrintedHeight(sheet, roll.content) + 12));
+  return `@page{size:${mm(roll.paper)} ${mm(length)};margin:0}
+@media print{${RESET_NAMED_PAGES}
+html,body{width:auto!important;min-width:0!important;height:auto!important;margin:0!important;padding:0!important}
+body>.print-backdrop{width:100%!important;margin:0!important;padding:0!important}
+.print-backdrop .invoice-sheet{width:${mm(roll.content)}!important;max-width:none!important;margin:0 auto!important;padding:2mm 0 0!important;float:none!important}}`;
+}
+
+function measurePrintedHeight(sheet: HTMLElement | null, contentWidth: number) {
+  const source = sheet?.querySelector<HTMLElement>('.receipt-paper') ?? sheet;
+  if (!sheet || !source) return 200;
+  const clone = source.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('.no-print,.invoice-actions,.error-banner').forEach(node => node.remove());
+  clone.removeAttribute('role'); clone.removeAttribute('aria-modal'); clone.setAttribute('aria-hidden', 'true');
+  Object.assign(clone.style, { position: 'absolute', left: '-10000px', top: '0', width: `${contentWidth}mm`, boxSizing: 'content-box', padding: '0', margin: '0', border: '0', maxHeight: 'none', height: 'auto', overflow: 'visible', visibility: 'hidden' });
+  sheet.appendChild(clone);
+  const px = clone.getBoundingClientRect().height;
+  clone.remove();
+  return px * 25.4 / 96;
 }

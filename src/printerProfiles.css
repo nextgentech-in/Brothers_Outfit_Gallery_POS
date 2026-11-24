@@ -79,3 +79,14 @@
   .invoice-sheet:is(.receipt-4x6,.receipt-100x150) .invoice-summary { padding: 2mm 0 !important; }
   .invoice-sheet:is(.receipt-4x6,.receipt-100x150) .invoice-footer { margin-top: 2mm !important; padding-top: 2mm !important; }
 }
+
+/* Product name on every label; size printed large so it reads at a glance. */
+.clothing-label-card .label-item-name{display:block;width:100%;text-align:center;color:#000;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.15;font-size:7.5pt}
+.clothing-label-card .label-variant-pill strong{font-weight:800}
+.label-fmt-thermal-50x38 .label-item-name{font-size:8pt}
+.label-fmt-thermal-50x38 .label-variant-pill:first-child{font-size:8pt}
+.label-fmt-thermal-50x25 .label-item-name,.label-fmt-thermal-38x25 .label-item-name{font-size:6.5pt;line-height:1.05}
+.label-fmt-thermal-38x60 .label-item-name{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:8.5pt}
+.label-fmt-thermal-100x150 .label-item-name,.label-fmt-thermal-4x6 .label-item-name{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:16pt;margin:2mm 0}
+.label-fmt-thermal-100x150 .label-variant-pill,.label-fmt-thermal-4x6 .label-variant-pill{font-size:14pt}
+.label-fmt-a4-40 .label-item-name{font-size:6pt}
