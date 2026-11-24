@@ -1422,7 +1422,7 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
       )}
 
       {whatsappDraft && <WhatsAppDraftDialog draft={whatsappDraft} onClose={()=>setWhatsappDraft(null)} />}
-      {customerCoinsOpen && <CustomerCoinDialog onClose={() => setCustomerCoinsOpen(false)} />}
+      {customerCoinsOpen && <CustomerCoinDialog canReset={!isCashier} onClose={() => setCustomerCoinsOpen(false)} />}
 
       {/* 12. RECEIPT VIEWER / REPRINT DIALOG */}
       {receiptInvoice && (
