@@ -9,11 +9,10 @@ import { BillHistory } from './BillHistory';
 import { SupplierPayments } from './DailyOperations';
 import { paymentBreakdown, type PaymentPart } from '../shared/payments';
 import { stockValueRows } from '../shared/stockGst';
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { ArrowRight, Check, Eye, FileDown, IndianRupee, LayoutGrid, List, MessageCircle, PackagePlus, Plus, Printer, RefreshCw, Search, ShoppingBag, Volume2 } from 'lucide-react';
 import { BarcodeBatch } from './BarcodeBatch';
 import { BarcodeLabel, type LabelProduct } from './BarcodeLabel';
-import { BrandLogo } from './BrandLogo';
 import { ProductEditor, type ProductEditInput } from './ProductEditor';
 import { ProductFormDialog, type NewProductInput } from './ProductForm';
 import { StockOverview } from './StockOverview';
@@ -76,6 +75,9 @@ export function ReceiptDialog({ invoice, shop, preview = false, onClose }: { inv
   const subtotal = invoice.subtotal ?? invoice.lines.reduce((sum, line) => sum + Number(line.price || 0) * Number(line.quantity || 0), 0);
   const discount = invoice.discount ?? Math.max(0, subtotal - invoice.total);
   const redeemed = invoice.rewards?.redeemed ?? 0;
+  const isCredit = invoice.paymentMethod === 'credit' || Number(invoice.creditAmount) > 0;
+  const balance = Number(invoice.creditAmount) > 0 ? Number(invoice.creditAmount) : invoice.paymentMethod === 'credit' ? invoice.total : 0;
+  const received = preview ? 0 : Math.max(0, invoice.total - balance);
   const units = invoice.lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
   const showHistoricalTax = Number(invoice.tax || 0) > 0 || invoice.lines.some(line => Number(line.tax || 0) > 0);
   const timestamp = invoice.issuedAt?._seconds || invoice.issuedAt?.seconds || invoice.createdAt?._seconds || invoice.createdAt?.seconds;
@@ -97,17 +99,62 @@ export function ReceiptDialog({ invoice, shop, preview = false, onClose }: { inv
     </div>}
     {preview && <div className="preview-ribbon">BILL PREVIEW · SALE NOT COMPLETED</div>}
     {provisional && <div className="preview-ribbon">OFFLINE BILL · PENDING SYNC</div>}
-    <div className="invoice-header"><BrandLogo /><div><h2>{shop?.name || 'Brothers Outfit Gallery'}</h2><p>{shop?.address || 'FF-57, Pratham Square, Himatnagar, Gujarat 383001'}<br />Phone: {shop?.phone || '+91 84602 33020'}{shop?.email && <><br />{shop.email}</>}</p></div></div>
-    <div className="invoice-title"><div><small>RETAIL SALES RECEIPT</small><h1>{preview ? 'Bill preview' : 'Thank you for shopping'}</h1></div><span>{preview ? 'Draft' : (invoice.paymentMethod === 'credit' || Number(invoice.creditAmount) > 0) ? 'Credit' : 'Paid'}</span></div>
-    <div className="invoice-meta"><div><small>Receipt number</small><strong>{preview ? 'Assigned after sale' : invoice.id}</strong></div><div><small>Date</small><strong>{issuedAt || '—'}</strong></div><div><small>Customer</small><strong>{invoice.customerName || 'Walk-in'}{invoice.customerPhone ? ` · ${invoice.customerPhone}` : ''}</strong>{invoice.customerDateOfBirth && <small>DOB: {invoice.customerDateOfBirth}</small>}</div><div><small>Payment</small><strong>{invoice.paymentMethod.toUpperCase()}</strong></div></div>
-    <table><thead><tr><th>Item / SKU</th><th>Qty</th><th>MRP</th><th>Discount</th>{showHistoricalTax && <th>GST</th>}<th>Total</th></tr></thead><tbody>{invoice.lines.map((line, index) => <tr key={`${line.sku || index}:${index}`}><td><strong>{line.name || line.sku || 'Item'}</strong><small>{line.sku || ''}</small></td><td>{line.quantity}</td><td>{money(line.price)}</td><td>{money(line.discount)}{Number(line.discountPercent) > 0 && <small>{line.discountPercent}% off</small>}</td>{showHistoricalTax && <td>{money(line.tax)}</td>}<td>{money(line.amount ?? (Number(line.price || 0) * Number(line.quantity || 0) - Number(line.discount || 0) + Number(line.tax || 0)))}</td></tr>)}</tbody></table>
-    {invoice.rewards && (invoice.rewards.earned > 0 || invoice.rewards.redeemed > 0 || invoice.rewards.balance > 0) && <p className="invoice-rewards">
-      Coins · {invoice.rewards.earned} earned · {invoice.rewards.redeemed} used · {invoice.rewards.balance} available
-    </p>}
-    <div className="invoice-summary"><span>{units} item{units === 1 ? '' : 's'} · {invoice.channel} sale</span><div><div><span>MRP total</span><strong>{money(subtotal)}</strong></div>{discount > redeemed && <div><span>Discount</span><strong>− {money(discount - redeemed)}</strong></div>}{redeemed > 0 && <div><span>Coin discount</span><strong>− {money(redeemed)}</strong></div>}{Number(invoice.tax) > 0 && <div><span>GST</span><strong>{money(invoice.tax)}</strong></div>}<div className="invoice-grand-total"><span>Total</span><strong>{money(invoice.total)}</strong></div></div></div>
-    {Number(invoice.exchangeCreditUsed) > 0 && <p>Exchange credit applied: {money(invoice.exchangeCreditUsed)}</p>}
-    {invoice.payments && <p>{invoice.payments.map(p => `${p.method.toUpperCase()}: ${money(p.amount)}`).join(' · ')}{Number(invoice.change) > 0 ? ` · Change: ${money(invoice.change)}` : ''}</p>}
-    {(invoice.paymentMethod === 'credit' || Number(invoice.creditAmount) > 0) && <p className="credit-red"><strong>Repayment due: {invoice.creditDueDate || 'Not recorded'}</strong></p>}<div className="invoice-footer"><strong>Thank you for visiting.</strong><span>Keep this receipt for your records. For assistance, contact {shop?.phone || '+91 84602 33020'}.</span><small>Sales receipt · GST tax invoice not issued</small></div>
+    <div className="pro-bill">
+      <div className="pb-top"><span>ORIGINAL FOR RECIPIENT</span><span>{preview ? 'BILL PREVIEW' : 'SALES RECEIPT'}</span></div>
+      <div className="pb-shop">
+        <h2>{shop?.name || 'Brothers Outfit Gallery'}</h2>
+        <p>{shop?.address || 'FF-57, Pratham Square, Himatnagar, Gujarat 383001'}</p>
+        <p>Phone: {shop?.phone || '+91 84602 33020'}</p>
+        {shop?.email && <p>Email: {shop.email}</p>}
+      </div>
+      <div className="pb-meta"><span>Bill No: {preview ? 'Draft' : invoice.id}</span><span>{issuedAt || '—'}</span></div>
+      <div className="pb-billto">
+        <p>BILL TO: {invoice.customerName || 'Walk-in Customer'}</p>
+        {invoice.customerPhone && <p>Mobile: {invoice.customerPhone}</p>}
+        {invoice.customerDateOfBirth && <p>DOB: {invoice.customerDateOfBirth}</p>}
+        <p>Payment: {invoice.paymentMethod.toUpperCase()}{isCredit ? ' · CREDIT' : ''}</p>
+      </div>
+      <table className="pb-items">
+        <thead>
+          <tr><th className="pb-idx">#</th><th colSpan={3}>Items</th></tr>
+          <tr className="pb-subhead"><th></th><th>Qty</th><th>Price</th><th>Amount</th></tr>
+        </thead>
+        <tbody>{invoice.lines.map((line, index) => {
+          const amount = line.amount ?? (Number(line.price || 0) * Number(line.quantity || 0) - Number(line.discount || 0) + Number(line.tax || 0));
+          return <Fragment key={`${line.sku || index}:${index}`}>
+            <tr className="pb-name"><td className="pb-idx">{index + 1}</td><td colSpan={3}>{(line.name || line.sku || 'Item').toUpperCase()}
+              <small>{[line.sku && `SKU: ${line.sku}`, Number(line.discount) > 0 && `Disc ${money(line.discount)}${Number(line.discountPercent) > 0 ? ` (${line.discountPercent}%)` : ''}`, showHistoricalTax && Number(line.tax) > 0 && `GST ${money(line.tax)}`].filter(Boolean).join(' · ')}</small></td></tr>
+            <tr className="pb-nums"><td></td><td>{line.quantity} Pc</td><td>{money(line.price)}</td><td>{money(amount)}</td></tr>
+          </Fragment>;
+        })}</tbody>
+      </table>
+      <div className="pb-totals">
+        <div className="pb-line pb-ruled"><span>Sub Total ({units} item{units === 1 ? '' : 's'})</span><span>{money(subtotal)}</span></div>
+        {discount > redeemed && <div className="pb-line"><span>Discount</span><span>− {money(discount - redeemed)}</span></div>}
+        {redeemed > 0 && <div className="pb-line"><span>Coin discount</span><span>− {money(redeemed)}</span></div>}
+        {Number(invoice.tax) > 0 && <div className="pb-line"><span>GST</span><span>{money(invoice.tax)}</span></div>}
+        {Number(invoice.exchangeCreditUsed) > 0 && <div className="pb-line"><span>Exchange credit</span><span>− {money(invoice.exchangeCreditUsed)}</span></div>}
+        <div className="pb-line pb-grand"><span>Total Amount</span><span>{money(invoice.total)}</span></div>
+        <div className="pb-line pb-ruled"><span>Received Amount</span><span>{money(received)}</span></div>
+        {invoice.payments && invoice.payments.length > 1 && <div className="pb-line pb-small"><span>{invoice.payments.map(p => `${p.method.toUpperCase()} ${money(p.amount)}`).join(' · ')}</span></div>}
+        {Number(invoice.change) > 0 && <div className="pb-line pb-small"><span>Change returned</span><span>{money(invoice.change)}</span></div>}
+        <div className="pb-line pb-ruled"><span>Balance</span><span>{money(balance)}</span></div>
+        {isCredit && <div className="pb-line pb-small"><span>Repayment due</span><span>{invoice.creditDueDate || 'Not recorded'}</span></div>}
+      </div>
+      {invoice.rewards && (invoice.rewards.earned > 0 || invoice.rewards.redeemed > 0 || invoice.rewards.balance > 0) && <div className="pb-coins">
+        <span>Coins earned <b>{invoice.rewards.earned}</b></span><span>Used <b>{invoice.rewards.redeemed}</b></span><span>Available <b>{invoice.rewards.balance}</b></span>
+      </div>}
+      <div className="pb-terms">
+        <p>Terms &amp; Conditions</p>
+        <ol>
+          <li>Please keep this bill for any exchange or return.</li>
+          <li>Exchange and returns as per shop policy.</li>
+          <li>Sales receipt · GST tax invoice not issued.</li>
+        </ol>
+      </div>
+      <p className="pb-thanks">Thank you for shopping with us</p>
+      {shop?.phone && <p className="pb-help">For help, call {shop.phone}</p>}
+    </div>
   </div></div>,document.body);
 }
 async function get<T>(path: string): Promise<T> {
@@ -918,7 +965,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
         <td>{customer.fullName || '—'}</td><td>{customer.phone || '—'}</td><td>{customer.email || '—'}</td>
         <td>{displayBirthDate(customer.dateOfBirth)}{customer.dateOfBirth && customer.dateOfBirth.slice(5) === today.slice(5) && <small className="birthday-today">Birthday today</small>}</td>
         <td><span className={customer.birthdayOffersOptIn ? 'credit-green' : 'muted'}>{customer.birthdayOffersOptIn ? 'Opted in' : 'Not opted in'}</span></td>
-        <td><strong>{(customer.coinBalance ?? 0).toLocaleString('en-IN')} coins</strong><small>{customer.rewardRule ? `${customer.rewardRule.rate}% on every bill` : 'Default earn rate'}</small></td>
+        <td><strong>{(customer.coinBalance ?? 0).toLocaleString('en-IN')} coins</strong><small>{customer.rewardRule ? `${customer.rewardRule.rate}% on every bill` : 'Default earn rate'}</small>{role !== 'cashier' && (customer.coinBalance ?? 0) > 0 && mobileNumber(customer.phone) && <button type="button" className="button secondary sm coin-reset-button" onClick={() => { if (window.confirm(`Reset ${(customer.coinBalance ?? 0).toLocaleString('en-IN')} coins for ${customer.fullName || customer.phone} to 0? This cannot be undone.`)) void act('customers/coins/reset', { requestId: requestId(), phone: customer.phone }, `Coins reset to 0 for ${customer.fullName || customer.phone}.`); }}><RefreshCw size={13} />Reset coins</button>}</td>
         <td><button type="button" className="button secondary" onClick={()=>{history.pushState(null,'',`/orders?phone=${encodeURIComponent(customer.phone)}`);window.dispatchEvent(new PopStateEvent('popstate'));}}>Bills</button><button type="button" className="button secondary" disabled={role==='cashier' || !mobileNumber(customer.phone)} onClick={() => setEditCustomer(customer)}>Edit</button><button type="button" className="button secondary customer-whatsapp-action" disabled={!mobileNumber(customer.phone)} onClick={() => setMessageCustomer(customer)} aria-label={`WhatsApp ${customer.fullName || customer.phone || 'customer'}`}><MessageCircle size={16} />WhatsApp</button>{!mobileNumber(customer.phone) && <small>Valid mobile number needed</small>}</td>
       </tr>)}{shownCustomers.length === 0 && <tr><td colSpan={7}>No customers match the selected filters.</td></tr>}</tbody></table></div></div>}
     {tab === 'purchase-orders' && <>

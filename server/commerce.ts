@@ -228,14 +228,17 @@ commerceRouter.get('/barcode/render', (req, res) => {
   const code = z.string().trim().min(1).max(req.query.format === 'qrcode' ? 200 : 64).safeParse(req.query.code);
   const format = z.enum(['code128', 'qrcode']).safeParse(req.query.format || 'code128');
   if (!code.success || !format.success) { res.status(400).json({ error: 'Invalid barcode query.' }); return; }
+  // style=slim: labels draw the code text themselves, so render solid black bars only.
+  const slim = req.query.style === 'slim' && format.data === 'code128';
   try {
     const svg = toSVG({
       bcid: format.data,
       text: code.data,
       scale: 3,
-      height: 12,
+      height: slim ? 10 : 12,
       ...(format.data === 'qrcode' ? { padding: 12 } : {}),
-      includetext: format.data === 'code128',
+      ...(slim ? { barcolor: '000000', paddingwidth: 0, paddingheight: 0 } : {}),
+      includetext: format.data === 'code128' && !slim,
       textxalign: 'center',
       backgroundcolor: 'FFFFFF'
     });

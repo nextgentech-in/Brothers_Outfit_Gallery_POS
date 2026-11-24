@@ -47,32 +47,22 @@ export function ClothingLabel({
   const mrp = variant.mrp || product.mrp;
   const barcode = variant.barcode || product.barcode || variant.sku;
 
-  const barcodeImgSrc = `/api/barcode/render?code=${encodeURIComponent(barcode)}&format=code128`;
+  const barcodeImgSrc = `/api/barcode/render?code=${encodeURIComponent(barcode)}&format=code128&style=slim`;
 
   return (
-    <div className={`clothing-label-card label-fmt-${format}`}>
-      {/* Top Header */}
-      <div className="label-header">
-        <span className="label-store-name">BROTHERS OUTFIT GALLERY</span>
+    <div className={`clothing-label-card pro-label label-fmt-${format}`}>
+      <div className="pro-label-brand">BROTHERS OUTFIT GALLERY</div>
+      <div className="pro-label-specs">
+        <div><span>SIZE</span><strong>{variant.size || 'FREE'}</strong></div>
+        <div><span>COLOUR</span><strong>{variant.color || 'STD'}</strong></div>
       </div>
-
-      <div className="label-body">
-        <div className="label-variant-badge-row">
-          <span className="label-variant-pill">
-            <strong>Size:</strong> {variant.size || 'Free'}
-          </span>
-          <span className="label-variant-pill"><strong>Colour:</strong> {variant.color || 'Standard'}</span>
-        </div>
-        {showMrp && <span className="label-variant-pill"><strong>MRP:</strong> {mrp ? `₹${mrp.toLocaleString('en-IN')}` : '—'}</span>}
-        <div className="label-barcode-container">
-          <img
-            src={barcodeImgSrc}
-            alt={barcode}
-            className="label-barcode-image"
-            loading="eager"
-          />
-          <div className="label-barcode-text">{barcode}</div>
-        </div>
+      {showMrp && <div className="pro-label-price">
+        <span>MRP</span><strong>{mrp ? `₹${mrp.toLocaleString('en-IN')}` : '—'}</strong>
+        <small>Incl. of all taxes</small>
+      </div>}
+      <div className="pro-label-barcode">
+        <img src={barcodeImgSrc} alt={barcode} className="label-barcode-image" loading="eager" />
+        <div className="pro-label-code">{barcode}</div>
       </div>
     </div>
   );

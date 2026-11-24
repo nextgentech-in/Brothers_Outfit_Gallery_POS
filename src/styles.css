@@ -2154,3 +2154,87 @@
 .workspace[data-sidebar-hidden="true"] > .sidebar { display: none; }
 .workspace[data-sidebar-hidden="true"] > .main-area { margin-left: 0; }
 .workspace-navigation-toggle { flex-shrink: 0; margin-right: 5px; }
+
+/* ===== Professional barcode label (slim bars, solid black text for thermal) ===== */
+.clothing-label-card.pro-label{--pl-pad:1.6mm 2.4mm;--pl-brand:6.8pt;--pl-cap:4.8pt;--pl-val:8pt;--pl-price:11pt;--pl-bar:10.5mm;--pl-code:6.6pt;
+  display:flex;flex-direction:column;justify-content:flex-start;gap:.7mm;padding:var(--pl-pad);background:#fff!important;color:#000!important;
+  font-family:"Arial Narrow","Roboto Condensed","Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased;
+  -webkit-print-color-adjust:exact;print-color-adjust:exact}
+.pro-label *{color:#000!important}
+.pro-label .pro-label-brand{font-size:var(--pl-brand);font-weight:900;letter-spacing:.32mm;text-align:center;line-height:1.05;
+  padding-bottom:.7mm;border-bottom:.35mm solid #000;white-space:nowrap;overflow:hidden;text-overflow:clip}
+.pro-label .pro-label-specs{display:grid;grid-template-columns:1fr 1fr;gap:1.2mm}
+.pro-label .pro-label-specs>div{display:flex;flex-direction:column;min-width:0;line-height:1.05}
+.pro-label .pro-label-specs>div+div{padding-left:1.2mm;border-left:.25mm solid #000}
+.pro-label .pro-label-specs span,.pro-label .pro-label-price span{font-size:var(--pl-cap);font-weight:700;letter-spacing:.25mm}
+.pro-label .pro-label-specs strong{font-size:var(--pl-val);font-weight:900;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pro-label .pro-label-price{display:flex;align-items:baseline;gap:1.2mm;line-height:1;padding:.5mm 0;border-top:.25mm solid #000;border-bottom:.25mm solid #000}
+.pro-label .pro-label-price strong{font-size:var(--pl-price);font-weight:900;letter-spacing:.1mm;font-variant-numeric:tabular-nums}
+.pro-label .pro-label-price small{margin-left:auto;font-size:calc(var(--pl-cap) - .3pt);font-weight:600}
+.pro-label .pro-label-barcode{margin-top:auto;display:flex;flex-direction:column;align-items:stretch}
+.clothing-label-card.pro-label .label-barcode-image{display:block;width:100%;max-width:100%;height:var(--pl-bar);object-fit:fill;image-rendering:crisp-edges;margin:0}
+.pro-label .pro-label-code{margin-top:.5mm;text-align:center;font-family:"Arial Narrow","Roboto Condensed",Arial,sans-serif;font-size:var(--pl-code);font-weight:700;letter-spacing:.55mm;line-height:1;font-variant-numeric:tabular-nums}
+/* Size tuning per stock */
+.clothing-label-card.pro-label.label-fmt-thermal-50x25,.clothing-label-card.pro-label.label-fmt-thermal-38x25{--pl-pad:1mm 1.6mm;--pl-brand:5.6pt;--pl-cap:4.2pt;--pl-val:6.4pt;--pl-price:8pt;--pl-bar:6mm;--pl-code:5.4pt;gap:.4mm}
+.pro-label.label-fmt-thermal-50x25 .pro-label-brand,.pro-label.label-fmt-thermal-38x25 .pro-label-brand{padding-bottom:.4mm;letter-spacing:.15mm}
+.pro-label.label-fmt-thermal-50x25 .pro-label-price small,.pro-label.label-fmt-thermal-38x25 .pro-label-price small,.pro-label.label-fmt-a4-40 .pro-label-price small{display:none}
+.pro-label.label-fmt-thermal-50x25 .pro-label-price,.pro-label.label-fmt-thermal-38x25 .pro-label-price{padding:.2mm 0}
+.clothing-label-card.pro-label.label-fmt-thermal-38x60{--pl-pad:2.4mm 2.2mm;--pl-brand:7pt;--pl-cap:5pt;--pl-val:9pt;--pl-price:13pt;--pl-bar:15mm;--pl-code:7pt;gap:1.6mm}
+.pro-label.label-fmt-thermal-38x60 .pro-label-brand{white-space:normal;letter-spacing:.2mm}
+.pro-label.label-fmt-thermal-38x60 .pro-label-price{flex-wrap:wrap}
+.pro-label.label-fmt-thermal-38x60 .pro-label-price small{margin-left:0;width:100%}
+.clothing-label-card.pro-label:is(.label-fmt-thermal-4x6,.label-fmt-thermal-100x150){--pl-pad:8mm 7mm;--pl-brand:15pt;--pl-cap:9pt;--pl-val:20pt;--pl-price:30pt;--pl-bar:26mm;--pl-code:14pt;gap:5mm}
+.pro-label:is(.label-fmt-thermal-4x6,.label-fmt-thermal-100x150) .pro-label-brand{border-bottom-width:.7mm;padding-bottom:3mm}
+.pro-label:is(.label-fmt-thermal-4x6,.label-fmt-thermal-100x150) .pro-label-price{padding:2mm 0}
+.clothing-label-card.pro-label.label-fmt-a4-18{--pl-pad:2.4mm 3mm;--pl-brand:8pt;--pl-cap:5.4pt;--pl-val:9.5pt;--pl-price:13pt;--pl-bar:11mm;--pl-code:7.5pt}
+.clothing-label-card.pro-label.label-fmt-a4-24{--pl-pad:1.4mm 2.4mm;--pl-brand:6.8pt;--pl-val:7.6pt;--pl-price:10pt;--pl-bar:7mm;--pl-code:6pt;gap:.5mm}
+.clothing-label-card.pro-label.label-fmt-a4-40{--pl-pad:1.2mm 1.4mm;--pl-brand:5.2pt;--pl-cap:4pt;--pl-val:6.4pt;--pl-price:8.4pt;--pl-bar:7.5mm;--pl-code:5.4pt;gap:.5mm}
+.pro-label.label-fmt-a4-40 .pro-label-brand{letter-spacing:0}
+.pro-label.label-fmt-a4-40 .pro-label-specs{gap:.6mm}
+.pro-label .pro-label-barcode{padding:0 3%}
+
+/* ===== Professional bill layout (centered retail invoice, pure black for thermal) ===== */
+.invoice-sheet .pro-bill{--pb-size:13px;font-family:"Noto Sans","Segoe UI","Helvetica Neue",Arial,sans-serif;font-size:var(--pb-size);line-height:1.4;color:#000;width:100%;max-width:118mm;margin:0 auto;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.invoice-sheet .pro-bill *{color:#000!important;box-sizing:border-box}
+.invoice-sheet .pro-bill p{margin:0}
+.invoice-sheet .pro-bill .pb-top{display:flex;justify-content:space-between;font-size:.72em;letter-spacing:.04em;font-weight:600;margin-bottom:.6em}
+.invoice-sheet .pro-bill .pb-shop{text-align:center;padding-bottom:.7em;border-bottom:1.5px solid #000}
+.invoice-sheet .pro-bill .pb-shop h2{font-size:1.55em;font-weight:700;margin:0 0 .3em;letter-spacing:.01em;line-height:1.2}
+.invoice-sheet .pro-bill .pb-shop p{font-size:.95em;line-height:1.45}
+.invoice-sheet .pro-bill .pb-meta{display:flex;justify-content:space-between;gap:1em;padding:.6em 0;font-weight:600}
+.invoice-sheet .pro-bill .pb-billto{padding:.2em 0 .6em;border-bottom:1.5px solid #000}
+.invoice-sheet .pro-bill .pb-billto p{line-height:1.45}
+.invoice-sheet .pro-bill .pb-billto p:first-child{font-weight:700}
+.invoice-sheet .pro-bill table.pb-items{width:100%;border-collapse:collapse;margin:.3em 0 0;table-layout:auto;font-size:var(--pb-size)!important}
+.invoice-sheet .pro-bill .pb-items th,.invoice-sheet .pro-bill .pb-items td{padding:.15em .2em!important;font-size:1em!important;font-weight:500;background:none!important;border:0;text-align:left;vertical-align:top;white-space:normal}
+.invoice-sheet .pro-bill .pb-items thead tr:first-child th{padding-top:.4em}
+.invoice-sheet .pro-bill .pb-items .pb-subhead th{border-bottom:1.5px solid #000;padding-bottom:.35em}
+.invoice-sheet .pro-bill .pb-items .pb-idx{width:1.8em}
+.invoice-sheet .pro-bill .pb-items .pb-subhead th:nth-child(3),.invoice-sheet .pro-bill .pb-items .pb-nums td:nth-child(3){text-align:center}
+.invoice-sheet .pro-bill .pb-items .pb-subhead th:last-child,.invoice-sheet .pro-bill .pb-items .pb-nums td:last-child{text-align:right}
+.invoice-sheet .pro-bill .pb-items .pb-name td{padding-top:.55em;font-weight:600;overflow-wrap:anywhere}
+.invoice-sheet .pro-bill .pb-items .pb-name small{display:block;font-size:.76em;font-weight:500;margin-top:.1em}
+.invoice-sheet .pro-bill .pb-items .pb-nums td{padding-bottom:.4em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.invoice-sheet .pro-bill .pb-totals{margin-top:.2em}
+.invoice-sheet .pro-bill .pb-line{display:flex;justify-content:space-between;gap:1em;padding:.4em 0;font-variant-numeric:tabular-nums}
+.invoice-sheet .pro-bill .pb-line span:last-child{white-space:nowrap}
+.invoice-sheet .pro-bill .pb-ruled{border-top:1.5px solid #000}
+.invoice-sheet .pro-bill .pb-grand{border-top:1.5px solid #000;font-size:1.12em;font-weight:700}
+.invoice-sheet .pro-bill .pb-small{font-size:.82em;padding:.1em 0 .4em}
+.invoice-sheet .pro-bill .pb-totals>.pb-line:last-child{border-bottom:1.5px solid #000}
+.invoice-sheet .pro-bill .pb-coins{display:flex;justify-content:space-between;flex-wrap:wrap;gap:.4em;margin-top:.6em;padding:.45em .6em;border:1px dashed #000;font-size:.85em}
+.invoice-sheet .pro-bill .pb-terms{margin-top:.9em}
+.invoice-sheet .pro-bill .pb-terms p{font-weight:600;margin-bottom:.2em}
+.invoice-sheet .pro-bill .pb-terms ol{margin:0;padding-left:1.3em;font-size:.92em}
+.invoice-sheet .pro-bill .pb-terms li{margin:.1em 0}
+.invoice-sheet .pro-bill .pb-thanks{text-align:center;margin-top:1em;font-weight:600}
+.invoice-sheet .pro-bill .pb-help{text-align:center;font-size:.8em;margin-top:.2em}
+/* Paper-specific scale */
+.invoice-sheet.receipt-a4 .pro-bill{--pb-size:14px;max-width:150mm}
+.invoice-sheet.receipt-a5 .pro-bill{--pb-size:13px}
+.invoice-sheet:is(.receipt-4x6,.receipt-100x150) .pro-bill{--pb-size:11.5px;max-width:none}
+.invoice-sheet.receipt-80 .pro-bill{--pb-size:11px;max-width:none}
+.invoice-sheet.receipt-58 .pro-bill{--pb-size:9.5px;max-width:none}
+.invoice-sheet.receipt-58 .pro-bill .pb-meta{flex-direction:column;gap:0}
+.invoice-sheet.receipt-58 .pro-bill .pb-top{flex-direction:column;align-items:center;gap:.1em}
+@media print{.invoice-sheet .pro-bill{font-weight:500}.invoice-sheet .pro-bill .pb-shop,.invoice-sheet .pro-bill .pb-billto,.invoice-sheet .pro-bill .pb-totals,.invoice-sheet .pro-bill .pb-terms{break-inside:avoid}}

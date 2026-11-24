@@ -1,4 +1,4 @@
-import { rewardDefaults, rewardRule, rewardRuleSchema } from './rewards.js';
+import { rewardAccount, rewardDefaults, rewardRule, rewardRuleSchema } from './rewards.js';
 import { Router } from 'express';
 import { createHash } from 'node:crypto';
 import { FieldValue, type Firestore, type Transaction } from 'firebase-admin/firestore';
@@ -113,6 +113,23 @@ operationsRouter.post('/customers/update',async(req,res)=>{
    res.status(422).json({ error: 'Enter a valid date of birth for birthday offers.' }); return;
  }
  try{const db=firebase().db,input=parsed.data;res.json(await idempotent(db,'customer_update',input.requestId,input,async tx=>{const ref=db.collection('erp_customerProfiles').doc(customerKey(input.phone,''));await tx.get(ref);tx.set(ref,{name:input.name,...(input.rewardRule !== undefined ? {rewardRule:input.rewardRule} : {}),phone:mobileNumber(input.phone),email:input.email,dateOfBirth:input.dateOfBirth,birthdayOffersOptIn:input.birthdayOffersOptIn,updatedAt:FieldValue.serverTimestamp()},{merge:true});return {updated:true};}));}catch(e){fail(res,e);}
+});
+// Owner/manager action: clears one customer's accumulated coins and records who did it.
+operationsRouter.post('/customers/coins/reset', async (req, res) => {
+  const parsed = z.object({ requestId, phone: z.string().refine(v => Boolean(mobileNumber(v))) }).strict().safeParse(req.body);
+  if (!parsed.success) { res.status(422).json({ error: 'Choose a customer with a valid mobile number.' }); return; }
+  try {
+    const db = firebase().db, input = parsed.data, identity = customerKey(input.phone, '');
+    res.json(await idempotent(db, 'customer_coins_reset', input.requestId, input, async tx => {
+      const ref = rewardAccount(db, identity), doc = await tx.get(ref);
+      const previousBalance = Math.max(0, Number(doc.data()?.balance || 0));
+      tx.set(ref, { balance: 0, lastResetAt: FieldValue.serverTimestamp(), lastResetBalance: previousBalance, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      tx.create(db.collection('erp_auditLog').doc(hash(`customer_coins_reset:${input.requestId}`)), {
+        actor: res.locals.owner?.uid || 'pin-owner', target: identity, action: 'customer_coins_reset', previousBalance, createdAt: FieldValue.serverTimestamp()
+      });
+      return { reset: true, previousBalance, balance: 0 };
+    }));
+  } catch (e) { fail(res, e); }
 });
 operationsRouter.post('/inventory/count',async(req,res)=>{
  const parsed=z.object({requestId,productId:z.string().regex(/^[\w.:-]+$/),lines:z.array(z.object({sku:z.string().regex(/^[\w.:-]+$/),expected:z.number().int().min(0),counted:z.number().int().min(0).max(100000),threshold:z.number().int().min(0).max(10000)}).strict()).min(1).max(100),note:z.string().trim().max(300).optional()}).strict().safeParse(req.body);
