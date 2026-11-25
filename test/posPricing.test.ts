@@ -68,3 +68,49 @@ test('patch validates, updates and clears the private price without changing web
   const catalog = await (await fetch(base + '/products')).json();
   assert.equal(catalog.items[0].customPrice, null); assert.equal(catalog.items[0].price, 800);
 });
+
+test('cost prices stay out of the public products collection', async () => {
+  const product = records.get(`products/${productId}`)!;
+  for (const field of ['costPrice', 'cost_price', 'purchasePrice', 'purchase_price']) {
+    assert.equal(product[field], undefined, field);
+    assert.equal(product.variants[0][field], undefined, `variant ${field}`);
+  }
+  const sku = product.variants[0].sku;
+  assert.equal(records.get(`erp_productCostPrices/${productId}`)?.costPrice, 400);
+  assert.equal(records.get(`erp_productCostPrices/${productId}`)?.variants[0].sku, sku);
+  // Owners still see the cost in the POS; cashiers never do.
+  const owner = await (await fetch(base + '/products')).json();
+  assert.equal(owner.items[0].costPrice, 400); assert.equal(owner.items[0].variants[0].costPrice, 400);
+  role = 'cashier';
+  const cashier = await (await fetch(base + '/products')).json();
+  assert.equal(cashier.items[0].costPrice, undefined); assert.equal(cashier.items[0].variants[0].costPrice, undefined);
+  role = 'owner';
+  // Editing a cost updates only the private record, and sales still record cost of goods.
+  const patched = await post('/products/patch', { requestId: 'private-cost-patch-01', productId,
+    patch: { costPrice: 420, variantPatches: [{ sku, size: 'M', color: 'Black', price: 800, costPrice: 410 }] } });
+  assert.equal(patched.status, 200, JSON.stringify(patched.body));
+  assert.equal(records.get(`products/${productId}`)?.costPrice, undefined);
+  assert.equal(records.get(`products/${productId}`)?.variants[0].costPrice, undefined);
+  assert.equal(records.get(`erp_productCostPrices/${productId}`)?.costPrice, 420);
+  assert.equal(records.get(`erp_productCostPrices/${productId}`)?.variants[0].costPrice, 410);
+  const sale = await post('/pos/sale', { requestId: 'private-cost-sale-01', customerName: 'Test Buyer', customerPhone: '8765432109', paymentMethod: 'cash', lines: [{ productId, sku, quantity: 1 }] });
+  assert.equal(sale.status, 201, JSON.stringify(sale.body));
+  const order = records.get(`orders/${sale.body.orderId}`)!;
+  assert.equal(order.items[0].unitCost, 410); assert.equal(order.items[0].costSource, 'variant_cost');
+});
+
+test('legacy public cost fields are still used until migrated, then removed on edit', async () => {
+  records.set('products/legacy-cost', { name: 'Legacy shirt', sku: 'LEGACY', salePrice: 500, price: 500, mrp: 600,
+    costPrice: 250, cost_price: 250, purchasePrice: 250, purchase_price: 250, stock: 3, quantity: 3, reserved: 0,
+    variants: [{ sku: 'LEGACY-M', size: 'M', color: 'Blue', stock: 3, quantity: 3, reserved: 0, price: 500, mrp: 600, costPrice: 240, cost_price: 240 }] });
+  const catalog = await (await fetch(base + '/products')).json();
+  const legacy = catalog.items.find((item: { id: string }) => item.id === 'legacy-cost');
+  assert.equal(legacy.costPrice, 250); assert.equal(legacy.variants[0].costPrice, 240);
+  const edited = await post('/products/patch', { requestId: 'legacy-cost-patch-01', productId: 'legacy-cost', patch: { name: 'Legacy shirt v2' } });
+  assert.equal(edited.status, 200, JSON.stringify(edited.body));
+  const product = records.get('products/legacy-cost')!;
+  assert.equal(product.costPrice, undefined); assert.equal(product.purchase_price, undefined);
+  assert.equal(product.variants[0].costPrice, undefined); assert.equal(product.variants[0].cost_price, undefined);
+  assert.equal(records.get('erp_productCostPrices/legacy-cost')?.costPrice, 250);
+  assert.equal(records.get('erp_productCostPrices/legacy-cost')?.variants[0].costPrice, 240);
+});

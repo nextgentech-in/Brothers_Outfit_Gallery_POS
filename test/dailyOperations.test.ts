@@ -38,7 +38,7 @@ test('immediate purchase creates a labelled catalog item and stock exactly once'
 });
 test('existing receipts use weighted cost; supplier payments cannot exceed balance',async()=>{
  const receipt={...purchase,requestId:'restock-existing-01',supplierInvoice:'TEST-2',amountPaid:0,lines:[{productId,sku:'TEST-JEANS-V1',quantity:4,unitCost:174.75,salePrice:250,mrp:300}]};
- assert.equal((await post('/purchases/receive',receipt)).status,201);assert.equal(records.get(`products/${productId}`)?.variants[0].costPrice,150);assert.equal(records.get(`products/${productId}`)?.stock,8);
+ assert.equal((await post('/purchases/receive',receipt)).status,201);assert.equal(records.get(`erp_productCostPrices/${productId}`)?.variants[0].costPrice,150);assert.equal(records.get(`products/${productId}`)?.variants[0].costPrice,undefined);assert.equal(records.get(`products/${productId}`)?.costPrice,undefined);assert.equal(records.get(`products/${productId}`)?.stock,8);
  const payment={requestId:'supplier-payment-01',supplierId:'supplier-1',amount:1100,method:'upi'};assert.equal((await post('/suppliers/payment',payment)).status,200);assert.equal((await post('/suppliers/payment',payment)).status,200);
  assert.equal((await post('/suppliers/payment',{...payment,requestId:'supplier-overpay-01',amount:.01})).status,422);
 });

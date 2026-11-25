@@ -11,7 +11,7 @@ import { root } from '../server/config.js';
 const collections = [
   'products', 'productSkuMappings', 'productSlugMappings', 'stockMovements', 'users',
   'orders', 'reviews', 'exchangeRequests', 'customerNotifications',
-  'erp_posPricing', 'erp_productCosts', 'erp_customerProfiles', 'erp_customerLedger',
+  'erp_posPricing', 'erp_productCosts', 'erp_productCostPrices', 'erp_customerProfiles', 'erp_customerLedger',
   'erp_customerMessages', 'erp_creditAccounts', 'erp_loyaltyAccounts',
   'erp_invoices', 'erp_invoiceSequences', 'erp_orderMeta', 'erp_returns',
   'erp_creditNotes', 'erp_creditNoteSequences', 'erp_refunds',

@@ -22,6 +22,7 @@ import { whatsappWebhook } from './whatsappWebhook.js';
 import { validBillLink } from './billLink.js';
 import { invoicePdf } from './invoicePdf.js';
 import { deviceAccess, type DeviceAccess } from './deviceAccess.js';
+import { mergeCosts, readAllCosts } from './productCosts.js';
 
 export type AppOptions = { auth?: AuthService; devices?: DeviceAccess; overview?: () => Promise<Overview> };
 export function createApp(options: AppOptions = {}) {
@@ -250,10 +251,10 @@ async function readDashboard(): Promise<DashboardSummary> {
   type OrderData = { id: string; status?: unknown; createdBy?: unknown; totalAmount?: unknown; total?: unknown; returnedAmount?: unknown;
     customerName?: unknown; shippingAddress?: { fullName?: unknown }; createdAt?: { toDate?: () => Date } };
   const db = firebase().db;
-  const [productDocs, orderDocs, customers, orderCount, syncDocs] = await Promise.all([
+  const [productDocs, orderDocs, customers, orderCount, syncDocs, costs] = await Promise.all([
     db.collection('products').get(), db.collection('orders').orderBy('createdAt', 'desc').limit(200).get(),
     db.collection('users').count().get(), db.collection('orders').count().get(),
-    db.collection('erp_syncLog').orderBy('createdAt', 'desc').limit(100).get()
+    db.collection('erp_syncLog').orderBy('createdAt', 'desc').limit(100).get(), readAllCosts(db)
   ]);
   const products = productDocs.docs.filter(doc => {
     const data = doc.data();
@@ -268,7 +269,7 @@ async function readDashboard(): Promise<DashboardSummary> {
     return true;
   });
   const stock = products.map(doc => {
-    const data = doc.data();
+    const data = mergeCosts(doc.data(), costs.get(doc.id));
     const variants = Array.isArray(data.variants) ? data.variants : [];
     const available = variants.length
       ? variants.reduce((sum, variant) => sum + Math.max(0, Number(variant.stock ?? variant.quantity ?? 0) - Number(variant.reserved ?? 0)), 0)

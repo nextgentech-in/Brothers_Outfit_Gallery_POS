@@ -14,7 +14,7 @@ export const resetScopes = {
   },
   products: {
     label: 'Products & stock',
-    collections: ['products', 'erp_posPricing', 'productSkuMappings', 'productSlugMappings', 'erp_productCosts', 'stockMovements',
+    collections: ['products', 'erp_posPricing', 'erp_productCostPrices', 'productSkuMappings', 'productSlugMappings', 'erp_productCosts', 'stockMovements',
       'posProductMappings', 'posStockEvents', 'posReconciliationDiscrepancies']
   },
   sales: {

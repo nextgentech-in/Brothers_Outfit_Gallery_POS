@@ -16,12 +16,14 @@ const rupees = (p: number) => p / 100;
 const reject = (msg: string, status = 422): never => { throw Object.assign(new Error(msg), { status }); };
 const fail = (res: any, e: any) => res.status(e.status || 503).json({ error: e.status ? e.message : 'Report data currently unavailable.' });
 
+import { mergeCosts, readAllCosts } from './productCosts.js';
 export const reportsRouter = Router();
 
 reportsRouter.get('/reports/stock-gst', async (_req, res) => {
   try {
-    const products = await firebase().db.collection('products').get();
-    const rows = stockValueRows(products.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const db = firebase().db;
+    const [products, costs] = await Promise.all([db.collection('products').get(), readAllCosts(db)]);
+    const rows = stockValueRows(products.docs.map(doc => ({ id: doc.id, ...mergeCosts(doc.data(), costs.get(doc.id)) })));
     const items = rows.filter(row => row.gstPercent > 0 && row.quantity > 0);
     const sum = (key: 'quantity' | 'baseValue' | 'gstValue' | 'totalValue') => Math.round(rows.reduce((total, row) => total + row[key], 0) * 100) / 100;
     res.json({ checkedAt: new Date().toISOString(), summary: {
@@ -62,6 +64,7 @@ reportsRouter.get('/reports/dashboard-summary', async (req, res) => {
       creditAccountsSnap,
       allPurchasesSnap,
       productsSnap,
+      productCosts,
       pendingRefundsSnap,
       customerProfilesSnap
     ] = await Promise.all([
@@ -77,6 +80,7 @@ reportsRouter.get('/reports/dashboard-summary', async (req, res) => {
       db.collection('erp_creditAccounts').get(),
       db.collection('erp_purchases').where('payable', '>', 0).get(),
       db.collection('products').get(),
+      readAllCosts(db),
       db.collection('erp_returns').where('refundStatus', '==', 'review_required').get(),
       db.collection('erp_customerProfiles').get()
     ]);
@@ -280,7 +284,7 @@ reportsRouter.get('/reports/dashboard-summary', async (req, res) => {
     const lowStockItems: any[] = [];
 
     for (const doc of productsSnap.docs) {
-      const p = doc.data();
+      const p = mergeCosts(doc.data(), productCosts.get(doc.id));
       if (p.isDeleted === true) continue;
       const pName = p.name || 'Product';
       const pSku = p.sku || doc.id;

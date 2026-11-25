@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { firebase } from './firebase.js';
 import { idempotent } from './transactions.js';
 import { changeStock } from './commerce.js';
+import { deleteCostFields, extractCosts, mergeCosts, readCostsTx, stripCosts, writeCosts } from './productCosts.js';
 import { purchaseSchema, type PurchaseInput } from '../shared/purchases.js';
 import { readProductNumberCounter, writeProductNumberCounter, formatBarcode } from './productNumbering.js';
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -20,6 +21,9 @@ async function receive(db: Firestore, tx: Transaction, input: PurchaseInput) {
   if ((await tx.get(invoiceKey)).exists) reject('This supplier invoice has already been received.', 409);
   const catalog = await tx.get(db.collection('products'));
   const products = new Map<string, DocumentData>(catalog.docs.map(doc => [doc.id, doc.data()]));
+  // Work with private costs in memory; they are split out again before anything is written to products.
+  const existingIds = [...new Set(input.lines.flatMap(l => l.productId && products.has(l.productId) ? [l.productId] : []))];
+  for (const [productId, record] of await readCostsTx(db, tx, existingIds)) products.set(productId, mergeCosts(products.get(productId)!, record));
   const codes = new Set<string>();
   for (const product of products.values()) for (const code of [product.sku, product.barcode, product.posBarcode, ...(Array.isArray(product.variants) ? product.variants : []).flatMap((v: any) => [v.sku,v.barcode,v.posBarcode])]) if (code) codes.add(String(code).toLowerCase());
   const hasNewItems = input.lines.some(l => l.newItem);
@@ -72,12 +76,14 @@ async function receive(db: Firestore, tx: Transaction, input: PurchaseInput) {
     writeProductNumberCounter(db, tx, nextProductNumber);
   }
   for (const productId of touched) {
-    const data: DocumentData = { ...products.get(productId), updatedAt: FieldValue.serverTimestamp() };
+    const full = products.get(productId)!;
+    writeCosts(db, tx, productId, extractCosts(full));
+    const data: DocumentData = { ...stripCosts(full), updatedAt: FieldValue.serverTimestamp() };
     if (created.has(productId)) {
       delete data.deletedAt;
       tx.create(db.collection('products').doc(productId), data);
       tx.create(db.collection('productSlugMappings').doc(hash(data.slug)), { productId, slug: data.slug, createdAt: FieldValue.serverTimestamp() });
-    } else tx.update(db.collection('products').doc(productId), data);
+    } else tx.update(db.collection('products').doc(productId), { ...data, ...deleteCostFields() });
   }
   for (const mapping of mappings) tx.create(db.collection('productSkuMappings').doc(hash(mapping.sku.toLowerCase())), { ...mapping, normalizedSku:mapping.sku.toLowerCase(), webProductId:mapping.productId, createdAt: FieldValue.serverTimestamp() });
   for (const row of movements) tx.create(db.collection('stockMovements').doc(row.movementId), row);
