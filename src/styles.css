@@ -2230,3 +2230,26 @@
 .button.danger:disabled{opacity:.45;cursor:not-allowed}
 .data-reset-warning{display:flex;align-items:center;gap:6px;margin:10px 0 0;font-size:12.5px;color:#b3261e;font-weight:650}
 @media(max-width:600px){.data-reset-steps>li{padding:14px 12px 14px 48px}.data-reset-steps>li::before{left:12px}.data-reset-confirm input{width:100%}.data-reset-confirm label,.data-reset-confirm .button{flex:1 1 100%}}
+/* Production shell: loading, crash recovery, mobile sign-out, PIN entry */
+.top-logout{display:none}@media(max-width:700px){.top-logout{display:grid}}
+.loading-state{display:flex;align-items:center;justify-content:center;gap:12px;padding:48px 16px;color:var(--muted);font-size:15px}
+.loading-full{min-height:100vh}
+.loading-spinner{width:22px;height:22px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:bo-spin .8s linear infinite;flex:none}
+@keyframes bo-spin{to{transform:rotate(360deg)}}
+.crash-panel{max-width:560px;margin:48px auto;padding:28px;border-radius:18px;text-align:center}
+.crash-panel h2{margin:0 0 10px;font-size:22px}.crash-panel p{color:var(--muted);margin:0 0 20px}
+.crash-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}.crash-actions .button{display:inline-flex;align-items:center;gap:8px}
+.login-card .pin-input{font-size:28px;letter-spacing:14px;text-align:center;min-height:58px;font-variant-numeric:tabular-nums}
+.login-card .pin-input::placeholder{letter-spacing:14px;opacity:.35}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.login-page{grid-template-columns:1fr;place-items:center;padding:24px 16px}
+.login-page .login-side{width:min(440px,100%);padding:0}
+.login-page .login-card{width:100%;max-width:none;padding:36px 32px;border-radius:22px}
+.login-page .login-card h1{font-size:30px;margin:16px 0 6px}
+.login-page .login-card p{font-size:15px;color:var(--muted)}
+.login-page .login-card label{display:block;font-size:14px;font-weight:650;margin:22px 0 8px}
+.login-page .login-card .pin-input{width:100%}
+.login-page .login-submit{width:100%;margin-top:18px;min-height:52px;font-size:16px;justify-content:center}
+.login-page .login-card [role=status]{font-size:14px;margin:12px 0 0}
+.login-page .login-card .error{font-size:14px;margin:12px 0 0;color:var(--danger,#c0392b)}
+@media(max-width:700px){.login-page{display:grid;min-height:100dvh}.login-page .login-card{padding:28px 20px}}

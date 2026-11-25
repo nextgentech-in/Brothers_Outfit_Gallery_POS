@@ -12,11 +12,17 @@ import { customerMessagesReady, processCustomerMessages } from './customerMessag
 const app = createApp();
 const server = createServer(app);
 if (config.production) {
-  app.use('/assets', express.static(path.join(root, 'dist/assets'), { index: false }));
-  app.get('/favicon.svg', (_req, res) => res.sendFile(path.join(root, 'dist/favicon.svg')));
-  app.get('/purchase-template.csv', (_req,res)=>res.sendFile(path.join(root,'dist/purchase-template.csv')));
-  app.get('/manifest.webmanifest', (_req, res) => res.sendFile(path.join(root, 'dist/manifest.webmanifest')));
-  app.use((_req, res) => res.sendFile(path.join(root, 'dist/index.html')));
+  // Hashed build files never change, so browsers may keep them for a year.
+  app.use('/assets', express.static(path.join(root, 'dist/assets'), { index: false, fallthrough: false,
+    setHeaders: res => res.set('Cache-Control', 'public, max-age=31536000, immutable') }));
+  const publicFile = (name: string, cache = 'public, max-age=3600') => app.get(`/${name}`, (_req, res) =>
+    res.set('Cache-Control', cache).sendFile(path.join(root, 'dist', name)));
+  publicFile('favicon.svg');
+  publicFile('purchase-template.csv');
+  publicFile('manifest.webmanifest');
+  // The service worker must always be revalidated so new deployments reach every device.
+  publicFile('sw.js', 'no-cache');
+  app.use((_req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(root, 'dist/index.html')));
 } else {
   const { createServer: createViteServer } = await import('vite');
   const vite = await createViteServer({ root, server: { middlewareMode: true, ws: { server } }, appType: 'custom' });
@@ -43,3 +49,14 @@ const deliveryWorker = setInterval(async () => {
 deliveryWorker.unref();
 
 startBackupWorker();
+
+process.on('unhandledRejection', reason => console.error('Unhandled rejection:', reason instanceof Error ? reason.message : reason));
+let shuttingDown = false;
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`${signal} received · finishing open requests`);
+  clearInterval(deliveryWorker);
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 10_000).unref();
+});
