@@ -1,6 +1,6 @@
-import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react';
+import { Component, lazy, Suspense, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ArrowDownUp, ArrowRight, BarChart3, ChevronRight, FileText,
-  LayoutDashboard, LockKeyhole, PanelLeftClose, PanelLeftOpen, MessageCircle, Moon, Package, RefreshCw, ShieldCheck,
+  LayoutDashboard, LockKeyhole, LogOut, PanelLeftClose, PanelLeftOpen, MessageCircle, Moon, Package, RefreshCw, ShieldCheck,
   ShoppingBag, Sun, Truck, Users, Search, type LucideIcon } from 'lucide-react';
 import type { Owner } from '../shared/contracts';
 import { BrandLogo } from './BrandLogo';
@@ -64,13 +64,22 @@ function PinLogin() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [deviceStatus, setDeviceStatus] = useState<{ loginAvailable: boolean; disabled?: boolean } | null>(null);
+  const pinInput = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (!busy) pinInput.current?.focus(); }, [busy]);
   useEffect(() => { api<{ loginAvailable: boolean; disabled?: boolean }>('/api/auth/device/status').then(setDeviceStatus).catch(cause => setError((cause as Error).message)); }, []);
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError('');
-    try { await post('/api/auth/login', { pin }); window.location.assign('/'); }
-    catch (cause) { setError((cause as Error).message); setBusy(false); }
+  async function signIn(value: string) {
+    if (busy) return;
+    setBusy(true); setError('');
+    try { await post('/api/auth/login', { pin: value }); window.location.assign('/'); }
+    catch (cause) { setError((cause as Error).message); setPin(''); setBusy(false); }
   }
-  return <main className="login-page"><section className="login-side"><div className="login-card glass"><Brand /><span className="pill"><LockKeyhole size={14} /> Shop access</span><h1>Billing starts here</h1><p>Enter your four-digit shop PIN.</p><form onSubmit={event => void submit(event)}><label htmlFor="pin">Shop PIN</label><input id="pin" type="password" inputMode="numeric" pattern="[0-9]{4}" minLength={4} maxLength={4} autoComplete="off" required autoFocus value={pin} onChange={event => setPin(event.target.value)} />{deviceStatus?.disabled && <p role="status">Hosted access is disabled.</p>}{deviceStatus && !deviceStatus.loginAvailable && !deviceStatus.disabled && <p role="status">This device needs a one-time trust link from the shop owner.</p>}{new URLSearchParams(window.location.search).has('paired') && <p role="status">Device trusted. Enter your PIN.</p>}{error && <p className="error" role="alert">{error}</p>}<button className="button primary login-submit" disabled={busy || !deviceStatus?.loginAvailable}>{busy ? 'Signing in…' : 'Open billing'}<ArrowRight size={17} /></button></form></div></section></main>;
+  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); void signIn(pin); }
+  function changePin(value: string) {
+    const digits = value.replace(/\D/g, '').slice(0, 4);
+    setPin(digits);
+    if (digits.length === 4 && deviceStatus?.loginAvailable) void signIn(digits);
+  }
+  return <main className="login-page"><section className="login-side"><div className="login-card glass"><Brand /><span className="pill"><LockKeyhole size={14} /> Shop access</span><h1>Billing starts here</h1><p>Enter your four-digit shop PIN.</p><form onSubmit={submit}><label htmlFor="pin">Shop PIN</label><input id="pin" ref={pinInput} type="password" inputMode="numeric" pattern="[0-9]{4}" minLength={4} maxLength={4} autoComplete="off" required autoFocus disabled={busy} className="pin-input" placeholder="••••" value={pin} onChange={event => changePin(event.target.value)} />{deviceStatus?.disabled && <p role="status">Hosted access is disabled.</p>}{deviceStatus && !deviceStatus.loginAvailable && !deviceStatus.disabled && <p role="status">This device needs a one-time trust link from the shop owner.</p>}{new URLSearchParams(window.location.search).has('paired') && <p role="status">Device trusted. Enter your PIN.</p>}{error && <p className="error" role="alert">{error}</p>}<button className="button primary login-submit" disabled={busy || !deviceStatus?.loginAvailable}>{busy ? 'Signing in…' : 'Open billing'}<ArrowRight size={17} /></button></form></div></section></main>;
 }
 function EnrollDevice() {
   const [token] = useState(() => {
@@ -116,7 +125,13 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
   const [sidebarHidden, setSidebarHidden] = useState(() => localStorage.getItem('bo-workspace-navigation') === 'hidden');
   const allowed=(id:string)=>owner?.role!=='cashier'||['pos','customers','credit','sync'].includes(id);
   useEffect(()=>{if(owner?.role==='cashier'&&!allowed(tab))navigate('pos');},[owner,tab]);
-  function navigate(id: string) { setTab(id); history.pushState(null, '', id === 'pos' ? '/' : `/${id}`); }
+  const moreMenu = useRef<HTMLDetailsElement>(null);
+  function navigate(id: string) {
+    if (moreMenu.current) moreMenu.current.open = false;
+    if (id === tab) return;
+    setTab(id); history.pushState(null, '', id === 'pos' ? '/' : `/${id}`);
+    window.scrollTo({ top: 0 });
+  }
   useEffect(() => {
     let disposed = false;
     let expiryTimer: number | undefined;
@@ -157,17 +172,22 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
     return () => window.removeEventListener('keydown', handleGlobalKey);
   }, []);
 
+  useEffect(() => {
+    const label = tabs.find(t => t.id === tab)?.label;
+    document.title = label ? `${label} · Brothers Outfit` : 'Brothers Outfit · Studio';
+  }, [tab]);
   async function logout() {
+    if (!window.confirm('Sign out of the shop workspace?')) return;
     try { await post('/api/auth/logout', {}); } catch (cause) { setError((cause as Error).message); return; }
     localStorage.removeItem('pos-offline-session');
     localStorage.removeItem('pos-activation-cache');
     window.location.assign('/login');
   }
-  if (!owner) return <p role="status">Checking shop access…</p>;
+  if (!owner) return <LoadingScreen label="Checking shop access…" />;
   return <div className="workspace" data-sidebar-hidden={sidebarHidden}>
-    <aside className="sidebar glass" id="workspace-navigation"><Brand compact /><div className="workspace-label">YOUR WORKSPACE</div><nav aria-label="Main navigation">{primaryTabs.filter(item=>allowed(item.id)).map(item => <button key={item.id} onClick={() => navigate(item.id)} className={`nav-item ${tab === item.id ? 'selected' : ''}`} aria-current={tab === item.id ? 'page' : undefined}><item.icon size={19} />{item.label}{tab === item.id && <span className="nav-dot" />}</button>)}<details className="sidebar-more"><summary>More tools</summary><div className="more-menu">{moreTabs.filter(item=>allowed(item.id)&&(item.id!=='security'||owner?.role==='owner')).map(item => <button key={item.id} onClick={() => navigate(item.id)} className={`nav-item ${tab === item.id ? 'selected' : ''}`}><item.icon size={19} />{item.label}</button>)}</div></details></nav>
+    <aside className="sidebar glass" id="workspace-navigation"><Brand compact /><div className="workspace-label">YOUR WORKSPACE</div><nav aria-label="Main navigation">{primaryTabs.filter(item=>allowed(item.id)).map(item => <button key={item.id} onClick={() => navigate(item.id)} className={`nav-item ${tab === item.id ? 'selected' : ''}`} aria-current={tab === item.id ? 'page' : undefined}><item.icon size={19} />{item.label}{tab === item.id && <span className="nav-dot" />}</button>)}<details className="sidebar-more" ref={moreMenu}><summary>More tools</summary><div className="more-menu">{moreTabs.filter(item=>allowed(item.id)&&(item.id!=='security'||owner?.role==='owner')).map(item => <button key={item.id} onClick={() => navigate(item.id)} className={`nav-item ${tab === item.id ? 'selected' : ''}`}><item.icon size={19} />{item.label}</button>)}</div></details></nav>
       <div className="sidebar-bottom"><div className="sidebar-connection">Shared website catalog · Live store</div>
-      <div className="owner"><span className="avatar">BO</span><div><strong>{owner?.name || (owner?.role === 'cashier' ? 'Cashier' : owner?.role === 'manager' ? 'Manager' : 'Store owner')}</strong><small>{owner ? 'Active session' : 'Ready'}</small></div><button className="icon-button" onClick={logout} aria-label="Go to dashboard" title="Reset to Dashboard"><LayoutDashboard size={17} /></button></div></div>
+      <div className="owner"><span className="avatar">BO</span><div><strong>{owner?.name || (owner?.role === 'cashier' ? 'Cashier' : owner?.role === 'manager' ? 'Manager' : 'Store owner')}</strong><small>{owner ? 'Active session' : 'Ready'}</small></div><button className="icon-button" onClick={() => void logout()} aria-label="Sign out" title="Sign out"><LogOut size={17} /></button></div></div>
     </aside>
     <div className="main-area"><header className="topbar">
       <div className="breadcrumbs"><button type="button" className="icon-button workspace-navigation-toggle" title={sidebarHidden ? 'Show workspace menu' : 'Hide workspace menu'} aria-label={sidebarHidden ? 'Show workspace menu' : 'Hide workspace menu'} aria-controls="workspace-navigation" aria-expanded={!sidebarHidden} onClick={() => {
@@ -194,19 +214,20 @@ function Workspace({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => vo
         >
           <Search size={18} />
         </button>
+        <button onClick={() => void logout()} className="icon-button top-logout" aria-label="Sign out" title="Sign out"><LogOut size={18} /></button>
         <button onClick={toggleTheme} className="icon-button theme-button" aria-label={dark ? 'Use light theme' : 'Use dark theme'}>{dark ? <Sun size={19} /> : <Moon size={19} />}</button>
       </div>
     </header>
     <main className="content" id="main-content">{error && <div className="error-banner" role="alert">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
       {offlineSession && <p role="status">Offline session. Bills queue on this PC. Other operations may require a connection.</p>}
-      <Suspense fallback={<p role="status">Loading workspace…</p>}>
+      <ErrorBoundary key={tab}><Suspense fallback={<LoadingScreen label="Loading…" inline />}>
       {tab === 'dashboard' && <Dashboard navigate={navigate} role={owner?.role} />}
       {tab === 'security' && owner?.role === 'owner' && <><StaffSettings /><TrustedDevices /></>}
       {tab === 'reports' && <ReportsWorkspace />}
       {tab === 'credit' && <CreditView />}
       {tab === 'whatsapp' && <WhatsAppView onCustomers={() => navigate('customers')} />}
       {['products', 'pos', 'inventory', 'orders', 'customers', 'suppliers', 'purchase-orders', 'sync'].includes(tab) && <CommerceView tab={tab} role={owner?.role} />}
-      </Suspense>
+      </Suspense></ErrorBoundary>
       <footer className="page-footer"><span>BROTHERS OUTFIT GALLERY <span className="footer-separator">/</span> STUDIO</span><span>A little more clarity. Every day.</span></footer>
     </main></div>
     {paletteOpen && <Suspense fallback={null}><CommandPalette
@@ -249,4 +270,29 @@ function TrustedDevices() {
 }
 function PageTitle({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
   return <div className="page-title"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{description}</p></div></div>;
+}
+
+function LoadingScreen({ label, inline = false }: { label: string; inline?: boolean }) {
+  return <div className={inline ? 'loading-state' : 'loading-state loading-full'} role="status" aria-live="polite"><span className="loading-spinner" aria-hidden="true" /><span>{label}</span></div>;
+}
+const RELOAD_KEY = 'bo-chunk-reload';
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error) {
+    // After a new deployment, an open tab can request old code chunks that no longer exist. Reload once automatically.
+    const staleChunk = /dynamically imported module|Importing a module script failed|Failed to fetch|error loading/i.test(error.message);
+    try {
+      const last = Number(sessionStorage.getItem(RELOAD_KEY) || 0);
+      if (staleChunk && Date.now() - last > 30_000) { sessionStorage.setItem(RELOAD_KEY, String(Date.now())); window.location.reload(); return; }
+    } catch { /* Storage can be unavailable; fall through to the manual reload screen. */ }
+    console.error(error);
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return <section className="glass crash-panel" role="alert"><h2>This screen could not load</h2>
+      <p>Nothing was saved or changed. Check the internet connection, then reload. Bills already queued on this device stay safe.</p>
+      <div className="crash-actions"><button className="button primary" onClick={() => window.location.reload()}><RefreshCw size={16} /> Reload</button>
+        <button className="button secondary" onClick={() => this.setState({ error: null })}>Try again</button></div></section>;
+  }
 }

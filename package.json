@@ -20,6 +20,7 @@
     "device:rollback": "tsx scripts/device-rollback.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
     "migrate:product-numbers": "tsx scripts/migrate-product-numbers.ts",
+    "migrate:private-costs": "tsx scripts/migrate-private-costs.ts",
     "backup:restore": "tsx scripts/restore-backup.ts"
   },
   "dependencies": {

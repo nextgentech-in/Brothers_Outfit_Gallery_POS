@@ -22,6 +22,7 @@ import { whatsappWebhook } from './whatsappWebhook.js';
 import { validBillLink } from './billLink.js';
 import { invoicePdf } from './invoicePdf.js';
 import { deviceAccess, type DeviceAccess } from './deviceAccess.js';
+import { mergeCosts, readAllCosts } from './productCosts.js';
 
 export type AppOptions = { auth?: AuthService; devices?: DeviceAccess; overview?: () => Promise<Overview> };
 export function createApp(options: AppOptions = {}) {
@@ -66,7 +67,7 @@ export function createApp(options: AppOptions = {}) {
     } catch { res.status(503).json({ error: 'Receipt delivery unavailable.' }); }
   });
   app.use(express.json({ limit: '16kb' }));
-  app.get('/api/health', (_req, res) => res.json({ status: 'ok', phase: 'review-preview' }));
+  app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
   app.get('/api/public/bills/:invoiceId/pdf', rateLimit({ windowMs: 60_000, limit: 30,
     standardHeaders: 'draft-8', legacyHeaders: false }), async (req, res) => {
     const invoiceId = String(req.params.invoiceId || '');
@@ -221,7 +222,16 @@ export function createApp(options: AppOptions = {}) {
   app.use('/api', staffRouter);
   app.use('/api', backupRouter);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Operation not found.' }));
-  const errors: ErrorRequestHandler = (_error, _req, res, _next) => res.status(400).json({ error: 'The request could not be processed.' });
+  const errors: ErrorRequestHandler = (error, req, res, next) => {
+    if (res.headersSent) { next(error); return; }
+    const status = Number((error as { status?: number })?.status);
+    if (status >= 400 && status < 500) {
+      res.status(status).json({ error: status === 413 ? 'The request is too large.' : 'The request could not be processed.' }); return;
+    }
+    // Log only the route and message; request bodies can contain customer details.
+    console.error(`${req.method} ${req.path} failed:`, error instanceof Error ? error.message : 'Unknown error');
+    res.status(500).json({ error: 'Something went wrong on the server. No changes were confirmed; please retry.' });
+  };
   app.use(errors);
   // Public login and assets contain no business records.
   app.use((req, res, next) => {
@@ -241,10 +251,10 @@ async function readDashboard(): Promise<DashboardSummary> {
   type OrderData = { id: string; status?: unknown; createdBy?: unknown; totalAmount?: unknown; total?: unknown; returnedAmount?: unknown;
     customerName?: unknown; shippingAddress?: { fullName?: unknown }; createdAt?: { toDate?: () => Date } };
   const db = firebase().db;
-  const [productDocs, orderDocs, customers, orderCount, syncDocs] = await Promise.all([
+  const [productDocs, orderDocs, customers, orderCount, syncDocs, costs] = await Promise.all([
     db.collection('products').get(), db.collection('orders').orderBy('createdAt', 'desc').limit(200).get(),
     db.collection('users').count().get(), db.collection('orders').count().get(),
-    db.collection('erp_syncLog').orderBy('createdAt', 'desc').limit(100).get()
+    db.collection('erp_syncLog').orderBy('createdAt', 'desc').limit(100).get(), readAllCosts(db)
   ]);
   const products = productDocs.docs.filter(doc => {
     const data = doc.data();
@@ -259,7 +269,7 @@ async function readDashboard(): Promise<DashboardSummary> {
     return true;
   });
   const stock = products.map(doc => {
-    const data = doc.data();
+    const data = mergeCosts(doc.data(), costs.get(doc.id));
     const variants = Array.isArray(data.variants) ? data.variants : [];
     const available = variants.length
       ? variants.reduce((sum, variant) => sum + Math.max(0, Number(variant.stock ?? variant.quantity ?? 0) - Number(variant.reserved ?? 0)), 0)

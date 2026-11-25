@@ -18,6 +18,7 @@ import { customerDirectory, customerProfileFields } from './customers.js';
 import { billingCustomerError, customerDetailsError, mobileNumber } from '../shared/customers.js';
 import { config } from './config.js';
 import { idempotent } from './transactions.js';
+import { combineCosts, costRef, deleteCostFields, extractCosts, mergeCosts, parseCostRecord, readAllCosts, readCostsTx, stripCosts, writeCosts } from './productCosts.js';
 import { appendCreditEntry, readCreditState } from './creditLedger.js';
 import { deliverCustomerMessage, queueCustomerMessage } from './customerMessages.js';
 import { validDueDate } from '../shared/credit.js';
@@ -163,8 +164,8 @@ export function changeStock(product: Product, sku: string, delta: number): { pro
   return { product: { ...product, stock: after, quantity: after, inStock: after > reserved,
     ...(delta > 0 && after > 0 ? { active: true, isDeleted: false, deletedAt: FieldValue.delete() } : {}) }, after };
 }
-function publicProduct(doc: FirebaseFirestore.QueryDocumentSnapshot) {
-  const data = doc.data();
+function publicProduct(doc: FirebaseFirestore.QueryDocumentSnapshot, costs?: ReturnType<typeof parseCostRecord>) {
+  const data = mergeCosts(doc.data(), costs);
   return { id: doc.id, name: data.name || '', sku: data.sku || '', productNumber: data.productNumber ?? null, demoOnly: data.demoOnly === true, barcode: data.barcode || data.posBarcode || '', price: data.salePrice ?? data.price ?? 0,
     brand: data.brand || '', design: data.design || '', fabric: data.fabric || '', mrp: data.mrp ?? 0, costPrice: data.costPrice ?? data.cost_price ?? data.purchasePrice ?? 0,
     category: data.category || '', subCategory: data.subCategory || '', shortDescription: data.shortDescription || '',
@@ -180,7 +181,7 @@ export const commerceRouter = Router();
 commerceRouter.get('/products', async (_req, res) => {
   try {
     const db = firebase().db;
-    const [docs, pricing] = await Promise.all([db.collection('products').get(), db.collection('erp_posPricing').get()]);
+    const [docs, pricing, costs] = await Promise.all([db.collection('products').get(), db.collection('erp_posPricing').get(), readAllCosts(db)]);
     const customPrices = new Map(pricing.docs.map(doc => [doc.id, doc.data().customPrice]));
     res.json({
       items: docs.docs
@@ -192,7 +193,7 @@ commerceRouter.get('/products', async (_req, res) => {
           return true;
         })
         .map(d => {
-          const product = { ...publicProduct(d), customPrice: customPrices.get(d.id) ?? null };
+          const product = { ...publicProduct(d, costs.get(d.id)), customPrice: customPrices.get(d.id) ?? null };
           if (res.locals.owner?.role === 'cashier') {
             delete (product as any).costPrice;
             product.variants = product.variants.map((v: any) => {
@@ -533,8 +534,10 @@ commerceRouter.post('/products/create', async (req, res) => {
         sku: variant.sku,
         barcode: variant.barcode, size: variant.size, color: variant.color,
         stock: variant.stock, quantity: variant.stock, reserved: 0, price: variant.price, salePrice: variant.price,
-        costPrice: variant.costPrice, cost_price: variant.costPrice, purchasePrice: variant.costPrice,
-        purchase_price: variant.costPrice, isDefaultPrice: variant.index === 0 }));
+        isDefaultPrice: variant.index === 0 }));
+      // Cost prices stay private (products are publicly readable by the website).
+      writeCosts(db, tx, productId, { costPrice: input.costPrice,
+        variants: variants.map(variant => ({ sku: variant.sku, costPrice: variant.costPrice })) });
       const totalStock = variants.reduce((sum, variant) => sum + variant.stock, 0);
       const colors = [...new Map(variants.map(variant => [variant.color.toLowerCase(),
         { name: variant.color, hex: variant.colorHex || '#b88a2e' }])).values()];
@@ -551,7 +554,6 @@ commerceRouter.post('/products/create', async (req, res) => {
         shortDescription: input.shortDescription || '', description: input.description || '', gsl: input.gsl || '',
         price: input.salePrice, salePrice: input.salePrice, mrp: input.mrp, compareAtPrice: input.mrp,
         gstEnabled: input.gstEnabled, gstPercent: input.gstEnabled ? input.gstPercent : 0,
-        costPrice: input.costPrice, cost_price: input.costPrice, purchasePrice: input.costPrice, purchase_price: input.costPrice,
         discountPercentage: input.mrp > input.salePrice ? Math.round((input.mrp - input.salePrice) / input.mrp * 100) : 0,
         variants: variantDocs, stock: totalStock, quantity: totalStock, reserved: 0,
         inStock: totalStock > 0, active: input.publish, isDeleted: false, isTrending: input.isTrending,
@@ -599,7 +601,10 @@ commerceRouter.post('/products/patch', async (req, res) => {
       const before = Object.fromEntries(Object.keys(patch).map(field => [field, snapshot.data()?.[field] ?? null]));
       const { primaryImageUrl, variantPatches, customPrice, ...direct } = patch;
       const pricingRef = db.collection('erp_posPricing').doc(productId);
-      const savedPricing = await tx.get(pricingRef);
+      const [savedPricing, savedCosts] = await tx.getAll(pricingRef, costRef(db, productId));
+      // Private costs win over any legacy cost fields still on the public product.
+      const currentCosts = combineCosts(extractCosts(snapshot.data()), parseCostRecord(savedCosts.data()) || { costPrice: null, variants: [] });
+      if ('costPrice' in patch) before.costPrice = currentCosts.costPrice;
       if ('customPrice' in patch) before.customPrice = savedPricing.data()?.customPrice ?? null;
       const effectiveCustomPrice = customPrice === undefined ? savedPricing.data()?.customPrice : customPrice;
       if (effectiveCustomPrice != null && effectiveCustomPrice > Number(patch.mrp ?? snapshot.data()?.mrp))
@@ -608,7 +613,6 @@ commerceRouter.post('/products/patch', async (req, res) => {
       const after: Record<string, unknown> = { ...direct,
         ...(patch.salePrice !== undefined ? { price: patch.salePrice } : {}),
         ...(patch.mrp !== undefined ? { compareAtPrice:patch.mrp, variants:(snapshot.data()?.variants||[]).map((v:Variant)=>({...v,mrp:patch.mrp})) } : {}),
-        ...(patch.costPrice !== undefined ? { cost_price: patch.costPrice, purchasePrice: patch.costPrice, purchase_price: patch.costPrice } : {}),
         ...(patch.category !== undefined ? { categoryId: patch.category, categoryKey: patch.category.toLowerCase().replace(/[^a-z0-9]+/g, '-') } : {}),
         ...(patch.subCategory !== undefined ? { subCategoryKey: patch.subCategory.toLowerCase().replace(/[^a-z0-9]+/g, '-') } : {}),
         updatedAt: FieldValue.serverTimestamp() };
@@ -628,8 +632,7 @@ commerceRouter.post('/products/patch', async (req, res) => {
         after.variants = existing.map(variant => {
           const edit = changes.get(String(variant.sku || ''));
           if (!edit) throw Object.assign(new Error('Variant SKU changed; refresh before editing.'), { status: 409 });
-          return { ...variant, ...(patch.mrp!==undefined?{mrp:patch.mrp}:{}), barcode: edit.barcode ?? variant.barcode ?? '', size: edit.size, color: edit.color, price: edit.price, salePrice: edit.price,
-            ...(edit.costPrice !== undefined ? { costPrice: edit.costPrice, cost_price: edit.costPrice, purchasePrice: edit.costPrice, purchase_price: edit.costPrice } : {}) };
+          return { ...variant, ...(patch.mrp!==undefined?{mrp:patch.mrp}:{}), barcode: edit.barcode ?? variant.barcode ?? '', size: edit.size, color: edit.color, price: edit.price, salePrice: edit.price };
         });
         after.sizes = [...new Set((after.variants as Variant[]).filter(v => Number(v.stock ?? v.quantity ?? 0) > 0).map(v => v.size).filter(Boolean))];
       }
@@ -662,7 +665,12 @@ commerceRouter.post('/products/patch', async (req, res) => {
         throw Object.assign(new Error('Choose a GST percentage for a GST-enabled product.'), { status: 422 });
       if (patch.gstEnabled === false) after.gstPercent = 0;
       if (customPrice !== undefined) tx.set(pricingRef, { customPrice, updatedAt: FieldValue.serverTimestamp() });
-      tx.update(ref, after);
+      writeCosts(db, tx, productId, combineCosts(currentCosts, { costPrice: patch.costPrice ?? null,
+        variants: (variantPatches || []).flatMap(v => v.costPrice === undefined ? [] : [{ sku: v.sku, costPrice: v.costPrice }]) }));
+      const publicAfter = stripCosts(after);
+      const currentVariants = publicAfter.variants ?? snapshot.data()?.variants;
+      if (Array.isArray(currentVariants)) publicAfter.variants = stripCosts({ variants: currentVariants }).variants;
+      tx.update(ref, { ...publicAfter, ...deleteCostFields() });
       tx.create(db.collection('erp_auditLog').doc(hash(`product_patch:${requestId}`)), {
         actor: res.locals.owner?.uid || 'pin-owner', target: `products/${productId}`, fields: Object.keys(patch), before, after: patch,
         createdAt: FieldValue.serverTimestamp()
@@ -783,6 +791,7 @@ commerceRouter.post('/pos/sale', async (req, res) => {
       const [counter, ...snapshots] = await tx.getAll(counterRef, ...refs);
       snapshots.forEach((doc, index) => { if (!doc.exists) throw Object.assign(new Error('Product not found.'), { status: 404 }); products.set(refs[index].id, doc.data() as Product); });
       const pricing = await tx.getAll(...refs.map(ref => db.collection('erp_posPricing').doc(ref.id)));
+      const privateCosts = await readCostsTx(db, tx, refs.map(ref => ref.id));
       const customPrices = new Map(pricing.map(doc => [doc.id, doc.data()?.customPrice]));
       const invoiceNumber = input.invoiceNumber ?? Number(counter.data()?.lastNumber || 0) + 1;
       const invoiceId = `BOG-${fy}-${String(invoiceNumber).padStart(5, '0')}`;
@@ -814,11 +823,14 @@ commerceRouter.post('/pos/sale', async (req, res) => {
         totalLineDiscountPaise += lineDiscPaise;
         const changed = changeStock(product, line.sku, -line.quantity);
         products.set(line.productId, changed.product);
-        const rawCost = variant?.costPrice ?? variant?.cost_price ?? variant?.purchasePrice ?? (product as any).costPrice ?? (product as any).cost_price ?? (product as any).purchasePrice;
+        // Costs are read from the private store (with legacy fallback) on a copy, never written to products.
+        const costed = mergeCosts(product as DocumentData, privateCosts.get(line.productId));
+        const costedVariant = (costed.variants || []).find((v: Variant) => v?.sku === line.sku);
+        const rawCost = costedVariant?.costPrice ?? costed.costPrice;
         const costKnown = typeof rawCost === 'number' && Number.isFinite(rawCost) && rawCost >= 0;
         const unitCost = costKnown ? Number(rawCost) : 0;
         const totalCost = costKnown ? Math.round(unitCost * line.quantity * 100) / 100 : 0;
-        const costSource = costKnown ? (variant?.costPrice !== undefined ? 'variant_cost' : 'product_cost') : 'missing';
+        const costSource = costKnown ? (costedVariant?.costPrice !== undefined ? 'variant_cost' : 'product_cost') : 'missing';
         const sellingValue = lineBasePaise / 100;
         const netRevenue = (lineBasePaise - lineDiscPaise) / 100;
         lineSnapshots.push({

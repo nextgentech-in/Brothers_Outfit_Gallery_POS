@@ -1,4 +1,4 @@
-const CACHE = 'brothers-admin-shell-v3';
+const CACHE = 'brothers-admin-shell-v4';
 const PAGES = ['/', '/login', '/pos', '/products', '/inventory', '/orders', '/customers', '/credit', '/whatsapp', '/reports', '/suppliers', '/sync'];
 const SHELL = ['/login', '/favicon.svg', '/manifest.webmanifest'];
 self.addEventListener('install', event => {

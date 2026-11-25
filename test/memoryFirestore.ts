@@ -12,6 +12,13 @@ export function memoryFirestore(db: Firestore) {
     if (value && typeof value === 'object' && !value.toMillis) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, stored(item)]));
     return value;
   }
+  // Real Firestore removes a field written as FieldValue.delete() in update() or a merged set().
+  const isDelete = (value: unknown) => value instanceof FieldValue && value.isEqual(FieldValue.delete());
+  function merged(existing: Record<string, unknown> | undefined, data: Record<string, unknown>) {
+    const result: Record<string, unknown> = { ...existing };
+    for (const [key, value] of Object.entries(data)) { if (isDelete(value)) delete result[key]; else result[key] = stored(value); }
+    return result;
+  }
   function timestamp(date: Date) { return { toDate: () => date, toMillis: () => date.getTime() }; }
   const snapshot = (ref: Ref) => ({ id: ref.id, ref, exists: records.has(ref.path), data: () => records.get(ref.path) });
   class Ref {
@@ -19,7 +26,7 @@ export function memoryFirestore(db: Firestore) {
     get id() { return this.path.split('/').at(-1)!; }
     async get() { return snapshot(this); }
     async set(data: Record<string, unknown>) { records.set(this.path, stored(data)); }
-    async update(data: Record<string, unknown>) { assert.ok(records.has(this.path)); records.set(this.path, { ...records.get(this.path), ...stored(data) }); }
+    async update(data: Record<string, unknown>) { assert.ok(records.has(this.path)); records.set(this.path, merged(records.get(this.path), data)); }
     async delete() { records.delete(this.path); }
   }
   class Query {
@@ -56,8 +63,8 @@ export function memoryFirestore(db: Firestore) {
       const read = async (ref: Ref | Query) => { assert.equal(writes.length, 0, 'All Firestore reads must precede writes'); return ref.get(); };
       const result = await operation({ get: read, getAll: (...refs: Ref[]) => Promise.all(refs.map(read)),
         create: (ref: Ref, data: Record<string, unknown>) => { const value = stored(data); writes.push(() => { assert.equal(records.has(ref.path), false); records.set(ref.path, value); }); },
-        update: (ref: Ref, data: Record<string, unknown>) => { const value = stored(data); writes.push(() => { assert.ok(records.has(ref.path)); records.set(ref.path, { ...records.get(ref.path), ...value }); }); },
-        set: (ref: Ref, data: Record<string, unknown>, options?: { merge: boolean }) => { const value = stored(data); writes.push(() => records.set(ref.path, { ...(options?.merge ? records.get(ref.path) : {}), ...value })); }
+        update: (ref: Ref, data: Record<string, unknown>) => { writes.push(() => { assert.ok(records.has(ref.path)); records.set(ref.path, merged(records.get(ref.path), data)); }); },
+        set: (ref: Ref, data: Record<string, unknown>, options?: { merge: boolean }) => { writes.push(() => records.set(ref.path, merged(options?.merge ? records.get(ref.path) : {}, data))); }
       });
       writes.forEach(write => write());
       return result;
