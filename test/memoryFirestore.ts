@@ -64,7 +64,8 @@ export function memoryFirestore(db: Firestore) {
       const result = await operation({ get: read, getAll: (...refs: Ref[]) => Promise.all(refs.map(read)),
         create: (ref: Ref, data: Record<string, unknown>) => { const value = stored(data); writes.push(() => { assert.equal(records.has(ref.path), false); records.set(ref.path, value); }); },
         update: (ref: Ref, data: Record<string, unknown>) => { writes.push(() => { assert.ok(records.has(ref.path)); records.set(ref.path, merged(records.get(ref.path), data)); }); },
-        set: (ref: Ref, data: Record<string, unknown>, options?: { merge: boolean }) => { writes.push(() => records.set(ref.path, merged(options?.merge ? records.get(ref.path) : {}, data))); }
+        set: (ref: Ref, data: Record<string, unknown>, options?: { merge: boolean }) => { writes.push(() => records.set(ref.path, merged(options?.merge ? records.get(ref.path) : {}, data))); },
+        delete: (ref: Ref) => { writes.push(() => { records.delete(ref.path); }); }
       });
       writes.forEach(write => write());
       return result;

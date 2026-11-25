@@ -17,6 +17,9 @@ import { ProductEditor, type ProductEditInput } from './ProductEditor';
 import { ProductFormDialog, type NewProductInput } from './ProductForm';
 import { StockOverview } from './StockOverview';
 import { PurchaseReceive } from './PurchaseReceive';
+import { AddSupplierDialog } from './AddSupplierDialog';
+import { BarcodePrintModal, type PrintableItem } from './BarcodePrintModal';
+import { ConfirmDialog, PurchaseEditDialog, purchasePrintItems, type EditablePurchase } from './AdminEditDialogs';
 import { CustomerPhoneDialog } from './CustomerPhoneDialog';
 import { CustomerWhatsAppDialog } from './CustomerWhatsAppDialog';
 import { CreditDueFields } from './CreditView';
@@ -203,95 +206,7 @@ const salePayload = (sale: QueuedSale) => ({ expectedTotal:sale.expectedTotal, r
   ...((sale.paymentMethod === 'credit' || sale.payments?.some(p => p.method === 'credit' && p.amount > 0)) ? { creditDueDate: sale.creditDueDate, creditWhatsAppOptIn: sale.creditWhatsAppOptIn } : {}),
   whatsappOptIn: sale.whatsappOptIn === true, redeemPoints: sale.redeemPoints, discount: sale.discount, tax: sale.tax, paymentMethod: sale.paymentMethod });
 
-export function AddSupplierDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [gstin, setGstin] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    if (!name.trim()) return;
-    setBusy(true); setError('');
-    try {
-      await send('suppliers/create', {
-        requestId: requestId(),
-        name: name.trim(),
-        phone: phone.trim() || undefined,
-        email: email.trim() || undefined,
-        gstin: gstin.trim() || undefined
-      });
-      onCreated();
-      onClose();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return createPortal(
-    <div className="editor-backdrop" onClick={onClose}>
-      <div className="glass table-panel" onClick={e => e.stopPropagation()} style={{ width: 'min(500px, 94vw)', margin: 'auto', maxHeight: 'calc(100vh - 40px)', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, borderBottom: '1px solid var(--line)', paddingBottom: 12 }}>
-          <h2 style={{ margin: 0, fontSize: 18 }}>Add Supplier</h2>
-          <button type="button" className="icon-button" onClick={onClose} disabled={busy}>×</button>
-        </div>
-        {error && <p className="error-banner" role="alert">{error}</p>}
-        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>
-            Supplier Name *
-            <input
-              required
-              minLength={2}
-              placeholder="e.g. Surat Fabrics Co."
-              style={{ display: 'block', width: '100%', minHeight: 40, marginTop: 6, padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--solid)', color: 'var(--text)', fontSize: 14 }}
-              value={name}
-              onChange={e => setName(e.target.value)}
-            />
-          </label>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>
-            Phone Number
-            <input
-              inputMode="tel"
-              placeholder="+91 98765 43210"
-              style={{ display: 'block', width: '100%', minHeight: 40, marginTop: 6, padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--solid)', color: 'var(--text)', fontSize: 14 }}
-              value={phone}
-              onChange={e => setPhone(e.target.value)}
-            />
-          </label>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>
-            Email Address
-            <input
-              type="email"
-              placeholder="supplier@example.com"
-              style={{ display: 'block', width: '100%', minHeight: 40, marginTop: 6, padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--solid)', color: 'var(--text)', fontSize: 14 }}
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-            />
-          </label>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>
-            GSTIN (Optional)
-            <input
-              maxLength={15}
-              placeholder="24AAAAA0000A1Z5"
-              style={{ display: 'block', width: '100%', minHeight: 40, marginTop: 6, padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--solid)', color: 'var(--text)', fontSize: 14 }}
-              value={gstin}
-              onChange={e => setGstin(e.target.value.toUpperCase())}
-            />
-          </label>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
-            <button type="button" className="button secondary" onClick={onClose} disabled={busy}>Cancel</button>
-            <button type="submit" className="button primary" disabled={busy || !name.trim()}>{busy ? 'Saving…' : 'Add Supplier'}</button>
-          </div>
-        </form>
-      </div>
-    </div>,
-    document.body
-  );
-}
+export { AddSupplierDialog };
 
 export function SupplierPaymentDialog({ initialSupplierId, suppliers, balances, onClose, onPaid }: { initialSupplierId?: string; suppliers: Supplier[]; balances: Record<string, number>; onClose: () => void; onPaid: () => void }) {
   const [supplierId, setSupplierId] = useState(initialSupplierId || (suppliers[0]?.id || ''));
@@ -493,6 +408,15 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [customerDetailsOpen, setCustomerDetailsOpen] = useState(false);
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
+  const [deleteCustomer, setDeleteCustomer] = useState<Customer | null>(null);
+  const [editPurchase, setEditPurchase] = useState<{ kind: 'purchase' | 'order'; record: EditablePurchase } | null>(null);
+  const [poPrint, setPoPrint] = useState<{ title: string; items: PrintableItem[] } | null>(null);
+  const canManage = role !== 'cashier';
+  const printPurchase = (title: string, lines: EditablePurchase['lines']) => {
+    const items = purchasePrintItems(lines, products);
+    if (!items.length) { setError('No catalog items on this purchase have barcodes to print yet.'); return; }
+    setPoPrint({ title, items });
+  };
   const [messageCustomer, setMessageCustomer] = useState<Customer | null>(null);
   const [customerSource, setCustomerSource] = useState<'all' | 'website' | 'pos'>('all');
   const [birthdayFilter, setBirthdayFilter] = useState('all');
@@ -608,7 +532,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
     const paths: Record<string, string[]> = { products: ['products'], pos: ['products', 'shop-details', 'customers', 'invoices'],
       inventory: ['products', 'movements'], orders: ['shop-details'], customers: ['customers'],
       suppliers: ['suppliers', 'purchases', 'products'],
-      'purchase-orders': ['suppliers', 'products', 'purchase-orders'],
+      'purchase-orders': ['suppliers', 'products', 'purchase-orders', 'purchases'],
       reports: ['orders', 'invoices'], sync: ['sync-health'] };
     const wanted = background ? ['products', 'customers'] : paths[tab] || [];
     try {
@@ -972,7 +896,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
       <label>Reason<select name="reason"><option value="purchase">Purchase received</option><option value="adjustment">Stock adjustment</option><option value="damage">Damage</option><option value="return">Accepted return</option></select></label>
       <label>Note<input name="note" maxLength={500} placeholder="Why this changed" /></label><button className="button primary">Record movement</button></form></div>
       <div className="glass table-panel"><h2>Recent stock movements</h2><div className="table-wrap"><table><thead><tr><th>SKU</th><th>Change</th><th>Reason</th><th>Source</th><th>After</th></tr></thead><tbody>{movements.map(row => <tr key={row.id}><td>{row.sku || '—'}</td><td className={Number(row.deltaChange) < 0 ? 'unavailable' : 'available'}>{Number(row.deltaChange) > 0 ? '+' : ''}{row.deltaChange}</td><td>{row.reason || '—'}</td><td>{row.source || '—'}</td><td>{row.stockAfter ?? '—'}</td></tr>)}</tbody></table></div></div></>}
-    {tab === 'orders' && <BillHistory onInvoice={invoice => setLastInvoice(invoice)} />}
+    {tab === 'orders' && <BillHistory role={role} onInvoice={invoice => setLastInvoice(invoice)} />}
     {tab === 'customers' && role !== 'cashier' && <CustomerRewardsSettings />}
     {tab === 'customers' && <div className="glass table-panel"><div className="commerce-toolbar customer-toolbar">
       <label className="field-search"><Search size={16} /><input placeholder="Search customer" value={query} onChange={e => setQuery(e.target.value)} /></label>
@@ -985,10 +909,10 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
         <td>{displayBirthDate(customer.dateOfBirth)}{customer.dateOfBirth && customer.dateOfBirth.slice(5) === today.slice(5) && <small className="birthday-today">Birthday today</small>}</td>
         <td><span className={customer.birthdayOffersOptIn ? 'credit-green' : 'muted'}>{customer.birthdayOffersOptIn ? 'Opted in' : 'Not opted in'}</span></td>
         <td><strong>{(customer.coinBalance ?? 0).toLocaleString('en-IN')} coins</strong><small>{customer.rewardRule ? `${customer.rewardRule.rate}% on every bill` : 'Default earn rate'}</small>{role !== 'cashier' && (customer.coinBalance ?? 0) > 0 && mobileNumber(customer.phone) && <button type="button" className="button secondary sm coin-reset-button" onClick={() => { const choice = askCoinReset(customer); if (choice) void act('customers/coins/reset', { requestId: requestId(), phone: customer.phone, ...(choice.coins ? { coins: choice.coins } : {}) }, choice.label); }}><RefreshCw size={13} />Reset coins</button>}</td>
-        <td><button type="button" className="button secondary" onClick={()=>{history.pushState(null,'',`/orders?phone=${encodeURIComponent(customer.phone)}`);window.dispatchEvent(new PopStateEvent('popstate'));}}>Bills</button><button type="button" className="button secondary" disabled={role==='cashier' || !mobileNumber(customer.phone)} onClick={() => setEditCustomer(customer)}>Edit</button><button type="button" className="button secondary customer-whatsapp-action" disabled={!mobileNumber(customer.phone)} onClick={() => setMessageCustomer(customer)} aria-label={`WhatsApp ${customer.fullName || customer.phone || 'customer'}`}><MessageCircle size={16} />WhatsApp</button>{!mobileNumber(customer.phone) && <small>Valid mobile number needed</small>}</td>
+        <td><button type="button" className="button secondary" onClick={()=>{history.pushState(null,'',`/orders?phone=${encodeURIComponent(customer.phone)}`);window.dispatchEvent(new PopStateEvent('popstate'));}}>Bills</button><button type="button" className="button secondary" disabled={role==='cashier' || !mobileNumber(customer.phone)} onClick={() => setEditCustomer(customer)}>Edit</button><button type="button" className="button secondary customer-whatsapp-action" disabled={!mobileNumber(customer.phone)} onClick={() => setMessageCustomer(customer)} aria-label={`WhatsApp ${customer.fullName || customer.phone || 'customer'}`}><MessageCircle size={16} />WhatsApp</button>{canManage && <button type="button" className="button secondary danger-action" disabled={!customer.sources?.includes('pos') || !customer.customerKey} title={customer.sources?.includes('pos') ? 'Delete this POS customer profile' : 'Website accounts are managed on the website'} onClick={() => setDeleteCustomer(customer)} aria-label={`Delete ${customer.fullName || customer.phone || 'customer'}`}>Delete</button>}{!mobileNumber(customer.phone) && <small>Valid mobile number needed</small>}</td>
       </tr>)}{shownCustomers.length === 0 && <tr><td colSpan={7}>No customers match the selected filters.</td></tr>}</tbody></table></div></div>}
     {tab === 'purchase-orders' && <>
-      <PurchaseReceive mode="order" products={products} suppliers={suppliers} receive={async input => {
+      <PurchaseReceive mode="order" products={products} suppliers={suppliers} onSuppliersChanged={() => void load()} receive={async input => {
         await send('purchases/receive', input);
         await load();
       }} />
@@ -1065,6 +989,12 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
                       ) : (
                         <span style={{ color: 'var(--muted)', fontSize: 12 }}>Stock Added</span>
                       )}
+                      {(() => { const receipt = order.purchaseId ? purchases.find(p => p.id === order.purchaseId) : undefined; const small = { minHeight: 30, padding: '4px 10px', fontSize: 11 };
+                        return <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                          {canManage && order.status === 'ordered' && <button type="button" className="button secondary" style={small} onClick={() => setEditPurchase({ kind: 'order', record: order })}>Edit PO</button>}
+                          {canManage && receipt && <button type="button" className="button secondary" style={small} onClick={() => setEditPurchase({ kind: 'purchase', record: { ...receipt, supplierInvoice: `${receipt.supplierInvoice} · ${order.id}` } })}>Edit PO</button>}
+                          <button type="button" className="button secondary" style={small} onClick={() => printPurchase(`Print barcodes · ${order.supplierInvoice}`, receipt?.lines ?? order.lines)}><Printer size={13} /> Print barcodes</button>
+                        </div>; })()}
                     </td>
                   </tr>
                 ))}
@@ -1106,6 +1036,7 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
             <PurchaseReceive
               products={products}
               suppliers={suppliers}
+              onSuppliersChanged={() => void load()}
               receive={async input => {
                 await send('purchases/receive', input);
                 await load();
@@ -1157,9 +1088,13 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
                     </td>
                     <td>
                       {p.lines?.length ? (
-                        <button type="button" className="button secondary" style={{ minHeight: 30, padding: '4px 10px', fontSize: 11 }} onClick={() => setSelectedReceipt(p)}>
-                          <Eye size={13} /> {p.lines.length} items
-                        </button>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <button type="button" className="button secondary" style={{ minHeight: 30, padding: '4px 10px', fontSize: 11 }} onClick={() => setSelectedReceipt(p)}>
+                            <Eye size={13} /> {p.lines.length} items
+                          </button>
+                          {canManage && <button type="button" className="button secondary" style={{ minHeight: 30, padding: '4px 10px', fontSize: 11 }} onClick={() => setEditPurchase({ kind: 'purchase', record: p })}>Edit</button>}
+                          <button type="button" className="button secondary" style={{ minHeight: 30, padding: '4px 10px', fontSize: 11 }} onClick={() => printPurchase(`Print barcodes · ${p.supplierInvoice}`, p.lines)}><Printer size={13} /> Barcodes</button>
+                        </div>
                       ) : (
                         <small style={{ color: 'var(--muted)' }}>Recorded</small>
                       )}
@@ -1295,6 +1230,11 @@ export function CommerceView({ tab, role }: { tab: string; role?:string }) {
     {addSupplierOpen && <AddSupplierDialog onClose={() => setAddSupplierOpen(false)} onCreated={() => { setNotice('Supplier added successfully.'); void load(); }} />}
     {paymentModalOpen && <SupplierPaymentDialog initialSupplierId={paymentSupplierId} suppliers={suppliers} balances={supplierBalances} onClose={() => setPaymentModalOpen(false)} onPaid={() => { setNotice('Supplier payment recorded successfully.'); void load(); }} />}
     {selectedReceipt && <ReceiptItemsDialog receipt={selectedReceipt} onClose={() => setSelectedReceipt(null)} />}
+    {editPurchase && <PurchaseEditDialog kind={editPurchase.kind} record={editPurchase.record} products={products} onClose={() => setEditPurchase(null)} onSaved={message => { setEditPurchase(null); setNotice(message); void load(); }} />}
+    {poPrint && <BarcodePrintModal items={poPrint.items} title={poPrint.title} subtitle="Copies pre-filled with the units on this purchase." onClose={() => setPoPrint(null)} />}
+    {tab === 'customers' && deleteCustomer && <ConfirmDialog title="Delete customer?" confirmLabel="Delete customer" onClose={() => setDeleteCustomer(null)}
+      message={<><p style={{ marginTop: 0 }}>Delete <strong>{deleteCustomer.fullName || 'this customer'}</strong>{deleteCustomer.phone ? ` (${deleteCustomer.phone})` : ''} from the POS customer list?</p><p>Their past bills stay in bill history. Customers who still owe udhar cannot be deleted.{deleteCustomer.sources?.includes('website') ? ' Their website account is not affected.' : ''}</p></>}
+      onConfirm={async () => { await send('customers/delete', { requestId: requestId(), customerKey: deleteCustomer.customerKey }); setNotice(`${deleteCustomer.fullName || 'Customer'} deleted.`); await load(); }} />}
     {billPreview && <ReceiptDialog preview shop={shop} onClose={() => setBillPreview(false)} invoice={{ id: 'PREVIEW', orderId: '', total: Math.max(0, billSubtotal - discount), subtotal: billSubtotal, discount, lines: cart.map(line => ({ name: line.product.name, sku: line.sku, quantity: line.quantity, price: line.price })), customerName, customerPhone, channel: 'POS', paymentMethod: payment, creditDueDate: hasCredit ? creditDueDate : undefined, kind: 'bill_preview' }} />}
     {lastInvoice && <ReceiptDialog invoice={lastInvoice} shop={shop} onClose={() => setLastInvoice(null)} />}
   </div>;

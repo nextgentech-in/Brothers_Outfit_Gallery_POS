@@ -16,6 +16,7 @@ import { creditRouter } from './credit.js';
 import { purchasesRouter } from './purchases.js';
 import { operationsRouter } from './operations.js';
 import { returnsRouter } from './returns.js';
+import { adminEditsRouter } from './adminEdits.js';
 import { reportsRouter } from './reports.js';
 import { deliverInvoice } from './whatsapp.js';
 import { whatsappWebhook } from './whatsappWebhook.js';
@@ -215,6 +216,7 @@ export function createApp(options: AppOptions = {}) {
   app.use('/api', commerceRouter);
   app.use('/api', creditRouter);
   app.use('/api', purchasesRouter);
+  app.use('/api', adminEditsRouter);
   app.use('/api', operationsRouter);
   app.use('/api', shippingRouter);
   app.use('/api', returnsRouter);

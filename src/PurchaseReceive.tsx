@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Search, Trash2, Printer, Plus, Minus } from 'lucide-react';
 import { purchaseSchema, type PurchaseInput, type PurchaseLine } from '../shared/purchases';
 import { BarcodePrintModal, type PrintableItem } from './BarcodePrintModal';
+import { AddSupplierDialog } from './AddSupplierDialog';
 export type { PurchaseInput };
 type Product = { id: string; name: string; sku: string; productNumber?: number; barcode?: string; price?: number; mrp?: number; costPrice?: number; stock: number; variants: { sku: string; barcode?: string; size?: string; color?: string; stock: number; price?: number; mrp?: number; costPrice?: number }[] };
 type Supplier = { id: string; name: string; phone?: string; address?: string };
@@ -12,12 +13,15 @@ const variantsOf = (product: Product): Variant[] => product.variants.length ? pr
   : [{ sku: product.sku, stock: product.stock, price: product.price, costPrice: product.costPrice, mrp: product.mrp, barcode: product.barcode }];
 const variantName = (variant?: Variant) => [variant?.size || 'Free size', variant?.color].filter(Boolean).join(' · ');
 const money = (n: number) => `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-export function PurchaseReceive({ products, suppliers, receive, mode = 'receive' }: {
+export function PurchaseReceive({ products, suppliers: loadedSuppliers, receive, mode = 'receive', onSuppliersChanged }: {
   products: Product[];
   suppliers: Supplier[];
   receive: (input: PurchaseInput) => Promise<void>;
   mode?: PurchaseInput['mode'];
+  onSuppliersChanged?: () => void;
 }) {
+  const [addingSupplier, setAddingSupplier] = useState(false), [createdSuppliers, setCreatedSuppliers] = useState<Supplier[]>([]);
+  const suppliers = [...loadedSuppliers, ...createdSuppliers.filter(c => !loadedSuppliers.some(s => s.id === c.id))];
   const isOrder = mode === 'order';
   const pendingKey = `brothers-purchase-pending-v2-${mode}`;
   const [supplierInvoiceDate, setSupplierInvoiceDate] = useState('');
@@ -239,7 +243,7 @@ export function PurchaseReceive({ products, suppliers, receive, mode = 'receive'
           {suppliers.filter(supplier => supplier.id === supplierId ||
             `${supplier.name} ${supplier.phone ?? ''}`.toLowerCase().includes(supplierSearch.trim().toLowerCase()))
             .map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
-        </select></div>
+        </select><button type="button" className="button secondary" style={{ marginTop: 6 }} onClick={() => setAddingSupplier(true)}>+ New supplier</button></div>
         <label>Supplier invoice / order reference<input required maxLength={80} value={supplierInvoice} onChange={event => setSupplierInvoice(event.target.value)} /></label>
         {isOrder && <>
           <label>Invoice date<input type="date" value={supplierInvoiceDate} onChange={event => setSupplierInvoiceDate(event.target.value)} /></label>
@@ -310,6 +314,7 @@ export function PurchaseReceive({ products, suppliers, receive, mode = 'receive'
       </div>
       </div>
     </fieldset><button className="button primary" disabled={busy || !lines.length}>{busy ? 'Saving…' : uncertain ? 'Retry saved purchase' : mode === 'order' ? 'Create purchase order' : 'Receive stock & create items'}</button></form>
+    {addingSupplier && <AddSupplierDialog onClose={() => setAddingSupplier(false)} onCreated={supplier => { setCreatedSuppliers(old => [...old, supplier]); setSupplierId(supplier.id); setSupplierAddress(''); setNotice(`Supplier ${supplier.name} added and selected.`); onSuppliersChanged?.(); }} />}
     {printItems && (
       <BarcodePrintModal
         items={printItems}

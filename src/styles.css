@@ -2339,3 +2339,4 @@
 .login-page .login-card [role=status]{font-size:14px;margin:12px 0 0}
 .login-page .login-card .error{font-size:14px;margin:12px 0 0;color:var(--danger,#c0392b)}
 @media(max-width:700px){.login-page{display:grid;min-height:100dvh}.login-page .login-card{padding:28px 20px}}
+.button.danger-action{color:#b65145;border-color:#b6514566}.button.primary.danger-action{background:#b65145;color:#fff;border-color:#b65145}
