@@ -1403,7 +1403,7 @@ export function Dashboard({ navigate, role = 'owner' }: DashboardProps) {
               <h2 style={{ margin: 0, fontSize: 18 }}>Find Bill & Process Returns</h2>
               <button type="button" className="icon-button" onClick={() => setFindBillOpen(false)}>×</button>
             </div>
-            <BillHistory onInvoice={inv => setReceiptInvoice(inv)} />
+            <BillHistory role={role} onInvoice={inv => setReceiptInvoice(inv)} />
           </div>
         </div>
       )}

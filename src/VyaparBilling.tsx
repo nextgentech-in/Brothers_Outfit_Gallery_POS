@@ -3,7 +3,7 @@ import { readAdmin } from './adminApi';
 import { earnedPoints, type RewardRule } from '../shared/rewards';
 import { priceBillLine, setBillTotal } from '../shared/billPricing';
 import { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
-import { Plus, Trash2, Search, Share2, Check, Calendar, Clock, Coins, Phone, User, Banknote, QrCode, CreditCard, Pause } from 'lucide-react';
+import { Plus, Trash2, Search, Share2, Check, Calendar, Clock, Coins, Gift, Phone, User, Banknote, QrCode, CreditCard, Pause } from 'lucide-react';
 import { billingCustomerError, mobileNumber, shopDate } from '../shared/customers';
 import { validDueDate, dueDateAfter } from '../shared/credit';
 import type { BillingDraft, HeldBill, QueuedSale } from './offlineQueue';
@@ -22,6 +22,7 @@ export type ProductVariant = {
 
 export type ProductItem = {
   customPrice?: number | null;
+  giftItem?: boolean;
   id: string;
   name: string;
   sku: string;
@@ -58,6 +59,8 @@ export type BillRow = {
   discountPercent: number;
   discount: number;
   amount: number;
+  /** Gift item: always free; adding it resets the customer's coins to 0. */
+  gift?: boolean;
 };
 
 const createEmptyRow = (id: string = crypto.randomUUID()): BillRow => ({
@@ -148,6 +151,7 @@ export function VyaparBilling({
 
   // Table rows
   const [rows, setRows] = useState<BillRow[]>([createEmptyRow('row-1')]);
+  const hasGift = rows.some(row => row.productId && row.gift);
 
   // Active search dropdown tracking: rowId
   const [activeSearchRowId, setActiveSearchRowId] = useState<string | null>(null);
@@ -185,6 +189,7 @@ export function VyaparBilling({
       price: number;
       mrp: number;
       customPrice?: number | null;
+      giftItem?: boolean;
       category?: string;
     }[] = [];
 
@@ -203,6 +208,7 @@ export function VyaparBilling({
             price: v.price || p.price,
             mrp: v.mrp ?? p.mrp,
             customPrice: p.customPrice,
+            giftItem: p.giftItem,
             category: p.category
           });
         }
@@ -218,6 +224,7 @@ export function VyaparBilling({
           price: p.price,
           mrp: p.mrp,
           customPrice: p.customPrice,
+          giftItem: p.giftItem,
           category: p.category
         });
       }
@@ -358,6 +365,11 @@ export function VyaparBilling({
   function updateRowField(id: string, field: 'quantity' | 'mrp' | 'discountPercent' | 'salePrice' | 'amount', value: number) {
     setRows(previous => previous.map(row => {
       if (row.id !== id) return row;
+      if (row.gift) {
+        const quantity = field === 'quantity' ? value : row.quantity;
+        const pricing = priceBillLine(quantity, row.mrp, 0, 'price');
+        return { ...row, ...pricing, price: pricing.mrp };
+      }
       const quantity = field === 'quantity' ? value : row.quantity;
       const mrp = field === 'mrp' ? value : row.mrp;
       const pricing = field === 'amount' ? priceBillLine(quantity, mrp, value, 'amount')
@@ -373,9 +385,11 @@ export function VyaparBilling({
   }
 
   function productRow(row: BillRow, item: typeof searchableItems[0]): BillRow {
-    const pricing = priceBillLine(row.quantity, Math.max(item.mrp, item.price), item.customPrice ?? item.price, 'price');
+    const gift = item.giftItem === true;
+    const pricing = priceBillLine(row.quantity, Math.max(item.mrp, item.price), gift ? 0 : item.customPrice ?? item.price, 'price');
     return {
       ...row,
+      gift,
       productId: item.productId,
       sku: item.sku,
       name: `${item.productName}${item.variantText}`,
@@ -668,6 +682,10 @@ export function VyaparBilling({
       setError('Please add at least one item with quantity greater than zero.');
       return;
     }
+    if (validLines.some(line => line.gift) && !mobileNumber(customerPhone)) {
+      setError("Add the customer's mobile number to give a gift. Gifts reset that customer's coins to 0.");
+      return;
+    }
     const quantities = new Map<string, number>();
     if (validLines.some(line => {
       const key = itemKey(line);
@@ -954,11 +972,15 @@ export function VyaparBilling({
                   {rewards.rule.rate > 0
                     ? <small>{rewards.rule.rate}% of every bill amount</small>
                     : <small>Coin earning is off for this customer.</small>}
-                  {pointsToEarn > 0 && <small>Earn {pointsToEarn} {pointsToEarn === 1 ? 'coin' : 'coins'} on this bill</small>}
+                  {!hasGift && pointsToEarn > 0 && <small>Earn {pointsToEarn} {pointsToEarn === 1 ? 'coin' : 'coins'} on this bill</small>}
                 </> : <small>{!online ? 'Reconnect to check the balance.'
                   : rewardFailure === phone ? 'Coin balance unavailable.' : 'Checking coin balance…'}</small>}
             </div>
-            <small>Coins accumulate separately. Your bill amount stays the same.</small>
+            {hasGift
+              ? <p className="billing-gift-note" role="status"><Gift size={16} aria-hidden="true" /><span><strong>Gift on this bill.</strong> {rewards
+                ? `The customer's ${rewards.balance.toLocaleString('en-IN')} ${rewards.balance === 1 ? 'coin' : 'coins'} will reset to 0.`
+                : phone ? "The customer's coins will reset to 0." : 'Add the customer mobile number. Their coins reset to 0.'} No coins are earned on this bill.</span></p>
+              : <small>Coins accumulate separately. Your bill amount stays the same.</small>}
             {phone && online && !rewards && rewardFailure === phone &&
               <button type="button" className="text-button" onClick={() => setRewardAttempt(value => value + 1)}>Refresh balance</button>}
 
@@ -1084,6 +1106,7 @@ export function VyaparBilling({
                         }
                       }}
                     />
+                    {row.gift && <span className="gift-badge" title="Free gift. Resets the customer's coins to 0.">GIFT</span>}
                     {row.productId && <span id={`billing-stock-${row.id}`}
                       className={`vyapar-stock-badge ${availableStock > 0 ? 'available' : 'unavailable'}`}>
                       {availableStock > 0 ? `${availableStock} in stock` : 'Out of stock'}
@@ -1117,7 +1140,7 @@ export function VyaparBilling({
                     className="vyapar-cell-input text-right"
                     value={row.mrp || ''}
                     placeholder="MRP"
-                    disabled={!row.productId || role === 'cashier'}
+                    disabled={!row.productId || role === 'cashier' || row.gift}
                     onChange={e => updateRowField(row.id, 'mrp', Number(e.target.value))}
                   />
                 </td>
@@ -1131,7 +1154,7 @@ export function VyaparBilling({
                     step="0.01"
                     className="vyapar-cell-input text-right"
                     value={row.productId ? row.salePrice : ''}
-                    disabled={!row.productId || role === 'cashier'}
+                    disabled={!row.productId || role === 'cashier' || row.gift}
                     onChange={e => updateRowField(row.id, 'salePrice', Number(e.target.value))}
                   />
                 </td>
@@ -1145,7 +1168,7 @@ export function VyaparBilling({
                     max="100"
                     step="0.01"
                     className="vyapar-cell-input text-right"
-                    disabled={!row.productId || role === 'cashier'}
+                    disabled={!row.productId || role === 'cashier' || row.gift}
                     value={row.productId ? row.discountPercent : ''}
                     placeholder="0"
                     onChange={e => updateRowField(row.id, 'discountPercent', Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
@@ -1157,7 +1180,7 @@ export function VyaparBilling({
                 <td>
                   <input type="number" aria-label={`Total amount for ${row.name || `row ${index + 1}`}`}
                     className="vyapar-cell-input text-right" min="0" max={row.mrp * row.quantity} step="0.01"
-                    value={row.productId ? row.amount : ''} disabled={!row.productId || role === 'cashier'}
+                    value={row.productId ? row.amount : ''} disabled={!row.productId || role === 'cashier' || row.gift}
                     onChange={e => updateRowField(row.id, 'amount', Number(e.target.value))} />
                 </td>
 

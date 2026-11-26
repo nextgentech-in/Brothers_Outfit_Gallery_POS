@@ -2340,3 +2340,9 @@
 .login-page .login-card .error{font-size:14px;margin:12px 0 0;color:var(--danger,#c0392b)}
 @media(max-width:700px){.login-page{display:grid;min-height:100dvh}.login-page .login-card{padding:28px 20px}}
 .button.danger-action{color:#b65145;border-color:#b6514566}.button.primary.danger-action{background:#b65145;color:#fff;border-color:#b65145}
+/* Gift items */
+.gift-check{align-items:flex-start!important;gap:10px}.gift-check span{display:grid;gap:3px}.gift-check small{color:var(--muted);font-size:12px;font-weight:400;line-height:1.4}
+.gift-badge{display:inline-flex;align-items:center;gap:4px;margin-left:6px;padding:2px 7px;border-radius:999px;background:var(--accent-bg,#f6ecd8);color:var(--accent,#8a5a14);font-size:11px;font-weight:750;letter-spacing:.3px;vertical-align:middle}
+.billing-gift-note{display:flex;align-items:flex-start;gap:8px;margin-top:8px;padding:9px 11px;border-radius:9px;background:var(--accent-bg,#f6ecd8);color:var(--text);font-size:13px;line-height:1.45}
+/* Dialogs opened from inside another pop-up (e.g. Delete bill from Dashboard › Find bill) must sit above it (.dashboard-modal-backdrop is 1000). */
+.editor-backdrop{z-index:1100}

@@ -6,6 +6,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { memoryFirestore } from './memoryFirestore.js';
 import { commerceRouter } from '../server/commerce.js';
 import { priceBillLine } from '../shared/billPricing.js';
+import { customerKey } from '../server/customerIdentity.js';
 
 const db = getFirestore(initializeApp({ projectId: 'demo-pos-pricing' }, 'brothers-admin'));
 const { records } = memoryFirestore(db);
@@ -113,4 +114,33 @@ test('legacy public cost fields are still used until migrated, then removed on e
   assert.equal(product.variants[0].costPrice, undefined); assert.equal(product.variants[0].cost_price, undefined);
   assert.equal(records.get('erp_productCostPrices/legacy-cost')?.costPrice, 250);
   assert.equal(records.get('erp_productCostPrices/legacy-cost')?.variants[0].costPrice, 240);
+});
+
+test('a gift item is free on the bill and resets the customer coins to 0', async () => {
+  const created = await post('/products/create', { requestId: 'gift-create-01', name: 'Gift wallet', sku: 'GIFT-WALLET', category: 'Gifts',
+    mrp: 300, salePrice: 300, costPrice: 120, giftItem: true, variants: [{ size: 'Free', color: 'Brown', stock: 5, price: 300, costPrice: 120 }] });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const giftId = created.body.productId;
+  assert.equal(records.get(`products/${giftId}`)?.giftItem, true);
+  const giftSku = records.get(`products/${giftId}`)!.variants[0].sku;
+  const shirtSku = records.get(`products/${productId}`)!.variants[0].sku;
+  const phone = '9123456780', account = `erp_loyaltyAccounts/${customerKey(phone, '')}`;
+  records.set(account, { balance: 250 });
+  // A gift needs a known customer.
+  const anonymous = await post('/pos/sale', { requestId: 'gift-sale-00', paymentMethod: 'cash', lines: [{ productId: giftId, sku: giftSku, quantity: 1 }] });
+  assert.equal(anonymous.status, 422);
+  // Cashiers can give gifts; whatever price the screen sends, the gift line is free.
+  role = 'cashier';
+  const sale = await post('/pos/sale', { requestId: 'gift-sale-01', customerName: 'Coin Customer', customerPhone: phone, paymentMethod: 'cash',
+    lines: [{ productId: giftId, sku: giftSku, quantity: 1, price: 300, discount: 300 }, { productId, sku: shirtSku, quantity: 1 }] });
+  role = 'owner';
+  assert.equal(sale.status, 201, JSON.stringify(sale.body));
+  const order = records.get(`orders/${sale.body.orderId}`)!;
+  const giftLine = order.items.find((item: { sku: string }) => item.sku === giftSku);
+  assert.equal(giftLine.gift, true); assert.equal(giftLine.amount, 0);
+  assert.equal(order.totalAmount, sale.body.total);
+  assert.equal(order.rewards.redeemed, 250); assert.equal(order.rewards.earned, 0);
+  assert.equal(order.rewards.balance, 0); assert.equal(order.rewards.giftCoinsReset, true);
+  assert.equal(records.get(account)?.balance, 0);
+  assert.equal(records.get(`products/${giftId}`)!.variants[0].stock, 4);
 });

@@ -30,7 +30,7 @@ import { recoverToHeld, cacheCatalog, cachedCatalog, queueSale, queuedSales, rem
 
 const websiteProductsUrl = 'https://www.brothersoutfitgallery.com/admin/products';
 
-type Product = { id: string; name: string; sku: string; productNumber?: number; barcode?: string; price: number; mrp: number; costPrice?: number; customPrice?: number | null; onHand?: number; gstEnabled?: boolean; gstPercent?: number;
+type Product = { id: string; name: string; sku: string; productNumber?: number; barcode?: string; price: number; mrp: number; costPrice?: number; customPrice?: number | null; giftItem?: boolean; onHand?: number; gstEnabled?: boolean; gstPercent?: number;
   brand?: string; design?: string; fabric?: string; category: string; subCategory?: string; shortDescription?: string; description?: string; gsl?: string; active: boolean; stock: number;
   variants: { sku: string; barcode?: string; variantSequence?: number; size?: string; color?: string; stock: number; onHand?: number; reorderThreshold?: number; price: number; mrp?: number; costPrice?: number }[] };
 type Order = { id: string; status?: string; totalAmount?: number; paymentMethod?: string; createdBy?: string; createdAt?: { _seconds?: number; seconds?: number };

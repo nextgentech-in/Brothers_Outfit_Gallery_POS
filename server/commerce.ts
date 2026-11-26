@@ -88,7 +88,7 @@ const productPatchSchema = z.object({ requestId: key, productId: id, patch: z.ob
   name: z.string().trim().min(1).max(200).optional(), description: z.string().trim().max(5000).optional(),
   shortDescription: z.string().trim().max(500).optional(), category: z.string().trim().min(2).max(100).optional(),
   subCategory: z.string().trim().max(100).optional(), gsl: z.string().trim().max(120).optional(),
-  salePrice: money.optional(), mrp: money.optional(), costPrice: money.optional(), customPrice: money.positive().nullable().optional(), active: z.boolean().optional(),
+  salePrice: money.optional(), mrp: money.optional(), costPrice: money.optional(), customPrice: money.positive().nullable().optional(), active: z.boolean().optional(), giftItem: z.boolean().optional(),
   gstEnabled: z.boolean().optional(), gstPercent: z.number().finite().min(0).max(100).optional(),
   primaryImageUrl: z.url().max(2048).optional(),
   barcode: id.or(z.literal('')).optional(),
@@ -107,7 +107,7 @@ const productCreateSchema = z.object({ requestId: key,
     colorHex: z.string().regex(/^#[a-fA-F0-9]{6}$/).optional(), stock: z.number().int().min(0).max(100_000),
     price: money, costPrice: money, barcode: id.optional() }).strict()).min(1).max(100),
   imageUrls: z.array(z.url().startsWith('https://').max(2048)).max(20).optional(),
-  publish: z.boolean().default(false), isTrending: z.boolean().default(false),
+  publish: z.boolean().default(false), isTrending: z.boolean().default(false), giftItem: z.boolean().default(false),
   offerEnabled: z.boolean().default(false), offerDiscountPercentage: z.number().min(0).max(100).default(0),
   offerStartAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/).optional(),
   offerEndAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/).optional(),
@@ -169,7 +169,7 @@ function publicProduct(doc: FirebaseFirestore.QueryDocumentSnapshot, costs?: Ret
   return { id: doc.id, name: data.name || '', sku: data.sku || '', productNumber: data.productNumber ?? null, demoOnly: data.demoOnly === true, barcode: data.barcode || data.posBarcode || '', price: data.salePrice ?? data.price ?? 0,
     brand: data.brand || '', design: data.design || '', fabric: data.fabric || '', mrp: data.mrp ?? 0, costPrice: data.costPrice ?? data.cost_price ?? data.purchasePrice ?? 0,
     category: data.category || '', subCategory: data.subCategory || '', shortDescription: data.shortDescription || '',
-    description: data.description || '', gsl: data.gsl || '', active: data.active !== false,
+    description: data.description || '', gsl: data.gsl || '', active: data.active !== false, giftItem: data.giftItem === true,
     gstEnabled: data.gstEnabled === true, gstPercent: data.gstEnabled === true ? Number(data.gstPercent || 0) : 0,
     onHand: Number(data.stock ?? data.quantity ?? 0), reserved: Number(data.reserved ?? 0), reorderThreshold: Number(data.reorderThreshold ?? 5), stock: Number(data.stock ?? data.quantity ?? 0) - Number(data.reserved ?? 0),
     image: data.thumbnailUrl || data.image || data.images?.[0]?.url || data.images?.[0] || '',
@@ -553,7 +553,7 @@ commerceRouter.post('/products/create', async (req, res) => {
         categoryKey, subCategory: input.subCategory || '', subCategoryKey, primaryColor: variants[0].color, colors,
         shortDescription: input.shortDescription || '', description: input.description || '', gsl: input.gsl || '',
         price: input.salePrice, salePrice: input.salePrice, mrp: input.mrp, compareAtPrice: input.mrp,
-        gstEnabled: input.gstEnabled, gstPercent: input.gstEnabled ? input.gstPercent : 0,
+        gstEnabled: input.gstEnabled, gstPercent: input.gstEnabled ? input.gstPercent : 0, giftItem: input.giftItem,
         discountPercentage: input.mrp > input.salePrice ? Math.round((input.mrp - input.salePrice) / input.mrp * 100) : 0,
         variants: variantDocs, stock: totalStock, quantity: totalStock, reserved: 0,
         inStock: totalStock > 0, active: input.publish, isDeleted: false, isTrending: input.isTrending,
@@ -800,17 +800,24 @@ commerceRouter.post('/pos/sale', async (req, res) => {
       let subtotalPaise = 0;
       let totalLineDiscountPaise = 0;
       const lineSnapshots: DocumentData[] = [];
+      // A gift item is free on the bill and is given in exchange for all of the customer's coins.
+      const giftOnBill = input.lines.some(line => products.get(line.productId)?.giftItem === true);
+      if (giftOnBill && !identity)
+        throw Object.assign(new Error("Add the customer's mobile number to give a gift. Gifts reset that customer's coins."), { status: 422 });
       input.lines.forEach((line, index) => {
         const product = products.get(line.productId)!;
         const current = stockFor(product, line.sku);
         const variant = current.index >= 0 ? product.variants?.[current.index] : undefined;
+        const gift = product.giftItem === true;
         const posPrice = customPrices.get(line.productId) ?? variant?.price ?? variant?.salePrice ?? product.salePrice ?? product.price;
-        const pricePaise = line.price !== undefined ? rupees(line.price) : rupees(posPrice);
+        const giftMrpPaise = rupees(Math.max(Number(variant?.mrp ?? product.mrp ?? 0), Number(posPrice || 0)));
+        // Gifts are always billed at MRP with a 100% discount, whatever the screen sent.
+        const pricePaise = gift ? giftMrpPaise : line.price !== undefined ? rupees(line.price) : rupees(posPrice);
         if (!Number.isSafeInteger(pricePaise) || pricePaise < 0) throw Object.assign(new Error('Invalid product price.'), { status: 409 });
         const lineBasePaise = pricePaise * line.quantity;
-        const lineDiscPaise = line.discount !== undefined ? rupees(line.discount) : 0;
+        const lineDiscPaise = gift ? lineBasePaise : line.discount !== undefined ? rupees(line.discount) : 0;
         if (lineDiscPaise > lineBasePaise) throw Object.assign(new Error('Discount cannot exceed MRP total.'), { status: 422 });
-        if (res.locals.owner?.role === 'cashier') {
+        if (res.locals.owner?.role === 'cashier' && !gift) {
           const catalogSale = rupees(posPrice);
           const catalogMrp = Math.max(catalogSale, rupees(variant?.mrp ?? product.mrp ?? product.compareAtPrice ?? product.salePrice ?? product.price));
           const standardRate = pricePaise === catalogSale && lineDiscPaise === 0;
@@ -834,6 +841,7 @@ commerceRouter.post('/pos/sale', async (req, res) => {
         const sellingValue = lineBasePaise / 100;
         const netRevenue = (lineBasePaise - lineDiscPaise) / 100;
         lineSnapshots.push({
+          ...(gift ? { gift: true } : {}),
           productId: line.productId,
           sku: line.sku,
           name: line.name || product.name || '',
@@ -861,8 +869,13 @@ commerceRouter.post('/pos/sale', async (req, res) => {
       const overallDiscountPaise = rupees(input.discount || 0);
       const baseDiscount = Math.min(subtotalPaise, totalLineDiscountPaise || overallDiscountPaise);
       const total = (subtotalPaise - baseDiscount) / 100;
-      const earned = earnedPoints(total, rule);
-      const rewards = { earned, redeemed: 0, balance: writeRewardBalance(tx, rewardsAccount, earned), rule };
+      // A gift bill redeems every coin the customer has (balance becomes 0) and earns none.
+      // Deleting the bill later returns the redeemed coins.
+      const previousCoins = Math.max(0, rewardsAccount.balance);
+      const earned = giftOnBill ? 0 : earnedPoints(total, rule);
+      const rewards = giftOnBill
+        ? { earned: 0, redeemed: previousCoins, balance: writeRewardBalance(tx, rewardsAccount, -rewardsAccount.balance), rule, giftCoinsReset: true }
+        : { earned, redeemed: 0, balance: writeRewardBalance(tx, rewardsAccount, earned), rule };
       const discountPaise = baseDiscount;
       const taxPaise = 0;
       const pricedLines = setBillTotal(lineSnapshots.map(line => ({
@@ -994,7 +1007,8 @@ commerceRouter.post('/orders/edit-bill', async (req, res) => {
       };
       const originalRewards = order.rewards;
       let rewards = originalRewards;
-      if (originalRewards) {
+      // Gift bills already redeemed all coins and earn none, so editing them never changes coins.
+      if (originalRewards && originalRewards.giftCoinsReset !== true) {
         if (gross - net < Number(originalRewards.redeemed || 0) * 100) {
           throw Object.assign(new Error('Keep the redeemed rewards discount on this bill.'), { status: 422 });
         }
