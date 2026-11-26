@@ -8,7 +8,7 @@ import { changeStock } from './commerce.js';
 import { appendCreditEntry, readCreditState } from './creditLedger.js';
 import { readRewardBalance, writeRewardBalance } from './rewards.js';
 import { deleteCostFields, extractCosts, mergeCosts, readCostsTx, stripCosts, writeCosts } from './productCosts.js';
-import { purchaseLineSchema } from '../shared/purchases.js';
+import { MAX_PURCHASE_LINES, purchaseLineSchema } from '../shared/purchases.js';
 
 // Owner/manager corrections: delete customers and bills, edit purchases.
 // Every stock, coin and credit change happens inside one Firestore transaction.
@@ -161,7 +161,7 @@ const editLineSchema = z.object({ productId: docId, sku: docId, quantity: z.numb
   salePrice: money.optional(), mrp: money.optional() }).strict();
 adminEditsRouter.post('/purchases/update', async (req, res) => {
   if (!managerOnly(res)) return;
-  const parsed = z.object({ requestId, purchaseId: z.string().regex(/^PUR-[a-f0-9]{24}$/), lines: z.array(editLineSchema).min(1).max(30) }).strict()
+  const parsed = z.object({ requestId, purchaseId: z.string().regex(/^PUR-[a-f0-9]{24}$/), lines: z.array(editLineSchema).min(1).max(MAX_PURCHASE_LINES) }).strict()
     .refine(v => new Set(v.lines.map(l => `${l.productId}:${l.sku}`)).size === v.lines.length, 'List each item once.')
     .safeParse(req.body);
   if (!parsed.success) { res.status(422).json({ error: parsed.error.issues[0]?.message || 'Check the edited purchase lines.' }); return; }
@@ -254,7 +254,7 @@ adminEditsRouter.post('/purchases/update', async (req, res) => {
 
 adminEditsRouter.post('/purchase-orders/update', async (req, res) => {
   if (!managerOnly(res)) return;
-  const parsed = z.object({ requestId, orderId: z.string().regex(/^PO-[a-f0-9]{24}$/), lines: z.array(purchaseLineSchema).min(1).max(30) }).strict().safeParse(req.body);
+  const parsed = z.object({ requestId, orderId: z.string().regex(/^PO-[a-f0-9]{24}$/), lines: z.array(purchaseLineSchema).min(1).max(MAX_PURCHASE_LINES) }).strict().safeParse(req.body);
   if (!parsed.success) { res.status(422).json({ error: parsed.error.issues[0]?.message || 'Check the purchase order lines.' }); return; }
   try {
     const db = firebase().db, input = parsed.data;

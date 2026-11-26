@@ -67,6 +67,8 @@ export function createApp(options: AppOptions = {}) {
       res.json(await deliverInvoice(db, parsed.data.eventId));
     } catch { res.status(503).json({ error: 'Receipt delivery unavailable.' }); }
   });
+  // Purchases can carry many size/colour lines (one per variant), so they get a larger body limit.
+  app.use(['/api/purchases', '/api/purchase-orders'], express.json({ limit: '256kb' }));
   app.use(express.json({ limit: '16kb' }));
   app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
   app.get('/api/public/bills/:invoiceId/pdf', rateLimit({ windowMs: 60_000, limit: 30,

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 const identity = z.string().trim().min(1).max(100).regex(/^[\w.:-]+$/);
+export const MAX_PURCHASE_LINES = 150;
 const money = z.number().finite().min(0).max(10000000).refine(n => Math.abs(n * 100 - Math.round(n * 100)) < 0.00001, 'Use two decimal places.');
 export const purchaseLineSchema = z.object({ productId: identity.optional(), sku: identity, quantity: z.number().int().min(1).max(10000), unitCost: money,
   salePrice: money.optional(), mrp: money.optional(),
@@ -16,6 +17,6 @@ export const purchaseLineSchema = z.object({ productId: identity.optional(), sku
 export const purchaseSchema = z.object({ requestId: z.string().min(12).max(128).regex(/^[\w.:-]+$/), supplierId: identity,
   supplierInvoice: z.string().trim().min(1).max(80), supplierInvoiceDate: z.iso.date().optional(),
   includesTax: z.boolean().optional(), supplierAddress: z.string().trim().max(500).optional(), fullPayment: z.boolean().optional(), paymentMethod: z.enum(['cash','upi','card']).default('cash'), amountPaid: money.default(0),
-  lines: z.array(purchaseLineSchema).min(1).max(30), mode: z.enum(['order', 'receive']).default('receive') }).strict();
+  lines: z.array(purchaseLineSchema).min(1).max(MAX_PURCHASE_LINES), mode: z.enum(['order', 'receive']).default('receive') }).strict();
 export type PurchaseLine = z.infer<typeof purchaseLineSchema>;
 export type PurchaseInput = z.infer<typeof purchaseSchema>;
