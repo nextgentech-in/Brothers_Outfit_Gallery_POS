@@ -42,6 +42,9 @@ export function PurchaseReceive({ products, suppliers: loadedSuppliers, receive,
   const [printItems, setPrintItems] = useState<PrintableItem[] | null>(null);
   const [lastReceivedPrintItems, setLastReceivedPrintItems] = useState<PrintableItem[] | null>(null);
   const command = useRef<PurchaseInput | null>(null);
+  // Keeps the product search ready after adding, so the same search can be reused for the next item.
+  const searchInput = useRef<HTMLInputElement | null>(null);
+  const refocusSearch = () => requestAnimationFrame(() => searchInput.current?.focus({ preventScroll: true }));
   useEffect(() => {
     try {
       const legacyKey = 'brothers-purchase-pending-v2';
@@ -95,6 +98,7 @@ export function PurchaseReceive({ products, suppliers: loadedSuppliers, receive,
     setCartProductIds(old => old.includes(picked.id) ? old : [...old, picked.id]);
     setHiddenSizes(old => ({ ...old, [picked.id]: [] }));
     setPickedProductId('');
+    refocusSearch();
   }
   function setSizeQty(product: Product, variant: Variant, value: number) {
     const count = Number.isFinite(value) ? Math.max(0, Math.min(10000, Math.floor(value))) : 0;
@@ -140,9 +144,9 @@ export function PurchaseReceive({ products, suppliers: loadedSuppliers, receive,
         ...(rate && mrp && rate <= mrp ? { salePrice: rate, mrp } : {})
       }];
     });
-    if (!isOrder) setSearch('');
     setSelectedSku('');
     setQuantity(1);
+    refocusSearch();
   }
   async function submit(event: FormEvent) {
     event.preventDefault(); if (busy) return; setError(''); setNotice('');
@@ -220,7 +224,7 @@ export function PurchaseReceive({ products, suppliers: loadedSuppliers, receive,
       <div className={isOrder ? 'purchase-order-layout' : undefined}>
       <div>
       {isOrder && <>
-        <label>Product<input type="search" placeholder="Search by product name, number or SKU" value={search}
+        <label>Product<input ref={searchInput} type="search" placeholder="Search by product name, number or SKU" value={search}
           onChange={event => setSearch(event.target.value)} /></label>
         <label>Choose product<select value={pickedProductId} onChange={event => setPickedProductId(event.target.value)}>
           <option value="">{productMatches.length ? `Select from ${productMatches.length} product${productMatches.length === 1 ? '' : 's'}` : 'No matching products'}</option>
@@ -250,7 +254,7 @@ export function PurchaseReceive({ products, suppliers: loadedSuppliers, receive,
           <label>Supplier address<textarea value={supplierAddress} maxLength={500} onChange={event => setSupplierAddress(event.target.value)} /></label>
         </>}
       </div>
-      <details className="purchase-import"><summary>Import purchase items from CSV</summary><p><a href="/purchase-template.csv" download>Download CSV template</a>. Import up to 150 rows, review all values below, then receive the purchase.</p><label>Import CSV<input type="file" accept=".csv,text/csv" onChange={async e=>{const file=e.target.files?.[0];if(!file)return;try{const imported=purchaseCsv(await file.text());if(imported.length+lines.length>150)throw new Error('A purchase supports up to 150 items.');setLines(old=>[...old,...imported.map(line=>({...line,rowId:crypto.randomUUID(),label:line.newItem?.name||line.sku}))]);setError('');}catch(error){setError((error as Error).message);}e.target.value='';}}/></label></details>{!isOrder && <><div className="commerce-toolbar purchase-search-toolbar"><div className="field-search"><Search size={18} /><input aria-label="Search products to receive" placeholder="Find existing item, size or SKU" value={search} onChange={e => setSearch(e.target.value)} /></div></div>
+      <details className="purchase-import"><summary>Import purchase items from CSV</summary><p><a href="/purchase-template.csv" download>Download CSV template</a>. Import up to 150 rows, review all values below, then receive the purchase.</p><label>Import CSV<input type="file" accept=".csv,text/csv" onChange={async e=>{const file=e.target.files?.[0];if(!file)return;try{const imported=purchaseCsv(await file.text());if(imported.length+lines.length>150)throw new Error('A purchase supports up to 150 items.');setLines(old=>[...old,...imported.map(line=>({...line,rowId:crypto.randomUUID(),label:line.newItem?.name||line.sku}))]);setError('');}catch(error){setError((error as Error).message);}e.target.value='';}}/></label></details>{!isOrder && <><div className="commerce-toolbar purchase-search-toolbar"><div className="field-search"><Search size={18} /><input ref={searchInput} aria-label="Search products to receive" placeholder="Find existing item, size or SKU" value={search} onChange={e => setSearch(e.target.value)} /></div></div>
       {matches.map(({ product, variant }) => (
         <button type="button" className="button secondary" key={`${product.id}:${variant.sku}`} onClick={() => add(product, variant)}>
           {product.productNumber ? <span className="product-no-badge">#{product.productNumber}</span> : null}
