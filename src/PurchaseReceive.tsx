@@ -44,6 +44,9 @@ export function PurchaseReceive({ products, suppliers: loadedSuppliers, receive,
   const command = useRef<PurchaseInput | null>(null);
   // Keeps the product search ready after adding, so the same search can be reused for the next item.
   const searchInput = useRef<HTMLInputElement | null>(null);
+  // Errors appear beside the save button and are scrolled into view, so they are never missed at the top.
+  const errorBox = useRef<HTMLParagraphElement | null>(null);
+  useEffect(() => { if (error) errorBox.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [error]);
   const refocusSearch = () => requestAnimationFrame(() => searchInput.current?.focus({ preventScroll: true }));
   useEffect(() => {
     try {
@@ -97,7 +100,6 @@ export function PurchaseReceive({ products, suppliers: loadedSuppliers, receive,
     if (!picked) return;
     setCartProductIds(old => old.includes(picked.id) ? old : [...old, picked.id]);
     setHiddenSizes(old => ({ ...old, [picked.id]: [] }));
-    setPickedProductId('');
     refocusSearch();
   }
   function setSizeQty(product: Product, variant: Variant, value: number) {
@@ -204,7 +206,6 @@ export function PurchaseReceive({ products, suppliers: loadedSuppliers, receive,
       <h2>{isOrder ? 'New Purchase Order' : 'Receive Stock'}</h2>
       {isOrder && <p><strong>{money(total)}</strong> · {lines.reduce((sum, line) => sum + line.quantity, 0)} units</p>}
     </header>
-    {error && <p className="error-banner" role="alert">{error}</p>}
     {notice && (
       <div className="success-banner" role="status" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <span>{notice}</span>
@@ -317,7 +318,7 @@ export function PurchaseReceive({ products, suppliers: loadedSuppliers, receive,
       <div className="purchase-footer"><label className="check-row"><input type="checkbox" checked={fullPayment} onChange={event => setFullPayment(event.target.checked)} />Full payment</label><label>Payment method<select aria-label="Purchase payment method" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value as typeof paymentMethod)}><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option></select></label><label>Amount paid ₹<input type="number" min="0" max={total} step=".01" value={paidNow} disabled={fullPayment} onChange={e => setAmountPaid(Number(e.target.value))} /></label><div><small>Total stock cost</small><strong>{money(total)}</strong><small>Supplier balance {money(Math.max(0, total - paidNow))}</small></div></div>
       </div>
       </div>
-    </fieldset><button className="button primary" disabled={busy || !lines.length}>{busy ? 'Saving…' : uncertain ? 'Retry saved purchase' : mode === 'order' ? 'Create purchase order' : 'Receive stock & create items'}</button></form>
+    </fieldset>{error && <p ref={errorBox} className="error-banner purchase-error" role="alert">{error}</p>}<button className="button primary" disabled={busy || !lines.length}>{busy ? 'Saving…' : uncertain ? 'Retry saved purchase' : mode === 'order' ? 'Create purchase order' : 'Receive stock & create items'}</button></form>
     {addingSupplier && <AddSupplierDialog onClose={() => setAddingSupplier(false)} onCreated={supplier => { setCreatedSuppliers(old => [...old, supplier]); setSupplierId(supplier.id); setSupplierAddress(''); setNotice(`Supplier ${supplier.name} added and selected.`); onSuppliersChanged?.(); }} />}
     {printItems && (
       <BarcodePrintModal

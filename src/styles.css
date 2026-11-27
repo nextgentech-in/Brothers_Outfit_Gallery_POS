@@ -2371,6 +2371,15 @@
 .variant-table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}.variant-table{width:100%;border-collapse:collapse;font-size:13px}.variant-table th{padding:8px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);background:var(--bg);white-space:nowrap}
 .variant-table td{padding:6px 8px;border-top:1px solid var(--line);vertical-align:middle}.variant-table td input,.variant-table td select{min-width:72px;width:100%}.variant-table td:first-child{min-width:150px}.variant-sku{font-family:ui-monospace,monospace;font-size:11.5px;color:var(--muted);white-space:nowrap}
 /* Purchase order: keep the product search in view while the cart grows. */
-@media (min-width: 761px) {
+@media (min-width: 1101px) {
   .purchase-order-layout > div:first-child { position: sticky; top: 16px; align-self: start; }
 }
+/* Below this width the cart column became too narrow to read, so stack it under the search. */
+@media (max-width: 1100px) {
+  .purchase-order-layout { grid-template-columns: minmax(0, 1fr); }
+  .purchase-order-layout .purchase-order-cart { border-left: 0; border-top: 1px solid var(--line); padding: 14px 0 0; }
+}
+.purchase-error { margin: 14px 0; }
+.purchase-order-layout > div, .purchase-order-layout select, .purchase-order-layout input { min-width: 0; max-width: 100%; }
+/* The decorative ambient blur extends past the right edge; clip it so pages never scroll sideways. */
+html,body{overflow-x:clip}
