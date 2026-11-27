@@ -3,6 +3,7 @@ import { isHiddenWebsiteOrder } from '../shared/orderVisibility.js';
 import { earnedPoints } from '../shared/rewards.js';
 import { configuredRewardRule, readRewardBalance, rewardAccount, rewardDefaults, rewardRule, writeRewardBalance } from './rewards.js';
 import { paymentBreakdown } from '../shared/payments.js';
+import { colorHex, colorName } from '../shared/colors.js';
 import { createHash, randomBytes } from 'node:crypto';
 import express, { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
@@ -86,24 +87,24 @@ const batchAdjustmentSchema = z.object({ requestId: key, productId: id,
 const productPatchSchema = z.object({ requestId: key, productId: id, patch: z.object({
   brand: z.string().trim().max(100).optional(), design: z.string().trim().max(100).optional(), fabric: z.string().trim().max(100).optional(),
   name: z.string().trim().min(1).max(200).optional(), description: z.string().trim().max(5000).optional(),
-  shortDescription: z.string().trim().max(500).optional(), category: z.string().trim().min(2).max(100).optional(),
-  subCategory: z.string().trim().max(100).optional(), gsl: z.string().trim().max(120).optional(),
+  shortDescription: z.string().trim().max(500).optional(), category: z.string().trim().min(2).max(100).transform(value => value.toUpperCase()).optional(),
+  subCategory: z.string().trim().max(100).transform(value => value.toUpperCase()).optional(), gsl: z.string().trim().max(120).optional(),
   salePrice: money.optional(), mrp: money.optional(), costPrice: money.optional(), customPrice: money.positive().nullable().optional(), active: z.boolean().optional(), giftItem: z.boolean().optional(),
   gstEnabled: z.boolean().optional(), gstPercent: z.number().finite().min(0).max(100).optional(),
   primaryImageUrl: z.url().max(2048).optional(),
   barcode: id.or(z.literal('')).optional(),
   variantPatches: z.array(z.object({ sku: id, barcode: id.or(z.literal('')).optional(), size: z.string().trim().min(1).max(50),
-    color: z.string().trim().min(1).max(80), price: money, costPrice: money.optional() })).max(100).optional(),
-  images: z.array(z.object({ url: z.url().max(2048), isPrimary: z.boolean().optional(), color: z.string().max(80).optional() })).max(20).optional()
+    color: z.string().trim().min(1).max(80).transform(colorName), price: money, costPrice: money.optional() })).max(100).optional(),
+  images: z.array(z.object({ url: z.url().max(2048), isPrimary: z.boolean().optional(), color: z.string().max(80).transform(colorName).optional() })).max(20).optional()
 }).strict().refine(x => Object.keys(x).length > 0) }).strict();
 const productCreateSchema = z.object({ requestId: key,
   name: z.string().trim().min(2).max(200), sku: id, barcode: id.optional(),
   brand: z.string().trim().max(100).optional(), design: z.string().trim().max(100).optional(), fabric: z.string().trim().max(100).optional(),
-  category: z.string().trim().min(2).max(100), subCategory: z.string().trim().max(100).optional(),
+  category: z.string().trim().min(2).max(100).transform(value => value.toUpperCase()), subCategory: z.string().trim().max(100).transform(value => value.toUpperCase()).optional(),
   shortDescription: z.string().trim().max(500).optional(), description: z.string().trim().max(5000).optional(),
   gsl: z.string().trim().max(120).optional(), salePrice: money, mrp: money, costPrice: money.default(0), customPrice: money.positive().optional(),
   gstEnabled: z.boolean().default(false), gstPercent: z.number().finite().min(0).max(100).default(0),
-  variants: z.array(z.object({ size: z.string().trim().min(1).max(50), color: z.string().trim().min(1).max(80),
+  variants: z.array(z.object({ size: z.string().trim().min(1).max(50), color: z.string().trim().min(1).max(80).transform(colorName),
     colorHex: z.string().regex(/^#[a-fA-F0-9]{6}$/).optional(), stock: z.number().int().min(0).max(100_000),
     price: money, costPrice: money, barcode: id.optional() }).strict()).min(1).max(100),
   imageUrls: z.array(z.url().startsWith('https://').max(2048)).max(20).optional(),
@@ -540,7 +541,7 @@ commerceRouter.post('/products/create', async (req, res) => {
         variants: variants.map(variant => ({ sku: variant.sku, costPrice: variant.costPrice })) });
       const totalStock = variants.reduce((sum, variant) => sum + variant.stock, 0);
       const colors = [...new Map(variants.map(variant => [variant.color.toLowerCase(),
-        { name: variant.color, hex: variant.colorHex || '#b88a2e' }])).values()];
+        { name: variant.color, hex: (variant.colorHex || colorHex(variant.color)).toUpperCase() }])).values()];
       const images = (input.imageUrls || []).map((url, index) => ({ url, isPrimary: index === 0 }));
       const primaryImage = input.imageUrls?.[0] || '';
       const categoryKey = input.category.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -635,6 +636,23 @@ commerceRouter.post('/products/patch', async (req, res) => {
           return { ...variant, ...(patch.mrp!==undefined?{mrp:patch.mrp}:{}), barcode: edit.barcode ?? variant.barcode ?? '', size: edit.size, color: edit.color, price: edit.price, salePrice: edit.price };
         });
         after.sizes = [...new Set((after.variants as Variant[]).filter(v => Number(v.stock ?? v.quantity ?? 0) > 0).map(v => v.size).filter(Boolean))];
+        // Website matches variant colour to product colour exactly, so rewrite both in CAPITALS together.
+        const oldColors = (Array.isArray(snapshot.data()?.colors) ? snapshot.data()!.colors : []) as unknown[];
+        const oldHex = new Map(oldColors.map(c => typeof c === 'string' ? [colorName(c), ''] : [colorName((c as { name?: string })?.name), String((c as { hex?: string })?.hex || '')]));
+        const renamed = new Map(existing.map(v => [colorName(v.color), colorName(changes.get(String(v.sku || ''))?.color)]));
+        const names = [...new Set((after.variants as Variant[]).map(v => colorName(v.color)).filter(name => name && name !== 'Standard'))];
+        after.colors = names.map(name => {
+          const from = [...renamed].find(([, to]) => to === name)?.[0];
+          return { name, hex: (oldHex.get(name) || (from ? oldHex.get(from) : '') || colorHex(name)).toUpperCase() };
+        });
+        after.primaryColor = names[0] || 'Standard';
+        if (!('images' in patch) && Array.isArray(snapshot.data()?.images)) {
+          after.images = (after.images as unknown[] || snapshot.data()!.images).map((image: unknown) => {
+            if (!image || typeof image !== 'object' || !(image as { color?: string }).color) return image;
+            const tag = colorName((image as { color?: string }).color);
+            return { ...(image as object), color: renamed.get(tag) || tag };
+          });
+        }
       }
       if (patch.barcode !== undefined || variantPatches?.some(v => v.barcode !== undefined)) {
         const editedVariants = (after.variants || snapshot.data()?.variants || []) as Variant[];

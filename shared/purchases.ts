@@ -1,12 +1,13 @@
 import { z } from 'zod';
+import { colorName } from './colors.js';
 const identity = z.string().trim().min(1).max(100).regex(/^[\w.:-]+$/);
 export const MAX_PURCHASE_LINES = 150;
 const money = z.number().finite().min(0).max(10000000).refine(n => Math.abs(n * 100 - Math.round(n * 100)) < 0.00001, 'Use two decimal places.');
 export const purchaseLineSchema = z.object({ productId: identity.optional(), sku: identity, quantity: z.number().int().min(1).max(10000), unitCost: money,
   salePrice: money.optional(), mrp: money.optional(),
-  newItem: z.object({ name: z.string().trim().min(2).max(200), category: z.string().trim().min(2).max(100),
+  newItem: z.object({ name: z.string().trim().min(2).max(200), category: z.string().trim().min(2).max(100).transform(value => value.toUpperCase()),
     brand: z.string().trim().max(100).default(''), design: z.string().trim().max(100).default(''), fabric: z.string().trim().max(100).default(''),
-    size: z.string().trim().min(1).max(50), color: z.string().trim().min(1).max(80),
+    size: z.string().trim().min(1).max(50), color: z.string().trim().min(1).max(80).transform(colorName),
     gstEnabled: z.boolean().optional(), gstPercent: z.number().finite().min(0).max(100).optional() }).strict().optional()
 }).strict().superRefine((line, ctx) => {
   if (Boolean(line.productId) === Boolean(line.newItem)) ctx.addIssue({ code: 'custom', message: 'Select an existing item or enter a new item.' });

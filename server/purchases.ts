@@ -7,6 +7,7 @@ import { idempotent } from './transactions.js';
 import { changeStock } from './commerce.js';
 import { deleteCostFields, extractCosts, mergeCosts, readCostsTx, stripCosts, writeCosts } from './productCosts.js';
 import { purchaseSchema, type PurchaseInput } from '../shared/purchases.js';
+import { colorHex } from '../shared/colors.js';
 import { readProductNumberCounter, writeProductNumberCounter, formatBarcode } from './productNumbering.js';
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 const cash = (n: number) => Math.round(n * 100);
@@ -44,7 +45,7 @@ async function receive(db: Firestore, tx: Transaction, input: PurchaseInput) {
       codes.add(sku.toLowerCase()); codes.add(variantSku.toLowerCase()); codes.add(barcode.toLowerCase());
       const slug = `purchase-${hash(`${input.requestId}:${index}`).slice(0,24)}`;
       products.set(productId, { ...line.newItem, gstEnabled: line.newItem.gstEnabled === true, gstPercent: line.newItem.gstEnabled ? Number(line.newItem.gstPercent || 0) : 0, productNumber, nextVariantSequence: 2, sku, slug, barcode, price: line.salePrice, salePrice: line.salePrice, mrp: line.mrp,
-        costPrice: line.unitCost, cost_price:line.unitCost, purchasePrice:line.unitCost, purchase_price:line.unitCost, webProductId:productId, categoryId:line.newItem.category, categoryKey:line.newItem.category.toLowerCase().replace(/[^a-z0-9]+/g,'-'), primaryColor:line.newItem.color, colors:[{name:line.newItem.color,hex:'#b88a2e'}], allSizes:[line.newItem.size], sizes:[line.newItem.size], compareAtPrice:line.mrp, stock: 0, quantity: 0, reserved: 0, active: false, isDeleted: false, images: [], integrationOrigin: 'admin-pos',
+        costPrice: line.unitCost, cost_price:line.unitCost, purchasePrice:line.unitCost, purchase_price:line.unitCost, webProductId:productId, categoryId:line.newItem.category, categoryKey:line.newItem.category.toLowerCase().replace(/[^a-z0-9]+/g,'-'), primaryColor:line.newItem.color, colors:[{name:line.newItem.color,hex:colorHex(line.newItem.color)}], allSizes:[line.newItem.size], sizes:[line.newItem.size], compareAtPrice:line.mrp, stock: 0, quantity: 0, reserved: 0, active: false, isDeleted: false, images: [], integrationOrigin: 'admin-pos',
         variants: [{ id:`${productId}-v1`, variantSequence: 1, sku: variantSku, size: line.newItem.size, color: line.newItem.color, barcode, stock: 0, quantity: 0, reserved: 0, price: line.salePrice, salePrice: line.salePrice, mrp: line.mrp, costPrice: line.unitCost }],
         createdAt: FieldValue.serverTimestamp() });
       created.add(productId); mappings.push({ sku, productId }, { sku: variantSku, productId }); sku = variantSku;

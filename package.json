@@ -21,6 +21,7 @@
     "seed:demo": "tsx scripts/seed-demo.ts",
     "migrate:product-numbers": "tsx scripts/migrate-product-numbers.ts",
     "migrate:private-costs": "tsx scripts/migrate-private-costs.ts",
+    "migrate:color-caps": "tsx scripts/migrate-color-caps.ts",
     "backup:restore": "tsx scripts/restore-backup.ts"
   },
   "dependencies": {
