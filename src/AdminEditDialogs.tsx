@@ -104,8 +104,10 @@ export function PurchaseEditDialog({ kind, record, products, onClose, onSaved }:
   const shownMatches = matches.slice(0, MATCH_LIMIT);
   const total = lines.reduce((n, l) => n + Math.round(Number(l.unitCost || 0) * 100) * Number(l.quantity || 0), 0) / 100;
   const patch = (rowId: string, values: Partial<EditLine>) => setLines(old => old.map(l => l.rowId === rowId ? { ...l, ...values } : l));
+  // The search is kept after adding, so several sizes/colours of the same product can be added in a row.
+  const isAdded = (p: CatalogProduct, v: CatalogVariant) => lines.some(l => l.productId === p.id && l.sku === v.sku);
   function add(p: CatalogProduct, v: CatalogVariant) {
-    setSearch('');
+    setError('');
     if (lines.some(l => l.productId === p.id && l.sku === v.sku)) { setError('That item is already on this purchase. Change its quantity instead.'); return; }
     setLines(old => [...old, { rowId: crypto.randomUUID(), label: p.name, productId: p.id, sku: v.sku, quantity: 1, unitCost: v.costPrice ?? p.costPrice ?? 0, salePrice: v.price ?? p.price, mrp: v.mrp ?? p.mrp }]);
   }
@@ -147,8 +149,8 @@ export function PurchaseEditDialog({ kind, record, products, onClose, onSaved }:
       : 'No matching items'}</small>}
     {shownMatches.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10, maxHeight: 260, overflowY: 'auto', overscrollBehavior: 'contain', padding: 2 }}>
       {shownMatches.map(({ p, v }) => { const details = variantDetails('color' in v ? v.color : undefined, 'size' in v ? v.size : undefined);
-        return <button type="button" className="button secondary" style={{ textAlign: 'left', lineHeight: 1.3 }} key={`${p.id}:${v.sku}`} onClick={() => add(p, v)}>
-          {p.name}{details && <> · <span style={{ color: 'var(--accent)' }}>{details}</span></>}<small style={{ display: 'block', fontWeight: 400, color: 'var(--muted)' }}>{v.sku} · {v.stock ?? 0} in stock</small></button>; })}
+        return <button type="button" className="button secondary" style={{ textAlign: 'left', lineHeight: 1.3, ...(isAdded(p, v) ? { cursor: 'default' } : {}) }} key={`${p.id}:${v.sku}`} disabled={isAdded(p, v)} aria-pressed={isAdded(p, v)} onClick={() => add(p, v)}>
+          {isAdded(p, v) && <span style={{ color: 'var(--accent)', fontWeight: 700 }}>✓ Added · </span>}{p.name}{details && <> · <span style={{ color: 'var(--accent)' }}>{details}</span></>}<small style={{ display: 'block', fontWeight: 400, color: 'var(--muted)' }}>{v.sku} · {v.stock ?? 0} in stock</small></button>; })}
     </div>}
     <small style={{ display: 'block', color: 'var(--muted)', marginBottom: 6 }}>{lines.length} item(s) · {units} unit(s)</small>
   </>;
