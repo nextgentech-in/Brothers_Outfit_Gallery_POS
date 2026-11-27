@@ -98,8 +98,10 @@ export function PurchaseEditDialog({ kind, record, products, onClose, onSaved }:
   const matches = useMemo(() => {
     const q = search.trim().toLowerCase(); if (!q) return [];
     return products.flatMap(p => (p.variants.length ? p.variants : [{ sku: p.sku, stock: p.stock, price: p.price, mrp: p.mrp, costPrice: p.costPrice }]).map(v => ({ p, v })))
-      .filter(({ p, v }) => `${p.productNumber ? `#${p.productNumber}` : ''} ${p.name} ${v.sku} ${'size' in v ? v.size : ''} ${'color' in v ? v.color : ''}`.toLowerCase().includes(q)).slice(0, 12);
+      .filter(({ p, v }) => `${p.productNumber ? `#${p.productNumber}` : ''} ${p.name} ${v.sku} ${'size' in v ? v.size : ''} ${'color' in v ? v.color : ''}`.toLowerCase().includes(q));
   }, [products, search]);
+  const MATCH_LIMIT = 300; // the list scrolls, so show every match; cap only guards against one-letter searches over a huge catalog
+  const shownMatches = matches.slice(0, MATCH_LIMIT);
   const total = lines.reduce((n, l) => n + Math.round(Number(l.unitCost || 0) * 100) * Number(l.quantity || 0), 0) / 100;
   const patch = (rowId: string, values: Partial<EditLine>) => setLines(old => old.map(l => l.rowId === rowId ? { ...l, ...values } : l));
   function add(p: CatalogProduct, v: CatalogVariant) {
@@ -140,8 +142,11 @@ export function PurchaseEditDialog({ kind, record, products, onClose, onSaved }:
       ? 'Stock changes by the difference from what was received, and each item’s purchase rate is re-weighted the same way as receiving. Items already sold cannot be removed.'
       : 'This order has not been received, so stock does not change until you mark it received.'}</p>
     <div className="field-search" style={{ marginBottom: 8 }}><Search size={16} /><input aria-label="Add item to purchase" placeholder="Add an existing item, colour, size or SKU" value={search} onChange={e => setSearch(e.target.value)} /></div>
-    {matches.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10, maxHeight: 190, overflowY: 'auto', overscrollBehavior: 'contain', padding: 2 }}>
-      {matches.map(({ p, v }) => { const details = variantDetails('color' in v ? v.color : undefined, 'size' in v ? v.size : undefined);
+    {search.trim() && <small style={{ display: 'block', color: 'var(--muted)', marginBottom: 4 }}>{matches.length
+      ? `${matches.length} match(es)${matches.length > MATCH_LIMIT ? ` — showing the first ${MATCH_LIMIT}, type more to narrow down` : ''}`
+      : 'No matching items'}</small>}
+    {shownMatches.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10, maxHeight: 260, overflowY: 'auto', overscrollBehavior: 'contain', padding: 2 }}>
+      {shownMatches.map(({ p, v }) => { const details = variantDetails('color' in v ? v.color : undefined, 'size' in v ? v.size : undefined);
         return <button type="button" className="button secondary" style={{ textAlign: 'left', lineHeight: 1.3 }} key={`${p.id}:${v.sku}`} onClick={() => add(p, v)}>
           {p.name}{details && <> · <span style={{ color: 'var(--accent)' }}>{details}</span></>}<small style={{ display: 'block', fontWeight: 400, color: 'var(--muted)' }}>{v.sku} · {v.stock ?? 0} in stock</small></button>; })}
     </div>}
