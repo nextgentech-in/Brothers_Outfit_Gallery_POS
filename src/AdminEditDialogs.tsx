@@ -12,16 +12,24 @@ export type CatalogProduct = { id: string; name: string; sku: string; productNum
 type RecordLine = { productId?: string; sku?: string; name?: string; quantity?: number; unitCost?: number; salePrice?: number; mrp?: number; newItem?: PurchaseLine['newItem'] };
 export type EditablePurchase = { id: string; supplierName: string; supplierInvoice: string; total?: number; lines?: RecordLine[] };
 
-function Modal({ title, subtitle, busy, onClose, children, width = 520 }: { title: string; subtitle?: string; busy?: boolean; onClose: () => void; children: ReactNode; width?: number }) {
+/** Dialog with a fixed header (and optional fixed `top`/`footer`); only the middle scrolls. */
+function Modal({ title, subtitle, busy, onClose, children, top, footer, width = 520 }: { title: string; subtitle?: string; busy?: boolean; onClose: () => void; children: ReactNode; top?: ReactNode; footer?: ReactNode; width?: number }) {
   return createPortal(<div className="editor-backdrop" onClick={() => { if (!busy) onClose(); }}>
     <div className="glass table-panel" role="dialog" aria-modal="true" aria-label={title} onClick={e => e.stopPropagation()}
-      style={{ width: `min(${width}px, 94vw)`, margin: 'auto', maxHeight: 'calc(100vh - 40px)', overflowY: 'auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, borderBottom: '1px solid var(--line)', paddingBottom: 12 }}>
+      style={{ width: `min(${width}px, 94vw)`, margin: 'auto', maxHeight: 'calc(100vh - 40px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ flex: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, borderBottom: '1px solid var(--line)', paddingBottom: 12 }}>
         <div><h2 style={{ margin: 0, fontSize: 18 }}>{title}</h2>{subtitle && <small style={{ color: 'var(--muted)' }}>{subtitle}</small>}</div>
         <button type="button" className="icon-button" aria-label="Close" onClick={onClose} disabled={busy}>×</button>
       </div>
-      {children}
+      {top && <div style={{ flex: 'none' }}>{top}</div>}
+      <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', paddingRight: 4 }}>{children}</div>
+      {footer && <div style={{ flex: 'none' }}>{footer}</div>}
     </div></div>, document.body);
+}
+
+/** "Blue · Size 32" for a catalog variant, or for a new item's own colour/size. */
+function variantDetails(color?: string, size?: string) {
+  return [color && String(color).trim(), size && `Size ${String(size).trim()}`].filter(Boolean).join(' · ');
 }
 
 /** Yes/no confirmation that runs `action` and shows its error in place. */
@@ -122,26 +130,42 @@ export function PurchaseEditDialog({ kind, record, products, onClose, onSaved }:
   }
   const fields = [{ field: 'quantity', label: 'Qty', step: 1, min: 1 }, { field: 'unitCost', label: 'Purchase rate ₹', step: .01, min: 0 },
     { field: 'salePrice', label: 'Sale price ₹', step: .01, min: .01 }, { field: 'mrp', label: 'MRP ₹', step: .01, min: .01 }] as const;
-  return <Modal width={820} busy={busy} onClose={onClose} title={kind === 'purchase' ? `Edit stock receipt ${record.id}` : `Edit purchase order ${record.id}`}
-    subtitle={`${record.supplierName} · ${record.supplierInvoice}`}>
+  const lineDetails = (line: EditLine) => {
+    const v = products.find(p => p.id === line.productId)?.variants.find(x => x.sku === line.sku);
+    return variantDetails(v?.color ?? line.newItem?.color, v?.size ?? line.newItem?.size);
+  };
+  const units = lines.reduce((n, l) => n + Number(l.quantity || 0), 0);
+  const top = <>
     <p className="microcopy" style={{ marginTop: 0 }}>{kind === 'purchase'
       ? 'Stock changes by the difference from what was received, and each item’s purchase rate is re-weighted the same way as receiving. Items already sold cannot be removed.'
       : 'This order has not been received, so stock does not change until you mark it received.'}</p>
-    <div className="field-search" style={{ marginBottom: 8 }}><Search size={16} /><input aria-label="Add item to purchase" placeholder="Add an existing item, size or SKU" value={search} onChange={e => setSearch(e.target.value)} /></div>
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>{matches.map(({ p, v }) => <button type="button" className="button secondary" key={`${p.id}:${v.sku}`} onClick={() => add(p, v)}>{p.name} · {v.sku}</button>)}</div>
-    {lines.map(line => <article className="purchase-item-card" key={line.rowId}>
-      <header><strong>{line.label}<small style={{ display: 'block', fontWeight: 400 }}>{line.sku}{line.newItem ? ' · new catalog item' : ''}</small></strong>
-        <button type="button" className="icon-button" aria-label={`Remove ${line.label}`} onClick={() => setLines(old => old.filter(l => l.rowId !== line.rowId))}><Trash2 size={18} /></button></header>
-      <div className="purchase-item-fields">{fields.map(({ field, label, step, min }) => <label key={field}>{label}
-        <input aria-label={`${label} ${line.label}`} type="number" min={min} step={step} value={line[field] ?? ''} onChange={e => patch(line.rowId, { [field]: e.target.value === '' ? undefined : Number(e.target.value) })} /></label>)}</div>
-    </article>)}
+    <div className="field-search" style={{ marginBottom: 8 }}><Search size={16} /><input aria-label="Add item to purchase" placeholder="Add an existing item, colour, size or SKU" value={search} onChange={e => setSearch(e.target.value)} /></div>
+    {matches.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10, maxHeight: 190, overflowY: 'auto', overscrollBehavior: 'contain', padding: 2 }}>
+      {matches.map(({ p, v }) => { const details = variantDetails('color' in v ? v.color : undefined, 'size' in v ? v.size : undefined);
+        return <button type="button" className="button secondary" style={{ textAlign: 'left', lineHeight: 1.3 }} key={`${p.id}:${v.sku}`} onClick={() => add(p, v)}>
+          {p.name}{details && <> · <span style={{ color: 'var(--accent)' }}>{details}</span></>}<small style={{ display: 'block', fontWeight: 400, color: 'var(--muted)' }}>{v.sku} · {v.stock ?? 0} in stock</small></button>; })}
+    </div>}
+    <small style={{ display: 'block', color: 'var(--muted)', marginBottom: 6 }}>{lines.length} item(s) · {units} unit(s)</small>
+  </>;
+  const footer = <>
     {error && <p className="error-banner" role="alert">{error}</p>}
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginTop: 14, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
       <span>New total <strong>{money(total)}</strong>{record.total !== undefined && <small style={{ color: 'var(--muted)' }}> (was {money(record.total)})</small>}</span>
       <div style={{ display: 'flex', gap: 10 }}>
         <button type="button" className="button secondary" disabled={busy} onClick={onClose}>Cancel</button>
         <button type="button" className="button primary" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : 'Save changes'}</button>
       </div>
     </div>
+  </>;
+  return <Modal width={820} busy={busy} onClose={onClose} title={kind === 'purchase' ? `Edit stock receipt ${record.id}` : `Edit purchase order ${record.id}`}
+    subtitle={`${record.supplierName} · ${record.supplierInvoice}`} top={top} footer={footer}>
+    {lines.map(line => { const details = lineDetails(line); return <article className="purchase-item-card" key={line.rowId}>
+      <header><strong>{line.label}
+          {details && <span style={{ display: 'block', fontWeight: 600, fontSize: 14, color: 'var(--accent)', marginTop: 2 }}>{details}</span>}
+          <small style={{ display: 'block', fontWeight: 400 }}>{line.sku}{line.newItem ? ' · new catalog item' : ''}</small></strong>
+        <button type="button" className="icon-button" aria-label={`Remove ${line.label}${details ? ` ${details}` : ''}`} onClick={() => setLines(old => old.filter(l => l.rowId !== line.rowId))}><Trash2 size={18} /></button></header>
+      <div className="purchase-item-fields">{fields.map(({ field, label, step, min }) => <label key={field}>{label}
+        <input aria-label={`${label} ${line.label} ${details}`.trim()} type="number" min={min} step={step} value={line[field] ?? ''} onChange={e => patch(line.rowId, { [field]: e.target.value === '' ? undefined : Number(e.target.value) })} /></label>)}</div>
+    </article>; })}
   </Modal>;
 }
